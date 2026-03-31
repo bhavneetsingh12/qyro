@@ -1,0 +1,35 @@
+version: "3.9"
+
+# QYRO test environment — ephemeral, no persistent volumes, no n8n.
+# Usage: docker compose -f infra/docker-compose.test.yml up -d
+#        pnpm test
+#        docker compose -f infra/docker-compose.test.yml down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     qyro
+      POSTGRES_PASSWORD: qyro
+      POSTGRES_DB:       qyro_test
+    ports:
+      - "5433:5432"   # offset from dev port to avoid conflicts
+    tmpfs:
+      - /var/lib/postgresql/data   # in-memory — wiped on container stop
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U qyro"]
+      interval: 5s
+      timeout:  5s
+      retries:  5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"   # offset from dev port
+    tmpfs:
+      - /data
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout:  3s
+      retries:  5

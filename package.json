@@ -8,7 +8,8 @@
     "build": "turbo build",
     "db:generate": "pnpm --filter @qyro/db generate",
     "db:migrate": "pnpm --filter @qyro/db migrate",
-    "db:studio": "pnpm --filter @qyro/db studio"
+    "db:studio": "pnpm --filter @qyro/db studio",
+    "test:e2e": "tsx scripts/test-e2e.ts"
   },
   "dependencies": {
     "dotenv": "^16.0.0"

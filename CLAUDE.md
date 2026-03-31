@@ -162,11 +162,11 @@ Mark done by changing [ ] to [x] after each session.
 [x] Task B — apps/api/src/index.ts (Express server)
 [x] Task C — packages/agents/src/agents/leadDiscovery.ts
 [x] Task D — packages/agents/src/agents/research.ts
-[ ] Task E — packages/agents/src/agents/outreach.ts
-[ ] Task F — apps/api/src/routes/leads.ts
-[ ] Task G — apps/api/src/routes/campaigns.ts
-[ ] Task H — packages/queue/src/workers/researchWorker.ts
-[ ] Task I — end-to-end test: ingest 1 lead → research → outreach draft → approval
+[x] Task E — packages/agents/src/agents/outreach.ts
+[x] Task F — apps/api/src/routes/leads.ts
+[x] Task G — apps/api/src/routes/campaigns.ts
+[x] Task H — packages/queue/src/workers/researchWorker.ts
+[x] Task I — end-to-end test: ingest 1 lead → research → outreach draft → approval
 ```
 
 NOTE: All these files already exist as scaffolding from the initial blueprint.

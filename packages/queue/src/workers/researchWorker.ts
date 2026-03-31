@@ -5,8 +5,7 @@
 import { Worker, type Job } from "bullmq";
 import { redis, QUEUE_NAMES, type ResearchJobData } from "../queues";
 import { runResearch } from "@qyro/agents";
-import { db } from "@qyro/db";
-import { deadLetterQueue } from "@qyro/db";
+import { db, deadLetterQueue } from "@qyro/db";
 
 function createResearchWorker() {
   const worker = new Worker<ResearchJobData>(
