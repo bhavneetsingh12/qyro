@@ -1,0 +1,13 @@
+import { requireAuth, getAuth } from "@clerk/express";
+import type { RequestHandler } from "express";
+
+// Applies Clerk session verification. Rejects 401 if no valid session.
+// Must come after clerkMiddleware() applied in index.ts.
+export const requireClerkAuth: RequestHandler = requireAuth();
+
+// Extracts Clerk userId from the verified session. Safe to call after requireClerkAuth.
+export function getClerkUserId(req: Parameters<RequestHandler>[0]): string {
+  const { userId } = getAuth(req);
+  if (!userId) throw new Error("requireClerkAuth must precede this call");
+  return userId;
+}

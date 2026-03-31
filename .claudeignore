@@ -1,0 +1,10 @@
+node_modules/
+.next/
+dist/
+.env.local
+.env.*.local
+*.log
+pnpm-lock.yaml
+packages/db/migrations/
+infra/docker-compose.test.yml
+apps/web/

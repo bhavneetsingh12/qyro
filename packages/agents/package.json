@@ -1,0 +1,22 @@
+{
+  "name": "@qyro/agents",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./runner": "./src/runner.ts",
+    "./budget": "./src/budget.ts",
+    "./leadDiscovery": "./src/agents/leadDiscovery.ts"
+  },
+  "dependencies": {
+    "@qyro/db": "workspace:*",
+    "@qyro/queue": "workspace:*",
+    "openai": "^4.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0"
+  }
+}
