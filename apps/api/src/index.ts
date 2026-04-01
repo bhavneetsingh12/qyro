@@ -6,6 +6,8 @@ import { requireClerkAuth } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
 import leadsRouter from "./routes/leads";
 import campaignsRouter from "./routes/campaigns";
+import assistRouter from "./routes/assist";
+import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 
 const app = express();
@@ -45,6 +47,20 @@ app.use(
   requireClerkAuth,
   tenantMiddleware,
   campaignsRouter
+);
+
+app.use(
+  "/api",
+  requireClerkAuth,
+  tenantMiddleware,
+  assistRouter
+);
+
+app.use(
+  "/api/v1/tenants",
+  requireClerkAuth,
+  tenantMiddleware,
+  tenantsRouter
 );
 
 // ─── Global error handler ─────────────────────────────────────────────────────

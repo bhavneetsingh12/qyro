@@ -34,14 +34,14 @@ Only "internal" and "assistant" are active right now.
 ## Build phases
 
 ```
-Phase 1 — QYRO Lead, internal only (CURRENT)
+Phase 1 — QYRO Lead, internal only (COMPLETE)
   Single tenant: Bhavneet (tenant_type: "internal")
   No frontend UI needed — n8n dashboard + API routes + admin scripts
   No billing, no self-serve onboarding
   Agents: Lead Discovery, Research (cached), Outreach, Reply Triage, Booking
   Goal: use this to find and sign the first QYRO Assist clients
 
-Phase 2 — QYRO Assist, multi-tenant (sell this first)
+Phase 2 — QYRO Assist, multi-tenant (sell this first) (CURRENT)
   Full multi-tenant (tenant_type: "assistant")
   Client widget + missed-call follow-up + FAQ + booking
   Manual onboarding for first clients is fine
@@ -82,6 +82,7 @@ One task per session. Compact when done. Clear between subsystems.
 Each session builds exactly ONE of these tasks and then stops:
 
 ```
+Phase 1 (COMPLETE)
 Session A  →  packages/db/client.ts + drizzle.config.ts     then /compact
 Session B  →  apps/api/src/index.ts                          then /compact
 Session C  →  packages/agents/src/agents/leadDiscovery.ts    then /compact
@@ -90,6 +91,16 @@ Session E  →  packages/agents/src/agents/outreach.ts         then /compact
 Session F  →  apps/api/src/routes/leads.ts                   then /compact
 Session G  →  apps/api/src/routes/campaigns.ts               then /compact
 Session H  →  packages/queue/src/workers/researchWorker.ts   then /compact
+Session I  →  end-to-end test                                then /compact
+
+Phase 2 (CURRENT)
+Session J  →  Next.js setup + auth routing + shared layout   then /compact
+Session K  →  Internal dashboard home + lead inbox           then /compact
+Session L  →  Lead detail + campaign manager                 then /compact
+Session M  →  Approval queue                                 then /compact
+Session N  →  Client portal home + conversation inbox        then /compact
+Session O  →  Client settings + widget embed                 then /compact
+Session P  →  Polish + mobile                                then /compact
 ```
 
 Do not combine tasks. Do not keep going after a task is done.
@@ -104,6 +115,7 @@ Finish → /compact → close. Start fresh next session.
 | Route work | CLAUDE.md + apps/api/src/middleware/tenant.ts + apps/api/src/middleware/quota.ts |
 | Queue work | CLAUDE.md + packages/queue/src/queues.ts |
 | Any agent | CLAUDE.md + docs/AGENTS.md + packages/agents/src/runner.ts |
+| Next.js / frontend | CLAUDE.md + apps/web/src/app/layout.tsx (once it exists) |
 
 Never load: node_modules, .next, dist, the whole packages/ tree, or multiple
 unrelated files "just in case". Every file loaded costs tokens.
@@ -149,14 +161,12 @@ When you see these signs: finish the current task, /compact, stop.
 5. /compact when done
 
 ## Current phase
-**Phase 1 — QYRO Lead, internal only**
+**Phase 2 — QYRO Assist, multi-tenant frontend (CURRENT)**
 
-Active tenant: Bhavneet (tenant_type: "internal", hardcoded seed in DB)
-No frontend UI needed for Phase 1.
+Phase 1 is complete. The backend API, agents, and DB are production-ready.
+Now building apps/web — the Next.js 14 frontend for both portals.
 
-### Task checklist — update this as you complete each one
-Mark done by changing [ ] to [x] after each session.
-
+### Phase 1 — COMPLETE
 ```
 [x] Task A — packages/db/client.ts + drizzle.config.ts + infra/seed.ts
 [x] Task B — apps/api/src/index.ts (Express server)
@@ -169,9 +179,36 @@ Mark done by changing [ ] to [x] after each session.
 [x] Task I — end-to-end test: ingest 1 lead → research → outreach draft → approval
 ```
 
-NOTE: All these files already exist as scaffolding from the initial blueprint.
-Each session reviews the existing file, fills in any gaps, and verifies it works.
-Do not rewrite from scratch — read the file first, then complete it.
+### Phase 2 — Task checklist
+Mark done by changing [ ] to [x] after each session.
+
+```
+[x] Session J — Next.js setup + auth routing + shared layout
+[x] Session K — Internal dashboard home + lead inbox
+[ ] Session L — Lead detail + campaign manager
+[x] Session M — Approval queue
+[x] Session N — Client portal home + conversation inbox
+[x] Session O — Client settings + widget embed
+[ ] Session P — Polish + mobile
+```
+
+### Phase 2 — Design direction
+Warm modern (Notion-inspired)
+- Off-white backgrounds, warm grays, rounded cards
+- Sidebar navigation
+- Accent color: amber/coral
+
+### Phase 2 — Portal architecture
+Two portals, separate logins, same codebase:
+
+  /internal/...  — QYRO Lead portal, Bhavneet only (tenant_type: "internal")
+                   Lead inbox, campaign manager, approval queue
+
+  /client/...    — QYRO Assist portal, paying clients (tenant_type: "assistant")
+                   Conversation inbox, settings, widget embed code
+
+Auth: separate login pages per portal, session-scoped to tenant_type.
+Shared: layout components, design system, API client.
 
 ---
 
@@ -179,7 +216,7 @@ Do not rewrite from scratch — read the file first, then complete it.
 ```
 qyro/
   apps/
-    web/          Next.js 14 frontend — Phase 2+ (do not build yet)
+    web/          Next.js 14 frontend — Phase 2 (CURRENT — building now)
     api/          Node/Express/TS backend — Phase 1+
   packages/
     db/           Drizzle ORM schema + migrations
@@ -198,10 +235,9 @@ qyro/
 - Do not commit secrets or API keys — use .env.local (gitignored)
 - Do not use Maps scraping — Apollo API and Google Places API only
 - Do not enable voice/Twilio until Phase 5 (see docs/COMPLIANCE.md)
-- Do not build self-serve onboarding or billing UI until Phase 2
+- Do not build self-serve onboarding or billing UI until Phase 3
 - Do not build tenant_type "lead_engine" or "both" until Phase 4
-- Do not build apps/web (Next.js frontend) until Phase 2
-- Do not add QYRO Assist agents (Client Assistant widget) until Phase 2
+- Do not add QYRO Assist agents (Client Assistant widget) until Phase 2 Session N+
 - Do not load more files than the session table says to load
 
 ## Key files to know
