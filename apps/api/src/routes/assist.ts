@@ -5,12 +5,12 @@
 //   GET  /api/sessions      — list assistant_sessions for tenant (paginated)
 //   GET  /api/appointments  — list appointments for tenant (paginated)
 
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, prospectsRaw } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 // ─── GET /api/sessions ─────────────────────────────────────────────────────────
 

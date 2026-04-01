@@ -11,12 +11,12 @@
 //   POST   /api/campaigns/:id/approve/:messageId — approve a single pending message
 //   POST   /api/campaigns/:id/reject/:messageId  — reject a single pending message
 
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
 import { outreachSequences, messageAttempts, prospectsRaw } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 // ─── GET /api/campaigns ────────────────────────────────────────────────────────
 

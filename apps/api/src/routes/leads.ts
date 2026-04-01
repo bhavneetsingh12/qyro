@@ -10,14 +10,14 @@
 //   GET    /api/leads/:id/messages          — list message drafts for a prospect
 //   PATCH  /api/leads/messages/:messageId   — approve or revert a pending draft
 
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
 import { prospectsRaw, prospectsEnriched, messageAttempts } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
 import { quotaCheck } from "../middleware/quota";
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 // ─── GET /api/leads ────────────────────────────────────────────────────────────
 

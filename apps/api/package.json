@@ -11,6 +11,7 @@
   "dependencies": {
     "@clerk/express": "^1.3.0",
     "@qyro/db": "workspace:*",
+    "@qyro/queue": "workspace:*",
     "bullmq": "^5.0.0",
     "dotenv": "^16.0.0",
     "express": "^4.18.0",

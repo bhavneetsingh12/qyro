@@ -29,10 +29,10 @@ async function getTodayUsage(tenantId: string): Promise<{ input: number; output:
     WHERE tenant_id = ${tenantId}::uuid
       AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
   `);
-  const row = result.rows[0] as { input_tokens: string; output_tokens: string };
+  const row = ((result as unknown as Array<{ input_tokens: string; output_tokens: string }>)[0]) ?? { input_tokens: "0", output_tokens: "0" };
   return {
-    input: parseInt(row.input_tokens, 10),
-    output: parseInt(row.output_tokens, 10),
+    input: Number(row.input_tokens),
+    output: Number(row.output_tokens),
   };
 }
 

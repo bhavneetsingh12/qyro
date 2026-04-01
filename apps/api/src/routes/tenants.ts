@@ -5,11 +5,11 @@
 //   GET   /api/v1/tenants/settings  — return name + metadata fields for this tenant
 //   PATCH /api/v1/tenants/settings  — update name + metadata fields
 
-import { Router, type Request, type Response, type NextFunction } from "express";
+import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, tenants } from "@qyro/db";
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 // ─── GET /api/v1/tenants/settings ─────────────────────────────────────────────
 

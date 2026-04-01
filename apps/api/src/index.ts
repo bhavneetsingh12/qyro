@@ -1,4 +1,4 @@
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
@@ -10,8 +10,8 @@ import assistRouter from "./routes/assist";
 import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 
-const app = express();
-const PORT = process.env.PORT ?? 3001;
+const app: Express = express();
+const PORT = Number(process.env.PORT ?? 3001);
 
 // ─── Global middleware ────────────────────────────────────────────────────────
 
