@@ -27,8 +27,8 @@ if (!SEED_CLERK_USER_ID) {
 
 // ─── DB client (no RLS — seed runs as superuser) ─────────────────────────────
 
-const sql = postgres(DATABASE_URL, { max: 1 });
-const db  = drizzle(sql, { schema });
+const client = postgres(DATABASE_URL, { max: 1 });
+const db  = drizzle(client, { schema });
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
 
@@ -47,6 +47,7 @@ const INTERNAL_TENANT = {
 };
 
 const OWNER_USER = {
+  id:      crypto.randomUUID(),
   clerkId: SEED_CLERK_USER_ID,
   email:   "bhavneet@zentryxllc.com",
   name:    "Bhavneet Singh",
@@ -104,21 +105,30 @@ async function seed() {
     console.log(`     Updated tenant: ${INTERNAL_TENANT.slug} (${tenantId})`);
   }
 
-  // 3. Upsert owner user
+  // 3. Upsert owner user (raw SQL — Drizzle enum OID bug on postgres-js)
   console.log("3/3  Upserting owner user...");
-  const existingUser = await db.select().from(schema.users)
-    .where(eq(schema.users.clerkId, OWNER_USER.clerkId))
-    .limit(1);
+  const existingUserRows = await client.unsafe(
+    `SELECT id FROM users WHERE clerk_id = '${OWNER_USER.clerkId}' LIMIT 1`
+  );
 
-  if (existingUser.length === 0) {
-    const [newUser] = await db.insert(schema.users)
-      .values({ ...OWNER_USER, tenantId })
-      .returning({ id: schema.users.id });
-    console.log(`     Created owner user: ${OWNER_USER.email} (${newUser.id})`);
-  } else {
-    await db.update(schema.users)
-      .set({ tenantId, email: OWNER_USER.email, name: OWNER_USER.name, role: OWNER_USER.role })
-      .where(eq(schema.users.clerkId, OWNER_USER.clerkId));
+  if (existingUserRows.length === 0) {
+  await client.unsafe(`
+    INSERT INTO users (id, tenant_id, clerk_id, email, name, role, active)
+    VALUES (
+      '${OWNER_USER.id}', '${tenantId}', '${OWNER_USER.clerkId}',
+      '${OWNER_USER.email}', '${OWNER_USER.name}', 'owner', true
+    )
+  `);
+  console.log(`     Created owner user: ${OWNER_USER.email} (${OWNER_USER.id})`);
+
+ } else {
+    await client.unsafe(`
+      UPDATE users SET
+        tenant_id = '${tenantId}',
+        email = '${OWNER_USER.email}',
+        name = '${OWNER_USER.name}'
+      WHERE clerk_id = '${OWNER_USER.clerkId}'
+    `);
     console.log(`     Updated owner user: ${OWNER_USER.email}`);
   }
 
@@ -132,4 +142,4 @@ seed()
     console.error("Seed failed:", err);
     process.exit(1);
   })
-  .finally(() => sql.end());
+  .finally(() => client.end());

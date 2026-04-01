@@ -1,6 +1,11 @@
 // QYRO Database Client — Drizzle + Postgres
 // RULE: Every query must be scoped to a tenant_id. Use setTenantContext() before queries.
 
+import { config } from "dotenv";
+import path from "path";
+config({ path: path.resolve(__dirname, "../../../.env.local") });
+config({ path: path.resolve(__dirname, "../../../.env") });
+
 import { drizzle } from "drizzle-orm/postgres-js";
 import { sql as drizzleSql } from "drizzle-orm";
 import postgres from "postgres";

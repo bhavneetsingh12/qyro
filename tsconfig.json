@@ -7,10 +7,18 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "outDir": "dist",
-    "rootDir": "src"
-  }
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@qyro/db/*":      ["packages/db/*"],
+      "@qyro/agents/*":  ["packages/agents/src/*"],
+      "@qyro/prompts/*": ["packages/prompts/src/*"],
+      "@qyro/queue/*":   ["packages/queue/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "**/dist", "**/.next", "**/migrations"]
 }

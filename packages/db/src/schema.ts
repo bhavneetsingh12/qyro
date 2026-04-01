@@ -36,7 +36,7 @@ export const tenants = pgTable("tenants", {
   id:           uuid("id").primaryKey().defaultRandom(),
   name:         text("name").notNull(),
   slug:         text("slug").notNull().unique(),
-  plan:         planEnum("plan").notNull().default("starter"),
+  plan:         text("plan").notNull().default("starter"),
   active:       boolean("active").notNull().default(true),
   metadata:     jsonb("metadata").default({}),
   createdAt:    timestamp("created_at").defaultNow().notNull(),
@@ -49,7 +49,7 @@ export const users = pgTable("users", {
   clerkId:      text("clerk_id").notNull().unique(),
   email:        text("email").notNull(),
   name:         text("name"),
-  role:         roleEnum("role").notNull().default("sales_rep"),
+  role:         text("role").notNull().default("sales_rep"),
   active:       boolean("active").notNull().default(true),
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
@@ -58,7 +58,7 @@ export const users = pgTable("users", {
 
 export const plans = pgTable("plans", {
   id:                uuid("id").primaryKey().defaultRandom(),
-  name:              planEnum("name").notNull().unique(),
+  name:              text("name").notNull().unique(),
   dailyInputTokens:  integer("daily_input_tokens").notNull(),
   dailyOutputTokens: integer("daily_output_tokens").notNull(),
   maxSeats:          integer("max_seats").notNull(),
@@ -79,7 +79,7 @@ export const prospectsRaw = pgTable("prospects_raw", {
   email:          text("email"),
   address:        text("address"),
   niche:          text("niche"),
-  consentState:   consentStateEnum("consent_state").notNull().default("unknown"),
+  consentState:   text("consent_state").notNull().default("unknown"),
   deduped:        boolean("deduped").notNull().default(false),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
@@ -118,7 +118,7 @@ export const outreachSequences = pgTable("outreach_sequences", {
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   name:           text("name").notNull(),
   niche:          text("niche"),
-  channel:        channelEnum("channel").notNull(),
+  channel:        text("channel").notNull(),
   promptPackId:   text("prompt_pack_id").notNull(),  // matches id in .md frontmatter
   active:         boolean("active").notNull().default(false),
   approvedBy:     uuid("approved_by").references(() => users.id),
@@ -133,13 +133,13 @@ export const messageAttempts = pgTable("message_attempts", {
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   sequenceId:     uuid("sequence_id").references(() => outreachSequences.id),
   prospectId:     uuid("prospect_id").notNull().references(() => prospectsRaw.id),
-  channel:        channelEnum("channel").notNull(),
+  channel:        text("channel").notNull(),
   direction:      text("direction").notNull().default("outbound"), // "outbound" | "inbound"
   messageText:    text("message_text"),
-  status:         messageStatusEnum("status").notNull().default("draft"),
+  status:         text("status").notNull().default("draft"),
   qaVerdict:      text("qa_verdict"),                // "pass" | "block"
   qaFlags:        jsonb("qa_flags").default([]),
-  classification: classificationEnum("classification"),
+  classification: text("classification"),
   externalId:     text("external_id"),               // provider message ID
   sentAt:         timestamp("sent_at"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
@@ -167,7 +167,7 @@ export const consentEvents = pgTable("consent_events", {
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id),
   prospectId:     uuid("prospect_id").notNull().references(() => prospectsRaw.id),
   eventType:      text("event_type").notNull(), // "given" | "revoked" | "inferred"
-  channel:        channelEnum("channel").notNull(),
+  channel:        text("channel").notNull(),
   evidence:       text("evidence"),            // e.g. form submission ID
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
@@ -195,7 +195,7 @@ export const appointments = pgTable("appointments", {
   calBookingUid:  text("cal_booking_uid"),
   startAt:        timestamp("start_at").notNull(),
   endAt:          timestamp("end_at").notNull(),
-  status:         appointmentStatusEnum("status").notNull().default("proposed"),
+  status:         text("status").notNull().default("proposed"),
   notes:          text("notes"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
@@ -235,9 +235,9 @@ export const promptVersions = pgTable("prompt_versions", {
 export const usageEvents = pgTable("usage_events", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id),
-  agentName:      agentEnum("agent_name").notNull(),
+  agentName:      text("agent_name").notNull(),
   model:          text("model").notNull(),
-  modelTier:      modelTierEnum("model_tier").notNull(),
+  modelTier:      text("model_tier").notNull(),
   inputTokens:    integer("input_tokens").notNull(),
   outputTokens:   integer("output_tokens").notNull(),
   cached:         boolean("cached").notNull().default(false),

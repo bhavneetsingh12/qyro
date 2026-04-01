@@ -1,7 +1,3 @@
-import { config } from "dotenv";
-config({ path: ".env.local" });
-config();
-
 import express, { type Request, type Response, type NextFunction } from "express";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
