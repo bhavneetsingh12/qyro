@@ -11,6 +11,12 @@ import { db, tenants } from "@qyro/db";
 
 const router: ExpressRouter = Router();
 
+function maskApiKey(value: string): string {
+  if (!value) return "";
+  if (value.length <= 8) return "*".repeat(value.length);
+  return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
+}
+
 // ─── GET /api/v1/tenants/settings ─────────────────────────────────────────────
 
 router.get("/settings", async (req: Request, res: Response, next: NextFunction) => {
@@ -25,6 +31,8 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
     }
 
     const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const apolloApiKey = (meta.apolloApiKey as string) ?? "";
+    const hunterApiKey = (meta.hunterApiKey as string) ?? "";
 
     res.json({
       id:               tenant.id,
@@ -32,6 +40,13 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       approvedServices: (meta.approvedServices as string) ?? "",
       bookingLink:      (meta.bookingLink as string) ?? "",
       emailFromName:    (meta.emailFromName as string) ?? "",
+      enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
+      hasApolloApiKey:       !!apolloApiKey,
+      hasHunterApiKey:       !!hunterApiKey,
+      apolloApiKeyMasked:    apolloApiKey ? maskApiKey(apolloApiKey) : "",
+      hunterApiKeyMasked:    hunterApiKey ? maskApiKey(hunterApiKey) : "",
+      enrichmentMonthlyLimit: Number(meta.enrichmentMonthlyLimit ?? 2500),
+      enrichmentMonthlyUsed:  Number(meta.enrichmentMonthlyUsed ?? 0),
     });
   } catch (err) {
     next(err);
@@ -42,11 +57,24 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
 
 router.patch("/settings", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, approvedServices, bookingLink, emailFromName } = req.body as {
+    const {
+      name,
+      approvedServices,
+      bookingLink,
+      emailFromName,
+      enrichmentProvider,
+      apolloApiKey,
+      hunterApiKey,
+      enrichmentMonthlyLimit,
+    } = req.body as {
       name?:             string;
       approvedServices?: string;
       bookingLink?:      string;
       emailFromName?:    string;
+      enrichmentProvider?: "mock" | "apollo" | "hunter";
+      apolloApiKey?: string;
+      hunterApiKey?: string;
+      enrichmentMonthlyLimit?: number;
     };
 
     const existing = await db.query.tenants.findFirst({
@@ -65,6 +93,12 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(approvedServices !== undefined && { approvedServices }),
       ...(bookingLink      !== undefined && { bookingLink }),
       ...(emailFromName    !== undefined && { emailFromName }),
+      ...(enrichmentProvider !== undefined && { enrichmentProvider }),
+      ...(apolloApiKey !== undefined && apolloApiKey.trim().length > 0 && { apolloApiKey: apolloApiKey.trim() }),
+      ...(hunterApiKey !== undefined && hunterApiKey.trim().length > 0 && { hunterApiKey: hunterApiKey.trim() }),
+      ...(enrichmentMonthlyLimit !== undefined && {
+        enrichmentMonthlyLimit: Math.max(0, Number(enrichmentMonthlyLimit) || 0),
+      }),
     };
 
     await db

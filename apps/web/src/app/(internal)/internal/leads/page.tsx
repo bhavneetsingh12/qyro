@@ -1,8 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { LeadsRefresher } from "./LeadsRefresher";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 const PAGE_SIZE = 25;
 
 type Lead = {
@@ -10,10 +11,15 @@ type Lead = {
   businessName: string;
   niche: string | null;
   domain: string | null;
+  phone: string | null;
+  email: string | null;  // Added email field
   source: string;
   consentState: string;
   deduped: boolean;
   createdAt: string;
+  researchedAt: string | null;
+  urgencyScore: number | null;
+  fromCache: boolean | null;
 };
 
 function formatDate(iso: string) {
@@ -26,9 +32,10 @@ function formatDate(iso: string) {
 
 function SourceBadge({ source }: { source: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    apollo:        { label: "Apollo",     className: "bg-violet-50 text-violet-700" },
-    places_api:    { label: "Places",     className: "bg-sky-50 text-sky-700" },
-    inbound_form:  { label: "Manual",     className: "bg-stone-100 text-stone-600" },
+    apollo: { label: "Apollo", className: "bg-violet-50 text-violet-700" },
+    google: { label: "Google Places", className: "bg-sky-50 text-sky-700" },
+    places_api: { label: "Places", className: "bg-sky-50 text-sky-700" },
+    inbound_form: { label: "Manual", className: "bg-stone-100 text-stone-600" },
   };
   const entry = map[source] ?? { label: source, className: "bg-stone-100 text-stone-600" };
   return (
@@ -76,7 +83,6 @@ export default async function LeadsPage({
 
   return (
     <div className="p-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-stone-900">Leads</h1>
@@ -84,99 +90,121 @@ export default async function LeadsPage({
             {page === 0 ? "Most recent prospects" : `Page ${page + 1}`}
           </p>
         </div>
+        <LeadsRefresher />
       </div>
 
-      {/* Table card */}
       <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
         {fetchError ? (
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
-            <p className="text-xs text-stone-400 mt-1">Make sure the API server is running on port 3001.</p>
+            <p className="text-xs text-stone-400 mt-1">
+              Make sure the API server is running on port 3005.
+            </p>
           </div>
         ) : leads.length === 0 ? (
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-stone-500 font-medium">No leads found</p>
             <p className="text-xs text-stone-400 mt-1">
-              {page > 0 ? "You've reached the end of the list." : "Run lead discovery to populate the inbox."}
+              {page > 0
+                ? "You've reached the end of the list."
+                : "Use 'Find Leads' above to discover prospects."}
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-[#F0EEE9] bg-[#FAFAF8]">
-                <th className="text-left px-5 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Business
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Niche
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Domain
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Urgency
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Research
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
-                  Added
-                </th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#F5F4F1]">
-              {leads.map((lead) => (
-                <tr
-                  key={lead.id}
-                  className="hover:bg-[#FAFAF8] transition-colors group"
-                >
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-stone-800 truncate max-w-[200px]">
-                        {lead.businessName}
-                      </p>
-                      <SourceBadge source={lead.source} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-stone-500 whitespace-nowrap">
-                    {lead.niche ?? <span className="text-stone-300">—</span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    {lead.domain ? (
-                      <span className="text-stone-500 font-mono text-xs">{lead.domain}</span>
-                    ) : (
-                      <span className="text-stone-300">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-stone-300 tabular-nums">—</td>
-                  <td className="px-4 py-3">
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-400">
-                      Not researched
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-stone-400 whitespace-nowrap text-xs">
-                    {formatDate(lead.createdAt)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/internal/leads/${lead.id}`}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium"
-                    >
-                      View
-                      <ExternalLink size={11} />
-                    </Link>
-                  </td>
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-[#F0EEE9] bg-[#FAFAF8]">
+                  <th className="text-left px-5 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Business
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Niche
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Domain
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Email
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Urgency
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Research
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                    Added
+                  </th>
+                  <th className="px-4 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-[#F5F4F1]">
+                {leads.map((lead) => (
+                  <tr key={lead.id} className="hover:bg-[#FAFAF8] transition-colors group">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-stone-800 truncate max-w-[200px]">
+                          {lead.businessName}
+                        </p>
+                        <SourceBadge source={lead.source} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-stone-500 whitespace-nowrap">
+                      {lead.niche ?? <span className="text-stone-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.domain ? (
+                        <span className="text-stone-500 font-mono text-xs">{lead.domain}</span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.email ? (
+                        <span className="text-stone-500 font-mono text-xs">{lead.email}</span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-stone-300 tabular-nums">
+                      {lead.urgencyScore ? (
+                        <span className="text-amber-600 font-medium">{lead.urgencyScore}/10</span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lead.researchedAt ? (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                          Researched
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-400">
+                          Queued
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-stone-400 whitespace-nowrap text-xs">
+                      {formatDate(lead.createdAt)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/internal/leads/${lead.id}`}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium"
+                      >
+                        View
+                        <ExternalLink size={11} />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* Pagination */}
       {(page > 0 || hasMore) && (
         <div className="mt-4 flex items-center justify-between">
           <Link

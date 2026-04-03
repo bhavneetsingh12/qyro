@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 type Session = {
   id: string;
@@ -64,7 +64,7 @@ export default async function ConversationsPage() {
         {fetchError ? (
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
-            <p className="text-xs text-stone-400 mt-1">Make sure the API server is running on port 3001.</p>
+            <p className="text-xs text-stone-400 mt-1">Make sure the API server is running on port 3005.</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="px-5 py-10 text-center">

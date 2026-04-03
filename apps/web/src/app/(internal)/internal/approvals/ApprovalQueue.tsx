@@ -207,7 +207,7 @@ export default function ApprovalQueue({ initialItems }: { initialItems: QueueIte
           <Check size={18} className="text-emerald-500" />
         </div>
         <p className="text-sm font-medium text-stone-700">No messages pending approval</p>
-        <p className="text-xs text-stone-400 mt-1">You're all caught up.</p>
+        <p className="text-xs text-stone-400 mt-1">You&apos;re all caught up.</p>
       </div>
     );
   }

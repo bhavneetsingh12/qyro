@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Copy, CheckCheck, MessageSquare } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
 const WIDGET_SRC = "https://widget.qyro.ai/widget.js";
 
 export default function WidgetPage() {

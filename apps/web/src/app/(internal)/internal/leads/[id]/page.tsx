@@ -5,7 +5,7 @@ import { ExternalLink, Zap, ChevronRight } from "lucide-react";
 import AddToCampaignForm from "./AddToCampaignForm";
 import { runResearchAction } from "../actions";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 type ProspectRaw = {
   id: string;
@@ -160,6 +160,7 @@ export default async function LeadDetailPage({
           { label: "Niche",  value: lead.niche  ?? "—" },
           { label: "Source", value: lead.source },
           { label: "Phone",  value: lead.phone  ?? "—" },
+          { label: "Email",  value: lead.email  ?? "—" },
         ].map(({ label, value }) => (
           <div
             key={label}

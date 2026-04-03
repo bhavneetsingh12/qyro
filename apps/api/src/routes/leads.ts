@@ -5,6 +5,7 @@
 //   GET    /api/leads                       — list prospects (paginated)
 //   GET    /api/leads/:id                   — get one prospect + enriched data
 //   POST   /api/leads                       — manually add a prospect
+//   POST   /api/leads/ingest                — discover + ingest leads via niche/location
 //   POST   /api/leads/:id/research          — enqueue research job
 //   POST   /api/leads/:id/outreach          — enqueue outreach job
 //   GET    /api/leads/:id/messages          — list message drafts for a prospect
@@ -16,6 +17,7 @@ import { prospectsRaw, prospectsEnriched, messageAttempts } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
 import { quotaCheck } from "../middleware/quota";
+import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
 
 const router: ExpressRouter = Router();
 
@@ -28,8 +30,24 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
-      .select()
+      .select({
+        id: prospectsRaw.id,
+        businessName: prospectsRaw.businessName,
+        niche: prospectsRaw.niche,
+        domain: prospectsRaw.domain,
+        phone: prospectsRaw.phone,
+        email: prospectsRaw.email,  // Added email field
+        source: prospectsRaw.source,
+        consentState: prospectsRaw.consentState,
+        deduped: prospectsRaw.deduped,
+        createdAt: prospectsRaw.createdAt,
+        // Check if enriched data exists
+        researchedAt: prospectsEnriched.researchedAt,
+        urgencyScore: prospectsEnriched.urgencyScore,
+        fromCache: prospectsEnriched.fromCache,
+      })
       .from(prospectsRaw)
+      .leftJoin(prospectsEnriched, eq(prospectsRaw.id, prospectsEnriched.prospectId))
       .where(eq(prospectsRaw.tenantId, tenantId))
       .orderBy(desc(prospectsRaw.createdAt))
       .limit(limit)
@@ -71,6 +89,97 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // ─── POST /api/leads ───────────────────────────────────────────────────────────
+// ─── POST /api/leads/ingest ────────────────────────────────────────────────────
+// Run lead discovery for a given niche + location, ingest results, queue research.
+
+router.post("/ingest", quotaCheck("lead_discovery"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { tenantId } = req;
+    const { niche, location, maxResults } = req.body as {
+      niche:      string;
+      location:   string | { locations: string[]; radius?: number };
+      maxResults?: number;
+    };
+
+    if (!niche?.trim()) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "niche is required" });
+      return;
+    }
+    if (!location) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "location is required" });
+      return;
+    }
+
+    const max = Math.min(Math.max(1, parseInt(String(maxResults ?? 10), 10)), 50);
+    const nicheStr = niche.trim();
+
+    // Parse location: can be string or object with locations array and optional radius
+    let locations: string[] = [];
+    let radius: number | undefined;
+
+    if (typeof location === "string") {
+      locations = [location.trim()];
+    } else if (typeof location === "object" && Array.isArray(location.locations)) {
+      locations = location.locations
+        .map((loc: string) => loc.trim())
+        .filter((loc: string) => loc.length > 0);
+      radius = location.radius;
+    }
+
+    // Normalize and dedupe locations
+    locations = Array.from(new Set(locations.map((loc) => loc.replace(/\s+/g, " ").trim()))).filter(
+      (loc) => loc.length > 0,
+    );
+
+    if (locations.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "location must be provided" });
+      return;
+    }
+
+    console.debug("[leads/ingest] locations after normalize:", { locations, radius, maxResults });
+
+    // Run lead discovery for each location and aggregate results
+    let totalLeadsQueued = 0;
+    let totalDuplicatesSkipped = 0;
+    const sourceBreakdown = { google: 0, places: 0 };
+
+    const perLocationMax = Math.max(1, Math.floor(max / locations.length));
+
+    for (const loc of locations) {
+      const locationStr = radius ? `${loc} (within ${radius} mile radius)` : loc;
+      const result = await runLeadDiscovery({
+        tenantId,
+        niche: nicheStr,
+        location: locationStr,
+        maxResults: perLocationMax,
+        radius,
+      });
+
+      if (!result.ok) {
+        res.status(422).json({ error: result.error.code, message: result.error.message });
+        return;
+      }
+
+      totalLeadsQueued += result.data.leadsQueued;
+      totalDuplicatesSkipped += result.data.duplicatesSkipped;
+      sourceBreakdown.google += result.data.sourceBreakdown.google;
+      sourceBreakdown.places += result.data.sourceBreakdown.places;
+    }
+
+    res.status(200).json({
+      data: {
+        leadsQueued: totalLeadsQueued,
+        duplicatesSkipped: totalDuplicatesSkipped,
+        sourceBreakdown,
+        locationsSearched: locations.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/leads ────────────────────────────────────────────────────────────
 // Manually add a prospect. consentState defaults to "unknown".
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {

@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { MessageSquare, CalendarCheck, PhoneMissed, Zap, AlertCircle } from "lucide-react";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 type Session = {
   id: string;

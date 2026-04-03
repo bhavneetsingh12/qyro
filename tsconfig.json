@@ -11,14 +11,7 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "paths": {
-      "@qyro/db/*":      ["packages/db/*"],
-      "@qyro/agents/*":  ["packages/agents/src/*"],
-      "@qyro/prompts/*": ["packages/prompts/src/*"],
-      "@qyro/queue/*":   ["packages/queue/src/*"]
-    }
+    "sourceMap": true
   },
   "exclude": ["node_modules", "**/dist", "**/.next", "**/migrations"]
 }

@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import ApprovalQueue, { type QueueItem } from "./ApprovalQueue";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 export default async function ApprovalsPage() {
   const { getToken } = await auth();
@@ -51,7 +51,7 @@ export default async function ApprovalsPage() {
       {fetchError ? (
         <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] px-5 py-10 text-center">
           <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
-          <p className="text-xs text-stone-400 mt-1">Make sure the API server is running on port 3001.</p>
+          <p className="text-xs text-stone-400 mt-1">Make sure the API server is running on port 3005.</p>
         </div>
       ) : (
         <ApprovalQueue initialItems={items} />

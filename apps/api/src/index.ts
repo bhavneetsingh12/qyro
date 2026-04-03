@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
@@ -11,9 +12,15 @@ import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 
 const app: Express = express();
-const PORT = Number(process.env.PORT ?? 3001);
+const PORT = Number(process.env.PORT ?? 3005);
 
 // ─── Global middleware ────────────────────────────────────────────────────────
+
+// CORS for development (allow localhost:3000 to hit :3001)
+app.use(cors({
+  origin: ["http://localhost:3000", "http://localhost:3001"],
+  credentials: true,
+}));
 
 // Parse JSON bodies
 app.use(express.json());
@@ -23,6 +30,22 @@ app.use(express.json());
 app.use(clerkMiddleware());
 
 // ─── Public routes (no auth) ──────────────────────────────────────────────────
+
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    name: "Qyro API",
+    version: "0.0.1",
+    status: "running",
+    endpoints: {
+      health: "GET /health",
+      leads: "GET|POST /api/leads",
+      campaigns: "GET|POST /api/campaigns",
+      assist: "POST /api/assist",
+      tenants: "GET /api/v1/tenants",
+      webhooks: "POST /webhooks"
+    }
+  });
+});
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", ts: new Date().toISOString() });
@@ -75,6 +98,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
+
+console.log(`[api] Starting server on port ${PORT}...`);
+console.log(`[api] NODE_ENV: ${process.env.NODE_ENV}`);
 
 const server = app.listen(PORT, () => {
   console.log(`[api] listening on http://localhost:${PORT}`);

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { activateCampaignAction } from "./actions";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 type Campaign = {
   id: string;
@@ -78,7 +78,7 @@ export default async function CampaignsPage() {
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
             <p className="text-xs text-stone-400 mt-1">
-              Make sure the API server is running on port 3001.
+              Make sure the API server is running on port 3005.
             </p>
           </div>
         ) : campaigns.length === 0 ? (
