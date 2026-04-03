@@ -89,17 +89,17 @@ Date: 2026-03-30 | Status: Accepted
 
 ---
 
-## ADR-006: No Maps scraping — Apollo + Google Places API only
-Date: 2026-03-30 | Status: Accepted
+## ADR-006: No Maps scraping — API-only lead sourcing
+Date: 2026-03-30 | Status: Accepted (amended by ADR-009)
 
-**Decision:** Lead sourcing uses Apollo API and Google Places API. No web scraping of Google Maps or other directories that prohibit it.
+**Decision:** Lead sourcing uses APIs only. No web scraping of Google Maps or other directories that prohibit it.
 
 **Reasons:**
 - Google Maps ToS explicitly prohibits bulk export of business data
 - Legal and reputational risk outweighs cost of using API
-- Apollo provides enriched B2B data with permitted use
+- APIs provide permitted, reliable, attributable data
 
-**Compliant mix:** Apollo (primary), Google Places API (enrichment with attribution), inbound forms, referrals
+**See ADR-009** for the actual implementation: Google Places API is the sole search source; Apollo is used only for email enrichment, not lead search.
 
 ---
 
@@ -123,6 +123,79 @@ Separated at runtime by tenant_type.
 
 **Revisit when:** Products diverge so significantly that shared codebase
 becomes a liability (unlikely before $1M ARR)
+
+---
+
+## ADR-009: Google Places API (New) as sole lead search source
+Date: 2026-04-03 | Status: Accepted
+
+**Decision:** `leadDiscovery.ts` uses Google Places API (New) (`places.googleapis.com/v1/places:searchText`) as the only lead search source. Apollo is not called for search. A `searchPlaces()` stub exists but returns `[]` (disabled to avoid duplicates). Apollo is used only inside `emailEnrichment.ts` for domain-level email lookup.
+
+**Why this differs from the original spec (ADR-006):**
+- The `places:searchText` endpoint in the Google Places API (New) returns business name, address, phone, and website in one call — sufficient for lead ingestion without Apollo.
+- Apollo API is better suited to email/contact enrichment than raw business discovery in local-service niches.
+- Simpler data flow: one search source, one enrichment source, clear separation.
+
+**Trade-offs accepted:**
+- `searchApollo()` is a misleading function name (calls Google Places, not Apollo). This is a known naming issue — documented here, fix when convenient.
+- Apollo lead count and firmographic data are not available at discovery time.
+
+**Revisit when:** coverage gaps appear in niches or geographies where Google Places data is thin.
+
+---
+
+## ADR-010: Resend for transactional email
+Date: 2026-04-03 | Status: Accepted
+
+**Decision:** Transactional email (outreach sends) uses Resend via a thin REST wrapper in `apps/api/src/lib/sendEmail.ts`. No SDK, raw `fetch` to `api.resend.com`.
+
+**Reasons:**
+- Resend has a clean, stable REST API that doesn't warrant an SDK dependency.
+- Developer-friendly domain verification and test-mode sandbox.
+- Lower cost and simpler integration than SendGrid or Mailgun for initial scale.
+- No SDK means one fewer dependency to audit for supply-chain risk.
+
+**Environment variables required:** `RESEND_API_KEY`, `EMAIL_FROM`
+
+**Trade-offs accepted:**
+- No automatic retries or webhooks from Resend (bounces/complaints must be polled or handled via webhook separately).
+
+**Revisit when:** email volume exceeds ~10K/month or bounce handling needs automation.
+
+---
+
+## ADR-011: Raw SQL for user upsert in seed script
+Date: 2026-04-03 | Status: Accepted (workaround)
+
+**Decision:** `infra/seed.ts` uses `client.unsafe()` raw SQL for the `users` table upsert rather than Drizzle's typed insert.
+
+**Reason:** Drizzle ORM has a known OID resolution bug with custom Postgres enums (specifically the `role` enum) on `postgres-js` when running upserts with `ON CONFLICT DO UPDATE`. The raw SQL workaround avoids the OID mismatch that causes a runtime error.
+
+**Scope:** Seed script only. All application code uses Drizzle typed queries.
+
+**Revisit when:** Drizzle releases a fix for the enum OID issue, at which point this can be replaced with `db.insert(users).values(...).onConflictDoUpdate(...)`.
+
+---
+
+## ADR-012: PM2 for process management in development and production
+Date: 2026-04-03 | Status: Accepted
+
+**Decision:** PM2 (`infra/pm2/ecosystem.config.cjs`) manages the API server and BullMQ workers as named processes. Not specified in the original blueprint — added during Phase 1 to make multi-process local dev and production restarts practical.
+
+**Processes defined:**
+- `qyro-api` — Express API server (`pnpm --filter @qyro/api dev`)
+- `qyro-research-worker` — Research queue worker
+- `qyro-outreach-worker` — Outreach queue worker
+
+**Reasons:**
+- Without PM2, each worker requires a separate terminal and manual restart on crash.
+- PM2 provides auto-restart, log aggregation, and a consistent `pm2 start/stop/logs` interface.
+- Lighter than adding Kubernetes or systemd for a solo-operator setup.
+
+**Trade-offs accepted:**
+- PM2 config is separate from the pnpm/turbo scripts — must keep both in sync when adding workers.
+
+**Revisit when:** moving to a container-based deployment (Docker Compose or Kubernetes), at which point PM2 is replaced by container restart policies.
 
 ---
 

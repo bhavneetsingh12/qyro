@@ -10,11 +10,12 @@
 import { db } from "@qyro/db";
 import {
   prospectsRaw, prospectsEnriched, outreachSequences,
-  messageAttempts, doNotContact,
+  messageAttempts, doNotContact, tenants,
 } from "@qyro/db";
 import { eq, and, or } from "drizzle-orm";
 import { runCompletion, type AgentResult } from "../runner";
 import { type AgentName } from "../budget";
+import { runQA } from "./qa";
 
 const AGENT: AgentName = "outreach";
 
@@ -195,7 +196,7 @@ export async function runOutreach(
 
   if (!result.ok) return result;
 
-  // 7. Insert message_attempts draft for approval
+  // 7. Insert message_attempts draft — QA will set final status below
   const [attempt] = await db
     .insert(messageAttempts)
     .values({
@@ -208,6 +209,29 @@ export async function runOutreach(
       status:      "pending_approval",
     })
     .returning({ id: messageAttempts.id });
+
+  // 8. Run QA guardrail — updates status to "blocked_by_qa" or keeps "pending_approval"
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(tenants.id, tenantId),
+  });
+  const meta = (tenant?.metadata as Record<string, unknown>) ?? {};
+  const approvedServicesRaw = (meta.approvedServices as string) ?? "";
+  const approvedServices = approvedServicesRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const qaResult = await runQA({
+    tenantId,
+    messageAttemptId: attempt.id,
+    approvedServices,
+    bannedPhrases:    [],
+    runId,
+  });
+
+  if (!qaResult.ok) {
+    console.warn(`[outreach] QA failed for attempt ${attempt.id}:`, qaResult.error.message);
+  }
 
   return {
     ok:   true,

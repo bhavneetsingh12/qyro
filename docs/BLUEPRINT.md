@@ -68,7 +68,10 @@ const PRODUCT_ACCESS = {
 | Voice | Twilio | Phase 5 only |
 | Calendar | Cal.com | booking + reschedule |
 | CRM | HubSpot | contact sync |
-| Lead sources | Apollo API + Google Places API | no scraping |
+| Lead sources | Google Places API (New) | primary search source; no scraping |
+| Email enrichment | Apollo API (domain lookup), Hunter API | email lookup only — not lead search |
+| Transactional email | Resend | REST API (no SDK); see sendEmail.ts |
+| Process management | PM2 | API server + BullMQ workers; see infra/pm2/ |
 
 ---
 
@@ -135,7 +138,10 @@ qyro/
 │
 └── infra/
     ├── docker-compose.yml
-    └── n8n/workflows/
+    ├── docker-compose.test.yml
+    ├── pm2/
+    │   └── ecosystem.config.cjs  ← API server + worker process definitions
+    └── n8n/workflows/            ← nightly-lead-pipeline.json, morning-lead-digest.json
 ```
 
 ---
@@ -167,8 +173,9 @@ qyro/
         └─────┬─────┘
               v
         [OpenAI API]
-        [Apollo API]
-        [Places API]
+        [Google Places API]  ← lead search
+        [Apollo/Hunter API]  ← email enrichment only
+        [Resend]             ← transactional email
         [Cal.com]
         [Twilio — Phase 5]
 ```

@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "worker:research": "tsx --env-file-if-exists=../../.env.local src/workers/researchWorker.ts"
+    "worker:research": "tsx --env-file-if-exists=../../.env.local src/workers/researchWorker.ts",
+    "worker:outreach": "tsx --env-file-if-exists=../../.env.local src/workers/outreachWorker.ts"
   },
   "exports": {
     ".": "./src/index.ts",

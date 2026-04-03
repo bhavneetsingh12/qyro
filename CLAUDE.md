@@ -185,7 +185,7 @@ Mark done by changing [ ] to [x] after each session.
 ```
 [x] Session J — Next.js setup + auth routing + shared layout
 [x] Session K — Internal dashboard home + lead inbox
-[ ] Session L — Lead detail + campaign manager
+[x] Session L — Lead detail + campaign manager
 [x] Session M — Approval queue
 [x] Session N — Client portal home + conversation inbox
 [x] Session O — Client settings + widget embed

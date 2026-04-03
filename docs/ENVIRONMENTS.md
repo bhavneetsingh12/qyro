@@ -48,6 +48,7 @@ CLERK_SECRET_KEY       (separate Clerk env per env)
 STRIPE_SECRET_KEY      (test vs live)
 STRIPE_WEBHOOK_SECRET
 RESEND_API_KEY
+EMAIL_FROM                       (e.g. "QYRO <hello@mail.yourdomain.com>")
 APOLLO_API_KEY
 CAL_API_KEY
 N8N_WEBHOOK_BASE_URL
@@ -97,8 +98,10 @@ npx tsx infra/seed.ts
 # 6. Start API
 pnpm dev
 
-# 7. Start research worker (separate terminal)
+# 7. Start workers (separate terminals, or use PM2)
 pnpm --filter @qyro/queue worker:research
+pnpm --filter @qyro/queue worker:outreach
+# or: pm2 start infra/pm2/ecosystem.config.cjs
 ```
 
 ---

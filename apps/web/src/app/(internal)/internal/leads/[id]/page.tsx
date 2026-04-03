@@ -7,7 +7,7 @@ import { runResearchAction } from "../actions";
 import PendingSubmitButton from "../PendingSubmitButton";
 import ResearchQueueButton from "../ResearchQueueButton";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
 type ProspectRaw = {
   id: string;

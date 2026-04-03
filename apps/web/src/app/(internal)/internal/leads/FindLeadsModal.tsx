@@ -4,7 +4,7 @@ import { useState, useRef, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Search, X, Loader2, MapPin } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
 
 // Common US locations for autocomplete
 const COMMON_LOCATIONS = [
@@ -184,7 +184,7 @@ function FindLeadsModal({
       if (!json?.data || typeof json.data.leadsQueued !== "number") {
         setToast({
           type: "error",
-          message: "Auth/config issue while calling API. Make sure API runs on :3001 and DEV_BYPASS_AUTH=true for local testing.",
+          message: "Auth/config issue while calling API. Make sure API runs on :3005 and DEV_BYPASS_AUTH=true for local testing.",
         });
         return;
       }
