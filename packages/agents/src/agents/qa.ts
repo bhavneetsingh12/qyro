@@ -19,15 +19,8 @@ const AGENT: AgentName = "qa_guardrail";
 
 export type QAInput = {
   tenantId:         string;
-  messageAttemptId: string;
-  approvedServices: string[];
-  bannedPhrases:    string[];
-  runId?:           string;
-};
-
-export type QADraftInput = {
-  tenantId:         string;
-  messageText:      string;
+  messageAttemptId?: string;
+  messageText?:      string;
   approvedServices: string[];
   bannedPhrases:    string[];
   runId?:           string;
@@ -140,45 +133,35 @@ async function evaluateMessage(params: {
   };
 }
 
-export async function runQADraft(input: QADraftInput): Promise<AgentResult<QAOutput>> {
-  const { tenantId, messageText, approvedServices, bannedPhrases, runId } = input;
-
-  if (!messageText) {
-    return { ok: false, error: { code: "INVALID_INPUT", message: "Message has no text to review" } };
-  }
-
-  return evaluateMessage({
-    tenantId,
-    messageText,
-    approvedServices,
-    bannedPhrases,
-    runId,
-  });
-}
-
 // ─── Main agent function ───────────────────────────────────────────────────────
 
 export async function runQA(
   input: QAInput,
 ): Promise<AgentResult<QAOutput>> {
-  const { tenantId, messageAttemptId, approvedServices, bannedPhrases, runId } = input;
+  const { tenantId, messageAttemptId, messageText, approvedServices, bannedPhrases, runId } = input;
 
-  // 1. Load the message attempt
-  const attempt = await db.query.messageAttempts.findFirst({
-    where: eq(messageAttempts.id, messageAttemptId),
-  });
+  let textToReview = messageText;
 
-  if (!attempt) {
-    return { ok: false, error: { code: "INVALID_INPUT", message: `Message attempt not found: ${messageAttemptId}` } };
+  // If messageAttemptId is provided, QA can operate over the persisted draft.
+  if (!textToReview && messageAttemptId) {
+    const attempt = await db.query.messageAttempts.findFirst({
+      where: eq(messageAttempts.id, messageAttemptId),
+    });
+
+    if (!attempt) {
+      return { ok: false, error: { code: "INVALID_INPUT", message: `Message attempt not found: ${messageAttemptId}` } };
+    }
+
+    textToReview = attempt.messageText ?? undefined;
   }
 
-  if (!attempt.messageText) {
+  if (!textToReview) {
     return { ok: false, error: { code: "INVALID_INPUT", message: "Message has no text to review" } };
   }
 
   const evaluation = await evaluateMessage({
     tenantId,
-    messageText: attempt.messageText,
+    messageText: textToReview,
     approvedServices,
     bannedPhrases,
     runId,
@@ -187,15 +170,17 @@ export async function runQA(
   if (!evaluation.ok) return evaluation;
   const { verdict, reason, flags } = evaluation.data;
 
-  // Persist verdict on the existing message attempt
-  await db
-    .update(messageAttempts)
-    .set({
-      status:    verdict === "block" ? "blocked_by_qa" : "pending_approval",
-      qaVerdict: verdict,
-      qaFlags:   flags,
-    })
-    .where(eq(messageAttempts.id, messageAttemptId));
+  // Persist verdict only when reviewing an existing message attempt.
+  if (messageAttemptId) {
+    await db
+      .update(messageAttempts)
+      .set({
+        status:    verdict === "block" ? "blocked_by_qa" : "pending_approval",
+        qaVerdict: verdict,
+        qaFlags:   flags,
+      })
+      .where(eq(messageAttempts.id, messageAttemptId));
+  }
 
   return {
     ok:   true,

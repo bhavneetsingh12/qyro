@@ -15,7 +15,7 @@ import {
 import { eq, and, or } from "drizzle-orm";
 import { runCompletion, type AgentResult } from "../runner";
 import { type AgentName } from "../budget";
-import { runQADraft } from "./qa";
+import { runQA } from "./qa";
 
 const AGENT: AgentName = "outreach";
 
@@ -207,7 +207,7 @@ export async function runOutreach(
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const qaResult = await runQADraft({
+  const qaResult = await runQA({
     tenantId,
     messageText: result.data,
     approvedServices,
