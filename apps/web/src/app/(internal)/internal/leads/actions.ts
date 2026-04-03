@@ -3,7 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export async function addToCampaignAction(formData: FormData) {
   const { getToken } = await auth();
@@ -38,11 +38,15 @@ export async function addToCampaignAction(formData: FormData) {
 export async function runResearchAction(leadId: string) {
   const { getToken } = await auth();
   const token = await getToken();
-  if (!token) return { error: "Not authenticated" };
+  const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
+  if (!token && !bypassAuth) return { error: "Not authenticated" };
+
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}/api/leads/${leadId}/research`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers,
   });
 
   if (!res.ok) {
@@ -51,5 +55,36 @@ export async function runResearchAction(leadId: string) {
   }
 
   revalidatePath(`/internal/leads/${leadId}`);
+  revalidatePath("/internal/leads");
   return { success: true };
+}
+
+export async function runResearchBatchAction(leadIds: string[]) {
+  const ids = Array.from(new Set((leadIds ?? []).map((id) => String(id).trim()).filter(Boolean)));
+  if (ids.length === 0) return { error: "No leads selected" };
+
+  const { getToken } = await auth();
+  const token = await getToken();
+  const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
+  if (!token && !bypassAuth) return { error: "Not authenticated" };
+
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const results = await Promise.allSettled(
+    ids.map(async (leadId) => {
+      const res = await fetch(`${API_URL}/api/leads/${leadId}/research`, {
+        method: "POST",
+        headers,
+      });
+      if (!res.ok) throw new Error(`Failed to queue research for ${leadId}`);
+      return leadId;
+    }),
+  );
+
+  const queued = results.filter((r) => r.status === "fulfilled").length;
+  const failed = results.length - queued;
+
+  revalidatePath("/internal/leads");
+  return { success: true, queued, failed };
 }

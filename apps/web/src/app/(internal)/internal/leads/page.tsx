@@ -2,8 +2,10 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { LeadsRefresher } from "./LeadsRefresher";
+import { runResearchAction, runResearchBatchAction } from "./actions";
+import PendingSubmitButton from "./PendingSubmitButton";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 const PAGE_SIZE = 25;
 
 type Lead = {
@@ -55,16 +57,20 @@ export default async function LeadsPage({
 
   const { getToken } = await auth();
   const token = await getToken();
+  const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
 
   let leads: Lead[] = [];
   let fetchError = false;
 
-  if (token) {
+  if (token || bypassAuth) {
     try {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(
         `${API_URL}/api/leads?limit=${PAGE_SIZE}&offset=${offset}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          headers,
           cache: "no-store",
         }
       );
@@ -98,7 +104,7 @@ export default async function LeadsPage({
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
             <p className="text-xs text-stone-400 mt-1">
-              Make sure the API server is running on port 3005.
+              Make sure the API server is running on port 3001.
             </p>
           </div>
         ) : leads.length === 0 ? (
@@ -111,20 +117,57 @@ export default async function LeadsPage({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+          <div>
+            <div className="px-4 py-3 border-b border-[#F0EEE9] bg-[#FCFBF8] flex flex-wrap items-center gap-2">
+              <form
+                action={async (formData: FormData) => {
+                  "use server";
+                  const ids = formData.getAll("leadIds").map((v) => String(v));
+                  await runResearchBatchAction(ids);
+                }}
+                className="inline-flex items-center"
+              >
+                <div className="hidden">
+                  {leads.map((lead) => (
+                    <input key={lead.id} type="checkbox" name="leadIds" value={lead.id} />
+                  ))}
+                </div>
+                <PendingSubmitButton
+                  idleLabel={`Research All Visible (${leads.length})`}
+                  pendingLabel="Queuing all..."
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors disabled:opacity-60"
+                />
+              </form>
+              <span className="text-xs text-stone-500">For selected leads, use checkboxes and click the button at table bottom.</span>
+            </div>
+
+            <form
+              action={async (formData: FormData) => {
+                "use server";
+                const ids = formData.getAll("leadIds").map((v) => String(v));
+                await runResearchBatchAction(ids);
+              }}
+            >
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[1020px] text-sm">
               <thead>
                 <tr className="border-b border-[#F0EEE9] bg-[#FAFAF8]">
-                  <th className="text-left px-5 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                  <th className="w-[40px] px-2 py-3">
+                    <span className="sr-only">Select</span>
+                  </th>
+                  <th className="w-[220px] text-left px-5 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
                     Business
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                  <th className="w-[110px] text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
                     Niche
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                  <th className="w-[260px] text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
                     Domain
                   </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
+                  <th className="w-[150px] text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide whitespace-nowrap">
+                    Phone
+                  </th>
+                  <th className="w-[210px] text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
                     Email
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-stone-400 uppercase tracking-wide">
@@ -142,6 +185,15 @@ export default async function LeadsPage({
               <tbody className="divide-y divide-[#F5F4F1]">
                 {leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-[#FAFAF8] transition-colors group">
+                    <td className="px-2 py-3 align-top">
+                      <input
+                        type="checkbox"
+                        name="leadIds"
+                        value={lead.id}
+                        className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+                        aria-label={`Select ${lead.businessName}`}
+                      />
+                    </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-stone-800 truncate max-w-[200px]">
@@ -153,16 +205,23 @@ export default async function LeadsPage({
                     <td className="px-4 py-3 text-stone-500 whitespace-nowrap">
                       {lead.niche ?? <span className="text-stone-300">—</span>}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 max-w-[260px]">
                       {lead.domain ? (
-                        <span className="text-stone-500 font-mono text-xs">{lead.domain}</span>
+                        <span className="block text-stone-500 font-mono text-xs truncate" title={lead.domain}>{lead.domain}</span>
                       ) : (
                         <span className="text-stone-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {lead.phone ? (
+                        <span className="text-stone-500 font-mono text-xs tabular-nums">{lead.phone}</span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 max-w-[210px]">
                       {lead.email ? (
-                        <span className="text-stone-500 font-mono text-xs">{lead.email}</span>
+                        <span className="block text-stone-500 font-mono text-xs truncate" title={lead.email}>{lead.email}</span>
                       ) : (
                         <span className="text-stone-300">—</span>
                       )}
@@ -175,15 +234,28 @@ export default async function LeadsPage({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {lead.researchedAt ? (
-                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
-                          Researched
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-400">
-                          Queued
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {lead.researchedAt ? (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                            Researched
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-400">
+                            Queued
+                          </span>
+                        )}
+                        <form
+                          action={async () => {
+                            "use server";
+                            await runResearchAction(lead.id);
+                          }}
+                        >
+                          <PendingSubmitButton
+                            idleLabel={lead.researchedAt ? "Re-run" : "Research"}
+                            pendingLabel="Queuing..."
+                          />
+                        </form>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-stone-400 whitespace-nowrap text-xs">
                       {formatDate(lead.createdAt)}
@@ -201,6 +273,16 @@ export default async function LeadsPage({
                 ))}
               </tbody>
             </table>
+          </div>
+              <div className="px-4 py-3 border-t border-[#F0EEE9] bg-[#FCFBF8] flex items-center justify-between">
+                <span className="text-xs text-stone-500">Selected leads</span>
+                <PendingSubmitButton
+                  idleLabel="Research Selected"
+                  pendingLabel="Queuing selected..."
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-60"
+                />
+              </div>
+            </form>
           </div>
         )}
       </div>

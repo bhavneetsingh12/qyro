@@ -37,7 +37,7 @@ export type ResearchOutput = {
 
 type ResearchSummary = {
   summary:      string;    // 2-3 sentence business overview
-  painPoints:   string[];  // 2-3 likely operational pain points
+  painPoints:   string[];  // evidence-backed pain points only
   pitchAngles:  string[];  // 1-2 angles for pitching QYRO Assist
   urgencyScore: number;    // 1-10
 };
@@ -104,11 +104,39 @@ const SYSTEM_PROMPT = `You are a sales research assistant for QYRO Assist — an
 Given a business name, niche, and their website text (if available), return ONLY valid JSON:
 {
   "summary":      string,   // 2-3 sentences: what the business does, who they serve
-  "painPoints":   string[], // 2-3 likely operational pain points (e.g. missed calls, after-hours inquiries)
+  "painPoints":   string[], // ONLY evidence-backed pain points from provided text
   "pitchAngles":  string[], // 1-2 specific angles to pitch QYRO Assist to THIS business
   "urgencyScore": number    // 1-10: how urgently this business likely needs automation (10 = obvious fit)
 }
+Rules for painPoints:
+- Each entry must include explicit evidence in this exact format:
+  "<pain point> | Evidence: <short quote or fact> | Source: website"
+- If evidence is weak or unavailable, return an empty array for painPoints.
+- Do NOT invent customer complaints or reviews.
 No markdown, no explanation. JSON only.`;
+
+function normalizeResearchSummary(data: ResearchSummary, websiteText: string | null): ResearchSummary {
+  const hasWebsiteEvidence = Boolean(websiteText && websiteText.trim().length > 120);
+
+  const genericPainPointPatterns = [
+    /missed calls?/i,
+    /after[-\s]?hours/i,
+    /appointment requests?/i,
+    /slow response/i,
+    /inquiry volume/i,
+  ];
+
+  const normalizedPainPoints = (Array.isArray(data.painPoints) ? data.painPoints : [])
+    .map((pt) => String(pt).trim())
+    .filter(Boolean)
+    .filter((pt) => /\|\s*Evidence\s*:/i.test(pt) && /\|\s*Source\s*:/i.test(pt))
+    .filter((pt) => !genericPainPointPatterns.some((rx) => rx.test(pt) && !/\|\s*Evidence\s*:\s*[^|]{8,}/i.test(pt)));
+
+  return {
+    ...data,
+    painPoints: hasWebsiteEvidence ? normalizedPainPoints : [],
+  };
+}
 
 async function summarizeBusiness(
   tenantId:     string,
@@ -219,9 +247,11 @@ export async function runResearch(
 
   if (!result.ok) return result;
 
+  const normalizedSummary = normalizeResearchSummary(result.data, websiteText);
+
   // 5. Cache the summary (fire-and-forget if domain known)
   if (normalizedDomain) {
-    setCached(key, result.data).catch((e) =>
+    setCached(key, normalizedSummary).catch((e) =>
       console.error("[research] failed to cache result:", e),
     );
   }
@@ -230,14 +260,14 @@ export async function runResearch(
   await upsertEnriched({
     tenantId,
     prospectId,
-    summary:   result.data,
+    summary:   normalizedSummary,
     fromCache: false,
     cacheKey:  key,
   });
 
   return {
     ok:   true,
-    data: { prospectId, fromCache: false, urgencyScore: result.data.urgencyScore },
+    data: { prospectId, fromCache: false, urgencyScore: normalizedSummary.urgencyScore },
     usage: result.usage,
   };
 }

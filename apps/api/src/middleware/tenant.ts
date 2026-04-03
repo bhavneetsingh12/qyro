@@ -19,6 +19,37 @@ declare global {
 
 export const tenantMiddleware: RequestHandler = async (req, res, next) => {
   try {
+    if (process.env.DEV_BYPASS_AUTH === "true") {
+      const tenantId = process.env.INTERNAL_TENANT_ID;
+      if (!tenantId) {
+        res.status(500).json({ error: "CONFIG_ERROR", message: "INTERNAL_TENANT_ID is required when DEV_BYPASS_AUTH=true" });
+        return;
+      }
+
+      const tenant = await adminDb.query.tenants.findFirst({
+        where: eq(tenants.id, tenantId),
+      });
+
+      if (!tenant || !tenant.active) {
+        res.status(403).json({ error: "Tenant not found or inactive" });
+        return;
+      }
+
+      const user = await adminDb.query.users.findFirst({
+        where: eq(users.tenantId, tenantId),
+      });
+
+      await setTenantContext(tenant.id);
+
+      req.tenantId = tenant.id;
+      req.userId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+      req.userRole = user?.role ?? "owner";
+      req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
+
+      next();
+      return;
+    }
+
     // Clerk userId is attached by clerkMiddleware + requireAuth before this runs
     const clerkUserId: string = (req as any).auth?.userId;
     if (!clerkUserId) {

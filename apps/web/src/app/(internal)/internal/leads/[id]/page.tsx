@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import { ExternalLink, Zap, ChevronRight } from "lucide-react";
 import AddToCampaignForm from "./AddToCampaignForm";
 import { runResearchAction } from "../actions";
+import PendingSubmitButton from "../PendingSubmitButton";
+import ResearchQueueButton from "../ResearchQueueButton";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 type ProspectRaw = {
   id: string;
@@ -84,16 +86,20 @@ export default async function LeadDetailPage({
 }) {
   const { getToken } = await auth();
   const token = await getToken();
+  const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
 
-  if (!token) notFound();
+  if (!token && !bypassAuth) notFound();
+
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const [leadRes, campaignsRes] = await Promise.all([
     fetch(`${API_URL}/api/leads/${params.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       cache: "no-store",
     }),
     fetch(`${API_URL}/api/campaigns?limit=50`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       cache: "no-store",
     }),
   ]);
@@ -110,6 +116,9 @@ export default async function LeadDetailPage({
   const painPoints: string[] = Array.isArray(enriched?.painPoints)
     ? (enriched.painPoints as string[])
     : [];
+  const evidencePainPoints = painPoints.filter(
+    (pt) => /\|\s*Evidence\s*:/i.test(pt) && /\|\s*Source\s*:/i.test(pt),
+  );
   const pitchAngles: string[] = Array.isArray(enriched?.pitchAngles)
     ? (enriched.pitchAngles as string[])
     : [];
@@ -177,6 +186,14 @@ export default async function LeadDetailPage({
       {/* Research section */}
       {enriched ? (
         <div className="mt-5 space-y-4">
+          <div className="flex justify-end">
+            <ResearchQueueButton
+              leadId={params.id}
+              idleLabel="Re-run research"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors disabled:opacity-60"
+            />
+          </div>
+
           {/* Urgency */}
           <div className="bg-white border border-[#E8E6E1] rounded-[14px] p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
             <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wide mb-3">
@@ -205,21 +222,32 @@ export default async function LeadDetailPage({
           )}
 
           {/* Pain points */}
-          {painPoints.length > 0 && (
+          {evidencePainPoints.length > 0 && (
             <div className="bg-white border border-[#E8E6E1] rounded-[14px] p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
               <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wide mb-3">
-                Pain points
+                Pain points (evidence-backed)
               </p>
-              <div className="flex flex-wrap gap-2">
-                {painPoints.map((pt, i) => (
-                  <span
+              <div className="space-y-2">
+                {evidencePainPoints.map((pt, i) => (
+                  <p
                     key={i}
-                    className="text-xs font-medium px-3 py-1.5 rounded-full bg-rose-50 text-rose-700"
+                    className="text-xs font-medium px-3 py-2 rounded-lg bg-rose-50 text-rose-700"
                   >
                     {pt}
-                  </span>
+                  </p>
                 ))}
               </div>
+            </div>
+          )}
+
+          {painPoints.length > 0 && evidencePainPoints.length === 0 && (
+            <div className="bg-white border border-[#E8E6E1] rounded-[14px] p-5 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+              <p className="text-[10px] text-stone-400 font-medium uppercase tracking-wide mb-2">
+                Pain points
+              </p>
+              <p className="text-xs text-stone-500">
+                Existing pain points are inferred and hidden. Re-run research to generate evidence-backed pain points.
+              </p>
             </div>
           )}
 
@@ -256,12 +284,11 @@ export default async function LeadDetailPage({
               await runResearchAction(params.id);
             }}
           >
-            <button
-              type="submit"
-              className="text-sm font-medium px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
-            >
-              Run research
-            </button>
+            <PendingSubmitButton
+              idleLabel="Run research"
+              pendingLabel="Queuing..."
+              className="text-sm font-medium px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors disabled:opacity-60"
+            />
           </form>
         </div>
       )}
