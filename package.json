@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "clean:mac-junk": "find . -name \"._*\" -type f -delete && find . -name \".DS_Store\" -type f -delete",
     "db:generate": "pnpm --filter @qyro/db generate",
     "db:migrate": "pnpm --filter @qyro/db migrate",
     "db:studio": "pnpm --filter @qyro/db studio",

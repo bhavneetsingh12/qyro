@@ -1,0 +1,102 @@
+{
+  "name": "QYRO Nightly Lead Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 22 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Nightly Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"runs\": [\n    {\n      \"tenantId\": \"{{$env.N8N_TENANT_ID}}\",\n      \"niche\": \"{{$env.N8N_NICHE_1 || 'medspa'}}\",\n      \"location\": {\n        \"locations\": [\n          \"{{$env.N8N_LOCATION_1 || 'Portland, OR'}}\",\n          \"{{$env.N8N_LOCATION_2 || 'Seattle, WA'}}\"\n        ],\n        \"radius\": 25\n      },\n      \"maxResults\": 20,\n      \"outreach\": {\n        \"sequenceId\": \"{{$env.N8N_SEQUENCE_ID}}\",\n        \"channel\": \"email\",\n        \"minUrgency\": 6,\n        \"maxDrafts\": 25\n      }\n    }\n  ]\n}"
+      },
+      "id": "build-payload",
+      "name": "Build Nightly Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.N8N_API_BASE_URL || 'http://host.docker.internal:3005'}}/webhooks/nightly/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-webhook-secret",
+              "value": "={{$env.INTERNAL_WEBHOOK_SECRET}}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "run-nightly",
+      "name": "Run Nightly Ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Nightly Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Nightly Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Nightly Payload": {
+      "main": [
+        [
+          {
+            "node": "Run Nightly Ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "a4a9c0f4-0a9c-4c8f-980e-4a312de4a001"
+}
