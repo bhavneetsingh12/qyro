@@ -16,9 +16,15 @@ const PORT = Number(process.env.PORT ?? 3005);
 
 // ─── Global middleware ────────────────────────────────────────────────────────
 
-// CORS for development (allow localhost:3000 to hit :3001)
+// CORS for development (default web origin localhost:3000).
+// EXTRA_WEB_ORIGIN can be used when testing from an additional local host/port.
+const corsOrigins = ["http://localhost:3000"];
+if (process.env.EXTRA_WEB_ORIGIN) {
+  corsOrigins.push(process.env.EXTRA_WEB_ORIGIN);
+}
+
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:3001"],
+  origin: corsOrigins,
   credentials: true,
 }));
 

@@ -25,6 +25,14 @@ export type QAInput = {
   runId?:           string;
 };
 
+export type QADraftInput = {
+  tenantId:         string;
+  messageText:      string;
+  approvedServices: string[];
+  bannedPhrases:    string[];
+  runId?:           string;
+};
+
 export type QAOutput = {
   verdict: "pass" | "block";
   reason?: string;
@@ -94,6 +102,60 @@ async function runLLMChecks(params: {
   );
 }
 
+async function evaluateMessage(params: {
+  tenantId:         string;
+  messageText:      string;
+  approvedServices: string[];
+  bannedPhrases:    string[];
+  runId?:           string;
+}): Promise<AgentResult<QAOutput>> {
+  const { tenantId, messageText, approvedServices, bannedPhrases, runId } = params;
+
+  // 1. Static checks first — fast, no tokens burned
+  const staticFlags = runStaticChecks(messageText, bannedPhrases);
+
+  if (staticFlags.length > 0) {
+    return {
+      ok:   true,
+      data: { verdict: "block", reason: staticFlags[0], flags: staticFlags },
+      usage: { inputTokens: 0, outputTokens: 0, model: "none", modelTier: "cheap", cached: false },
+    };
+  }
+
+  // 2. LLM semantic checks
+  const llmResult = await runLLMChecks({
+    tenantId,
+    messageText,
+    approvedServices,
+    runId,
+  });
+
+  if (!llmResult.ok) return llmResult;
+
+  const { verdict, reason, flags } = llmResult.data;
+  return {
+    ok:   true,
+    data: { verdict, reason: reason || undefined, flags },
+    usage: llmResult.usage,
+  };
+}
+
+export async function runQADraft(input: QADraftInput): Promise<AgentResult<QAOutput>> {
+  const { tenantId, messageText, approvedServices, bannedPhrases, runId } = input;
+
+  if (!messageText) {
+    return { ok: false, error: { code: "INVALID_INPUT", message: "Message has no text to review" } };
+  }
+
+  return evaluateMessage({
+    tenantId,
+    messageText,
+    approvedServices,
+    bannedPhrases,
+    runId,
+  });
+}
+
 // ─── Main agent function ───────────────────────────────────────────────────────
 
 export async function runQA(
@@ -114,35 +176,18 @@ export async function runQA(
     return { ok: false, error: { code: "INVALID_INPUT", message: "Message has no text to review" } };
   }
 
-  // 2. Static checks first — fast, no tokens burned
-  const staticFlags = runStaticChecks(attempt.messageText, bannedPhrases);
-
-  if (staticFlags.length > 0) {
-    await db
-      .update(messageAttempts)
-      .set({ status: "blocked_by_qa", qaVerdict: "block", qaFlags: staticFlags })
-      .where(eq(messageAttempts.id, messageAttemptId));
-
-    return {
-      ok:   true,
-      data: { verdict: "block", reason: staticFlags[0], flags: staticFlags },
-      usage: { inputTokens: 0, outputTokens: 0, model: "none", modelTier: "cheap", cached: false },
-    };
-  }
-
-  // 3. LLM semantic checks
-  const llmResult = await runLLMChecks({
+  const evaluation = await evaluateMessage({
     tenantId,
-    messageText:      attempt.messageText,
+    messageText: attempt.messageText,
     approvedServices,
+    bannedPhrases,
     runId,
   });
 
-  if (!llmResult.ok) return llmResult;
+  if (!evaluation.ok) return evaluation;
+  const { verdict, reason, flags } = evaluation.data;
 
-  const { verdict, reason, flags } = llmResult.data;
-
-  // 4. Persist verdict
+  // Persist verdict on the existing message attempt
   await db
     .update(messageAttempts)
     .set({
@@ -155,6 +200,6 @@ export async function runQA(
   return {
     ok:   true,
     data: { verdict, reason: reason || undefined, flags },
-    usage: llmResult.usage,
+    usage: evaluation.usage,
   };
 }

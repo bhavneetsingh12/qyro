@@ -160,10 +160,10 @@ Based on code review only (cannot confirm runtime behavior):
 
 **4. Port mismatch in leads-related frontend files**
 The API server defaults to port **3005** (`apps/api/src/index.ts`). But these frontend files hard-code fallback to **3001**:
-- `apps/web/src/app/(internal)/internal/leads/page.tsx` — `"http://localhost:3001"`
-- `apps/web/src/app/(internal)/internal/leads/[id]/page.tsx` — `"http://localhost:3001"`
-- `apps/web/src/app/(internal)/internal/leads/actions.ts` — `"http://localhost:3001"`
-- `apps/web/src/app/(internal)/internal/leads/FindLeadsModal.tsx` — `"http://localhost:3001"`
+- `apps/web/src/app/(internal)/internal/leads/page.tsx` — `"http://localhost:3005"`
+- `apps/web/src/app/(internal)/internal/leads/[id]/page.tsx` — `"http://localhost:3005"`
+- `apps/web/src/app/(internal)/internal/leads/actions.ts` — `"http://localhost:3005"`
+- `apps/web/src/app/(internal)/internal/leads/FindLeadsModal.tsx` — `"http://localhost:3005"`
 
 All other pages correctly default to 3005. Leads pages will fail API calls in dev if `API_URL` env var is not explicitly set.
 
@@ -262,7 +262,7 @@ Blueprint shows `routes/tenants.ts` but the route is mounted at `/api/v1/tenants
 
 2. **Wire QA Guardrail into outreach agent** — call `runQA()` inside `runOutreach()` after `generateMessage()` succeeds, before inserting into `message_attempts`. If QA blocks, set `status: "blocked_by_qa"` instead of `"pending_approval"`.
 
-3. **Fix the port mismatch** — change `"http://localhost:3001"` to `"http://localhost:3005"` in `leads/page.tsx`, `leads/[id]/page.tsx`, `leads/actions.ts`, and `FindLeadsModal.tsx`. Or better: pull from a single `API_URL` env var consistently.
+3. **Fix the port mismatch** — use `"http://localhost:3005"` fallback consistently in leads-related frontend files, or better: pull from a single `API_URL` env var consistently.
 
 4. **Run the actual e2e test** — `tsx scripts/test-e2e.ts` with a real `DATABASE_URL`, `REDIS_URL`, and `OPENAI_API_KEY`. Verify all 7 steps pass. Update the e2e assertion on `painPoints` to be lenient (check `Array.isArray` rather than `length > 0`) to handle businesses with no fetchable website.
 

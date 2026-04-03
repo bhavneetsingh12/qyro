@@ -97,7 +97,7 @@ Files to complete:
 
 When done:
 - Run: pnpm --filter @qyro/api dev
-- Hit: GET http://localhost:3001/health → should return { status: "ok" }
+- Hit: GET http://localhost:3005/health → should return { status: "ok" }
 - /compact → stop
 
 ---
@@ -111,7 +111,7 @@ Files to complete:
   — verify do_not_contact check is present
 
 When done:
-- Run: POST http://localhost:3001/api/v1/leads/ingest
+- Run: POST http://localhost:3005/api/v1/leads/ingest
   body: { "niche": "medspa", "location": "Portland OR", "maxResults": 3 }
 - Confirm prospects_raw rows written to DB
 - Confirm research jobs enqueued in Redis (check BullMQ dashboard or redis-cli)
@@ -149,9 +149,9 @@ Files to complete:
   — verify message written as pending_approval (never auto-sent)
 
 When done:
-- POST http://localhost:3001/api/v1/campaigns (create a test campaign)
-- POST http://localhost:3001/api/v1/campaigns/:id/activate
-- POST http://localhost:3001/api/v1/campaigns/:id/run/:prospectId
+- POST http://localhost:3005/api/v1/campaigns (create a test campaign)
+- POST http://localhost:3005/api/v1/campaigns/:id/activate
+- POST http://localhost:3005/api/v1/campaigns/:id/run/:prospectId
 - Confirm message_attempts row with status: "pending_approval"
 - Confirm NO email was sent
 - /compact → stop
@@ -168,8 +168,8 @@ Files to complete:
   — verify rate limiting applied on /ingest
 
 When done:
-- GET http://localhost:3001/api/v1/leads → returns list
-- GET http://localhost:3001/api/v1/leads/:id → returns prospect + enriched
+- GET http://localhost:3005/api/v1/leads → returns list
+- GET http://localhost:3005/api/v1/leads/:id → returns prospect + enriched
 - /compact → stop
 
 ---

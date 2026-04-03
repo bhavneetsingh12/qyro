@@ -15,7 +15,7 @@ import {
 import { eq, and, or } from "drizzle-orm";
 import { runCompletion, type AgentResult } from "../runner";
 import { type AgentName } from "../budget";
-import { runQA } from "./qa";
+import { runQADraft } from "./qa";
 
 const AGENT: AgentName = "outreach";
 
@@ -196,21 +196,7 @@ export async function runOutreach(
 
   if (!result.ok) return result;
 
-  // 7. Insert message_attempts draft — QA will set final status below
-  const [attempt] = await db
-    .insert(messageAttempts)
-    .values({
-      tenantId,
-      sequenceId,
-      prospectId,
-      channel,
-      direction:   "outbound",
-      messageText: result.data,
-      status:      "pending_approval",
-    })
-    .returning({ id: messageAttempts.id });
-
-  // 8. Run QA guardrail — updates status to "blocked_by_qa" or keeps "pending_approval"
+  // 7. Run QA guardrail BEFORE persisting outbound draft
   const tenant = await db.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
   });
@@ -221,17 +207,35 @@ export async function runOutreach(
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const qaResult = await runQA({
+  const qaResult = await runQADraft({
     tenantId,
-    messageAttemptId: attempt.id,
+    messageText: result.data,
     approvedServices,
     bannedPhrases:    [],
     runId,
   });
 
   if (!qaResult.ok) {
-    console.warn(`[outreach] QA failed for attempt ${attempt.id}:`, qaResult.error.message);
+    return qaResult;
   }
+
+  const status = qaResult.data.verdict === "block" ? "blocked_by_qa" : "pending_approval";
+
+  // 8. Persist message attempt with QA verdict already applied
+  const [attempt] = await db
+    .insert(messageAttempts)
+    .values({
+      tenantId,
+      sequenceId,
+      prospectId,
+      channel,
+      direction:   "outbound",
+      messageText: result.data,
+      status,
+      qaVerdict:   qaResult.data.verdict,
+      qaFlags:     qaResult.data.flags,
+    })
+    .returning({ id: messageAttempts.id });
 
   return {
     ok:   true,
@@ -241,6 +245,12 @@ export async function runOutreach(
       channel,
       preview:          result.data.slice(0, 120),
     },
-    usage: result.usage,
+    usage: {
+      inputTokens:  result.usage.inputTokens + qaResult.usage.inputTokens,
+      outputTokens: result.usage.outputTokens + qaResult.usage.outputTokens,
+      model:        qaResult.usage.model === "none" ? result.usage.model : `${result.usage.model}+${qaResult.usage.model}`,
+      modelTier:    result.usage.modelTier,
+      cached:       result.usage.cached && qaResult.usage.cached,
+    },
   };
 }
