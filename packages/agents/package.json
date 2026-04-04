@@ -2,14 +2,47 @@
   "name": "@qyro/agents",
   "version": "0.0.1",
   "private": true,
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./runner": "./src/runner.ts",
-    "./budget": "./src/budget.ts",
-    "./leadDiscovery": "./src/agents/leadDiscovery.ts",
-    "./clientAssistant": "./src/agents/clientAssistant.ts",
-    "./voiceAssistant": "./src/agents/voiceAssistant.ts",
-    "./compact": "./src/compact.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./runner": {
+      "types": "./src/runner.ts",
+      "require": "./dist/runner.js",
+      "default": "./dist/runner.js"
+    },
+    "./budget": {
+      "types": "./src/budget.ts",
+      "require": "./dist/budget.js",
+      "default": "./dist/budget.js"
+    },
+    "./leadDiscovery": {
+      "types": "./src/agents/leadDiscovery.ts",
+      "require": "./dist/agents/leadDiscovery.js",
+      "default": "./dist/agents/leadDiscovery.js"
+    },
+    "./clientAssistant": {
+      "types": "./src/agents/clientAssistant.ts",
+      "require": "./dist/agents/clientAssistant.js",
+      "default": "./dist/agents/clientAssistant.js"
+    },
+    "./voiceAssistant": {
+      "types": "./src/agents/voiceAssistant.ts",
+      "require": "./dist/agents/voiceAssistant.js",
+      "default": "./dist/agents/voiceAssistant.js"
+    },
+    "./compact": {
+      "types": "./src/compact.ts",
+      "require": "./dist/compact.js",
+      "default": "./dist/compact.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc"
   },
   "dependencies": {
     "@qyro/db": "workspace:*",

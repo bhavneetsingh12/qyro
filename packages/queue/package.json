@@ -2,14 +2,25 @@
   "name": "@qyro/queue",
   "version": "0.0.1",
   "private": true,
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
   "scripts": {
+    "build": "tsc",
     "worker:research": "tsx --env-file-if-exists=../../.env.local src/workers/researchWorker.ts",
     "worker:outreach": "tsx --env-file-if-exists=../../.env.local src/workers/outreachWorker.ts",
     "worker:outbound-call": "tsx --env-file-if-exists=../../.env.local src/workers/outboundCallWorker.ts"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./queues": "./src/queues.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./queues": {
+      "types": "./src/queues.ts",
+      "require": "./dist/queues.js",
+      "default": "./dist/queues.js"
+    }
   },
   "dependencies": {
     "@qyro/agents": "workspace:*",
