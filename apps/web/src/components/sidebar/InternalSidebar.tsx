@@ -54,7 +54,7 @@ export default function InternalSidebar({ approvalCount = 0 }: { approvalCount?:
       <>
         <nav className="flex-1 px-3 py-4 space-y-0.5">
           {navItems.map(({ href, label, icon: Icon, badge }) => {
-            const active = pathname.startsWith(href);
+            const active = pathname?.startsWith(href) ?? false;
             return (
               <Link
                 key={href}
@@ -75,7 +75,7 @@ export default function InternalSidebar({ approvalCount = 0 }: { approvalCount?:
         </nav>
 
         <div className="px-3 py-4 border-t border-[#E8E6E1] space-y-0.5">
-          <Link href="/internal/settings" onClick={onLinkClick} className={clsx("sidebar-link", pathname.startsWith("/internal/settings") && "sidebar-link-active")}>
+          <Link href="/internal/settings" onClick={onLinkClick} className={clsx("sidebar-link", pathname?.startsWith("/internal/settings") && "sidebar-link-active")}>
             <Settings size={16} strokeWidth={1.75} />
             Settings
           </Link>

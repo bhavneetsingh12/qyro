@@ -47,11 +47,10 @@ Rule: do not start the next item until the current item is checked.
   - Evidence: 2026-04-04 -> confirmed full DNS access.
   - Notes:
 
-- [ ] 1.4 Confirm web hosting target
+- [x] 1.4 Confirm web hosting target
   - Needed: where web app runs in prod.
-  - Evidence: pending decision
-  - Notes: recommended for solo operator: Vercel (fastest Next.js deploy + simple domain and env management). Existing Vercel project `zentrynexus.com` is unrelated and does not block creating a separate QYRO project.
-  - Blocking setup task: create a new dedicated Vercel project for QYRO web.
+  - Evidence: 2026-04-04 -> web deployed successfully on Vercel.
+  - Notes: Vercel confirmed as web host for QYRO.
 
 - [ ] 1.5 Confirm API hosting target
   - Needed: where API runs in prod.
@@ -64,10 +63,10 @@ Rule: do not start the next item until the current item is checked.
   - Evidence: 2026-04-04 -> selected: same host as API.
   - Notes: keeps operations simpler for a one-person team.
 
-- [ ] 1.7 Create QYRO web project in Vercel
+- [x] 1.7 Create QYRO web project in Vercel
   - Needed: dedicated project (separate from zentrynexus).
-  - Evidence:
-  - Notes: after creation, connect repo and set root to `apps/web` if using monorepo settings.
+  - Evidence: 2026-04-04 -> Vercel project created and deployment completed.
+  - Notes: connected to `bhavneetsingh12/qyro` with web root directory.
 
 - [ ] 1.8 Create QYRO API/workers project in Railway
   - Needed: dedicated Railway project for API + worker runtime.
@@ -90,8 +89,8 @@ Rule: do not start the next item until the current item is checked.
 
 - [ ] 2.3 Provision Clerk production keys
   - Needed: publishable/secret keys for prod environment.
-  - Evidence:
-  - Notes:
+  - Evidence: blocker observed in Vercel build log -> missing publishable key.
+  - Notes: current status 2026-04-04 -> no Production/Preview env vars configured yet in Vercel. Next action: create Clerk env vars for Production and Preview, then redeploy.
 
 - [ ] 2.4 Provision OpenAI production key
   - Needed: separate prod key with billing alerts.
