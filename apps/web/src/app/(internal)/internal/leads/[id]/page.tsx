@@ -7,7 +7,7 @@ import { runResearchAction } from "../actions";
 import PendingSubmitButton from "../PendingSubmitButton";
 import ResearchQueueButton from "../ResearchQueueButton";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
 type ProspectRaw = {
   id: string;

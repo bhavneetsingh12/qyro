@@ -5,7 +5,7 @@ import { LeadsRefresher } from "./LeadsRefresher";
 import { runResearchAction, runResearchBatchAction } from "./actions";
 import PendingSubmitButton from "./PendingSubmitButton";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 const PAGE_SIZE = 25;
 
 type Lead = {
@@ -104,7 +104,7 @@ export default async function LeadsPage({
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
             <p className="text-xs text-stone-400 mt-1">
-              Make sure the API server is running on port 3005.
+              Make sure API_URL / NEXT_PUBLIC_API_URL points to https://api.qyro.us.
             </p>
           </div>
         ) : leads.length === 0 ? (

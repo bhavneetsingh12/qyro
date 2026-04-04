@@ -3,7 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
 export async function approveMessageAction(sequenceId: string, messageId: string) {
   const { getToken } = await auth();
