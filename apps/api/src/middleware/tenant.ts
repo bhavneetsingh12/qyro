@@ -19,6 +19,10 @@ declare global {
 
 export const tenantMiddleware: RequestHandler = async (req, res, next) => {
   try {
+    if (process.env.NODE_ENV === "production" && process.env.DEV_BYPASS_AUTH === "true") {
+      throw new Error("DEV_BYPASS_AUTH cannot be enabled in production");
+    }
+
     if (process.env.DEV_BYPASS_AUTH === "true") {
       const tenantId = process.env.INTERNAL_TENANT_ID;
       if (!tenantId) {

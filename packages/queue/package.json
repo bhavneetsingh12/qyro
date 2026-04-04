@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "worker:research": "tsx --env-file-if-exists=../../.env.local src/workers/researchWorker.ts",
-    "worker:outreach": "tsx --env-file-if-exists=../../.env.local src/workers/outreachWorker.ts"
+    "worker:outreach": "tsx --env-file-if-exists=../../.env.local src/workers/outreachWorker.ts",
+    "worker:outbound-call": "tsx --env-file-if-exists=../../.env.local src/workers/outboundCallWorker.ts"
   },
   "exports": {
     ".": "./src/index.ts",
     "./queues": "./src/queues.ts"
   },
   "dependencies": {
+    "@qyro/agents": "workspace:*",
+    "@qyro/db": "workspace:*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.3.0"
   },

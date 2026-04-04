@@ -7,10 +7,139 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, prospectsRaw } from "@qyro/db";
-import { eq, and, desc } from "drizzle-orm";
+import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants } from "@qyro/db";
+import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
+import { runClientAssistant } from "@qyro/agents/clientAssistant";
+import { outboundCallQueue } from "@qyro/queue";
 
 const router: ExpressRouter = Router();
+const publicRouter: ExpressRouter = Router();
+const OUTBOUND_CONTROL_ROLES = new Set(["owner", "admin", "operator"]);
+const PUBLIC_RATE_WINDOW_MS = 60 * 1000;
+const PUBLIC_RATE_LIMIT = 30;
+const publicRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function canManageOutbound(req: Request): boolean {
+  return OUTBOUND_CONTROL_ROLES.has(req.userRole);
+}
+
+function normalizeBool(value: unknown): boolean {
+  return value === true;
+}
+
+function getOutboundControl(meta: Record<string, unknown>) {
+  const maxConcurrentRaw = Number(meta.outbound_voice_max_concurrent_calls ?? 3);
+  return {
+    enabled: normalizeBool(meta.outbound_voice_enabled),
+    paused: normalizeBool(meta.outbound_voice_paused),
+    pausedReason: (meta.outbound_voice_paused_reason as string) ?? "",
+    maxConcurrentCalls: Number.isFinite(maxConcurrentRaw)
+      ? Math.max(1, Math.min(Math.trunc(maxConcurrentRaw), 25))
+      : 3,
+  };
+}
+
+function outboundGlobalPauseEnabled(): boolean {
+  return String(process.env.OUTBOUND_VOICE_GLOBAL_PAUSED ?? "false").toLowerCase() === "true";
+}
+
+function normalizePhone(value?: string | null): string {
+  return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
+function getRequestIp(req: Request): string {
+  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
+  return forwarded || req.ip || "unknown";
+}
+
+function parseAllowedOrigins(meta: Record<string, unknown>): string[] {
+  const raw = meta.widget_allowed_origins ?? meta.widgetAllowedOrigins;
+  if (Array.isArray(raw)) {
+    return raw.map((value) => String(value).trim()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw.split(",").map((value) => value.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/$/, "").toLowerCase();
+}
+
+function validateWidgetOrigin(req: Request, tenant: { metadata: unknown }): string | null {
+  const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+  const allowedOrigins = parseAllowedOrigins(meta).map(normalizeOrigin);
+  const origin = String(req.headers.origin ?? "").trim();
+
+  if (allowedOrigins.length === 0) {
+    return process.env.NODE_ENV === "production"
+      ? "widget allowed origins are not configured for this tenant"
+      : null;
+  }
+
+  if (!origin) {
+    return "Origin header is required";
+  }
+
+  return allowedOrigins.includes(normalizeOrigin(origin)) ? null : "Origin is not allowed for this tenant";
+}
+
+function enforcePublicRateLimit(req: Request, tenantId: string): string | null {
+  const now = Date.now();
+  const key = `${tenantId}:${getRequestIp(req)}`;
+  const bucket = publicRateBuckets.get(key);
+
+  if (!bucket || bucket.resetAt <= now) {
+    publicRateBuckets.set(key, { count: 1, resetAt: now + PUBLIC_RATE_WINDOW_MS });
+    return null;
+  }
+
+  if (bucket.count >= PUBLIC_RATE_LIMIT) {
+    return "Too many requests";
+  }
+
+  bucket.count += 1;
+  publicRateBuckets.set(key, bucket);
+  return null;
+}
+
+async function getOrCreateProspect(params: {
+  tenantId: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+}) {
+  const phone = params.phone?.trim() || null;
+  const email = params.email?.trim().toLowerCase() || null;
+
+  if (phone || email) {
+    const existing = await db.query.prospectsRaw.findFirst({
+      where: and(
+        eq(prospectsRaw.tenantId, params.tenantId),
+        or(
+          phone ? eq(prospectsRaw.phone, phone) : undefined,
+          email ? eq(prospectsRaw.email, email) : undefined,
+        ) as any,
+      ) as any,
+    });
+    if (existing) return existing;
+  }
+
+  const [created] = await db
+    .insert(prospectsRaw)
+    .values({
+      tenantId: params.tenantId,
+      source: "inbound_form",
+      businessName: params.name || "Website Visitor",
+      phone,
+      email,
+      consentState: "unknown",
+    })
+    .returning();
+
+  return created;
+}
 
 // ─── GET /api/sessions ─────────────────────────────────────────────────────────
 
@@ -78,4 +207,690 @@ router.get("/appointments", async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+
+
+// ─── POST /api/v1/assist/approve/:messageId ──────────────────────────────────
+
+router.post("/v1/assist/approve/:messageId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const messageId = req.params.messageId;
+
+    const [updated] = await db
+      .update(messageAttempts)
+      .set({ status: "approved" })
+      .where(
+        and(
+          eq(messageAttempts.tenantId, tenantId),
+          eq(messageAttempts.id, messageId),
+          eq(messageAttempts.status, "pending_approval"),
+        ),
+      )
+      .returning({ id: messageAttempts.id, status: messageAttempts.status });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pending message not found" });
+      return;
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/reject/:messageId ───────────────────────────────────
+
+router.post("/v1/assist/reject/:messageId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const messageId = req.params.messageId;
+
+    const [updated] = await db
+      .update(messageAttempts)
+      .set({ status: "failed" })
+      .where(
+        and(
+          eq(messageAttempts.tenantId, tenantId),
+          eq(messageAttempts.id, messageId),
+          eq(messageAttempts.status, "pending_approval"),
+        ),
+      )
+      .returning({ id: messageAttempts.id, status: messageAttempts.status });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pending message not found" });
+      return;
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/pending ──────────────────────────────────────────────
+
+router.get("/v1/assist/pending", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+
+    const rows = await db
+      .select({
+        id: messageAttempts.id,
+        prospectId: messageAttempts.prospectId,
+        channel: messageAttempts.channel,
+        messageText: messageAttempts.messageText,
+        status: messageAttempts.status,
+        createdAt: messageAttempts.createdAt,
+      })
+      .from(messageAttempts)
+      .where(
+        and(
+          eq(messageAttempts.tenantId, tenantId),
+          eq(messageAttempts.status, "pending_approval"),
+        ),
+      )
+      .orderBy(desc(messageAttempts.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/calls ────────────────────────────────────────────────
+
+router.get("/v1/assist/calls", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+    const outcome = ((req.query.outcome as string) || "").trim();
+
+    const whereClause = outcome
+      ? and(eq(callAttempts.tenantId, tenantId), eq(callAttempts.outcome, outcome))
+      : eq(callAttempts.tenantId, tenantId);
+
+    const rows = await db
+      .select({
+        id: callAttempts.id,
+        prospectId: callAttempts.prospectId,
+        twilioCallSid: callAttempts.twilioCallSid,
+        duration: callAttempts.duration,
+        outcome: callAttempts.outcome,
+        recordingUrl: callAttempts.recordingUrl,
+        transcriptUrl: callAttempts.transcriptUrl,
+        createdAt: callAttempts.createdAt,
+      })
+      .from(callAttempts)
+      .where(whereClause as any)
+      .orderBy(desc(callAttempts.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/outbound-calls/enqueue ─────────────────────────────
+
+router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const userId = req.userId;
+
+    const tenant = await db.query.tenants.findFirst({
+      where: and(eq(tenants.id, tenantId), eq(tenants.active, true)),
+    });
+
+    const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+    if (tenantMeta.outbound_voice_enabled !== true) {
+      res.status(403).json({
+        error: "COMPLIANCE_BLOCK",
+        message: "Outbound voice is disabled for this tenant",
+      });
+      return;
+    }
+
+    if (tenantMeta.outbound_voice_paused === true || outboundGlobalPauseEnabled()) {
+      res.status(409).json({
+        error: "OUTBOUND_PAUSED",
+        message: outboundGlobalPauseEnabled()
+          ? "Outbound voice is globally paused"
+          : "Outbound voice is paused for this tenant",
+      });
+      return;
+    }
+
+    const prospectIds = Array.isArray(req.body?.prospectIds)
+      ? req.body.prospectIds.map((v: unknown) => String(v)).filter(Boolean)
+      : [];
+
+    const numbers = Array.isArray(req.body?.numbers)
+      ? req.body.numbers.map((v: unknown) => normalizePhone(String(v))).filter(Boolean)
+      : [];
+
+    if (prospectIds.length === 0 && numbers.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "prospectIds or numbers is required" });
+      return;
+    }
+
+    const maxAttemptsRaw = Number.parseInt(String(req.body?.maxAttempts ?? "4"), 10);
+    const maxAttempts = Number.isFinite(maxAttemptsRaw)
+      ? Math.max(1, Math.min(maxAttemptsRaw, 8))
+      : 4;
+
+    const prospectSet = new Set<string>();
+    const createdProspectIds: string[] = [];
+
+    for (const pid of prospectIds) prospectSet.add(pid);
+
+    for (const num of numbers) {
+      const existing = await db.query.prospectsRaw.findFirst({
+        where: and(eq(prospectsRaw.tenantId, tenantId), eq(prospectsRaw.phone, num)) as any,
+      });
+
+      if (existing) {
+        prospectSet.add(existing.id);
+        continue;
+      }
+
+      const [created] = await db
+        .insert(prospectsRaw)
+        .values({
+          tenantId,
+          source: "manual_outbound",
+          businessName: `Outbound Lead ${num}`,
+          phone: num,
+          consentState: "unknown",
+        })
+        .returning({ id: prospectsRaw.id });
+
+      prospectSet.add(created.id);
+      createdProspectIds.push(created.id);
+    }
+
+    let enqueued = 0;
+    const callAttemptIds: string[] = [];
+
+    for (const prospectId of prospectSet) {
+      const prospect = await db.query.prospectsRaw.findFirst({
+        where: and(eq(prospectsRaw.id, prospectId), eq(prospectsRaw.tenantId, tenantId)),
+      });
+
+      if (!prospect || !normalizePhone(prospect.phone)) continue;
+
+      const [attempt] = await db
+        .insert(callAttempts)
+        .values({
+          tenantId,
+          prospectId,
+          direction: "outbound",
+          source: "lead_manual",
+          status: "queued",
+          outcome: "queued",
+          attemptCount: 0,
+          maxAttempts,
+          scheduledBy: userId,
+        })
+        .returning({ id: callAttempts.id });
+
+      callAttemptIds.push(attempt.id);
+
+      await outboundCallQueue.add(
+        "outbound-call",
+        { tenantId, callAttemptId: attempt.id },
+        { jobId: `outbound-call:${attempt.id}:1` },
+      );
+
+      enqueued += 1;
+    }
+
+    res.json({
+      data: {
+        enqueued,
+        callAttemptIds,
+        createdProspectIds,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/outbound-calls/pipeline ─────────────────────────────
+
+router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit = Math.min(parseInt((req.query.limit as string) || "100", 10), 300);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+
+    const rows = await db
+      .select({
+        id: callAttempts.id,
+        prospectId: callAttempts.prospectId,
+        phone: prospectsRaw.phone,
+        businessName: prospectsRaw.businessName,
+        status: callAttempts.status,
+        outcome: callAttempts.outcome,
+        attemptCount: callAttempts.attemptCount,
+        maxAttempts: callAttempts.maxAttempts,
+        nextAttemptAt: callAttempts.nextAttemptAt,
+        lastAttemptAt: callAttempts.lastAttemptAt,
+        twilioCallSid: callAttempts.twilioCallSid,
+        dndAt: callAttempts.dndAt,
+        createdAt: callAttempts.createdAt,
+      })
+      .from(callAttempts)
+      .leftJoin(prospectsRaw, eq(callAttempts.prospectId, prospectsRaw.id))
+      .where(
+        and(
+          eq(callAttempts.tenantId, tenantId),
+          eq(callAttempts.direction, "outbound"),
+        ),
+      )
+      .orderBy(desc(callAttempts.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/outbound-calls/control ──────────────────────────────
+
+router.get("/v1/assist/outbound-calls/control", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = await db.query.tenants.findFirst({
+      where: and(eq(tenants.id, req.tenantId), eq(tenants.active, true)),
+    });
+
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+    const control = getOutboundControl(meta);
+
+    res.json({
+      data: {
+        ...control,
+        globalPaused: outboundGlobalPauseEnabled(),
+        canManage: canManageOutbound(req),
+        updatedAt: (meta.outbound_voice_updated_at as string) ?? null,
+        updatedBy: (meta.outbound_voice_updated_by as string) ?? null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/v1/assist/outbound-calls/control ────────────────────────────
+
+router.patch("/v1/assist/outbound-calls/control", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for outbound controls" });
+      return;
+    }
+
+    const tenant = await db.query.tenants.findFirst({
+      where: and(eq(tenants.id, req.tenantId), eq(tenants.active, true)),
+    });
+
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+    const body = req.body as {
+      paused?: boolean;
+      pausedReason?: string;
+      maxConcurrentCalls?: number;
+      drainQueued?: boolean;
+    };
+
+    const updatedMeta: Record<string, unknown> = {
+      ...meta,
+      ...(body.paused !== undefined && { outbound_voice_paused: Boolean(body.paused) }),
+      ...(body.pausedReason !== undefined && { outbound_voice_paused_reason: String(body.pausedReason).slice(0, 180) }),
+      ...(body.maxConcurrentCalls !== undefined && {
+        outbound_voice_max_concurrent_calls: Math.max(1, Math.min(Number(body.maxConcurrentCalls) || 1, 25)),
+      }),
+      outbound_voice_updated_at: new Date().toISOString(),
+      outbound_voice_updated_by: req.userId,
+    };
+
+    await db
+      .update(tenants)
+      .set({
+        metadata: updatedMeta,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenants.id, req.tenantId));
+
+    let drained = 0;
+    if (body.paused === true && body.drainQueued === true) {
+      const drainedRows = await db
+        .update(callAttempts)
+        .set({
+          status: "canceled",
+          outcome: "canceled_admin_pause",
+          nextAttemptAt: null,
+        })
+        .where(
+          and(
+            eq(callAttempts.tenantId, req.tenantId),
+            eq(callAttempts.direction, "outbound"),
+            inArray(callAttempts.status, ["queued", "retry_scheduled"]),
+          ),
+        )
+        .returning({ id: callAttempts.id });
+      drained = drainedRows.length;
+    }
+
+    res.json({ data: { ok: true, drained } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/outbound-calls/metrics ──────────────────────────────
+
+router.get("/v1/assist/outbound-calls/metrics", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+    const meta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+    const control = getOutboundControl(meta);
+
+    const grouped = await db
+      .select({
+        status: callAttempts.status,
+        count: sql<number>`count(*)`,
+      })
+      .from(callAttempts)
+      .where(
+        and(
+          eq(callAttempts.tenantId, tenantId),
+          eq(callAttempts.direction, "outbound"),
+        ),
+      )
+      .groupBy(callAttempts.status);
+
+    const statusCounts = grouped.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status ?? "unknown"] = Number(row.count ?? 0);
+      return acc;
+    }, {});
+
+    const retryScheduled = statusCounts.retry_scheduled ?? 0;
+    const queued = statusCounts.queued ?? 0;
+    const active = (statusCounts.dialing ?? 0) + (statusCounts.ringing ?? 0) + (statusCounts.answered ?? 0);
+    const completed = statusCounts.completed ?? 0;
+    const dnd = statusCounts.dnd ?? 0;
+    const blocked = statusCounts.blocked_compliance ?? 0;
+
+    const recent = await db
+      .select({
+        id: callAttempts.id,
+        status: callAttempts.status,
+        outcome: callAttempts.outcome,
+        attemptCount: callAttempts.attemptCount,
+        maxAttempts: callAttempts.maxAttempts,
+        nextAttemptAt: callAttempts.nextAttemptAt,
+        createdAt: callAttempts.createdAt,
+      })
+      .from(callAttempts)
+      .where(
+        and(
+          eq(callAttempts.tenantId, tenantId),
+          eq(callAttempts.direction, "outbound"),
+        ),
+      )
+      .orderBy(desc(callAttempts.createdAt))
+      .limit(30);
+
+    res.json({
+      data: {
+        totals: {
+          queued,
+          retryScheduled,
+          active,
+          completed,
+          dnd,
+          blocked,
+          total: grouped.reduce((sum, row) => sum + Number(row.count ?? 0), 0),
+        },
+        capacity: {
+          maxConcurrentCalls: control.maxConcurrentCalls,
+          active,
+          availableSlots: Math.max(0, control.maxConcurrentCalls - active),
+        },
+        statusCounts,
+        recent,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/outbound-calls/cancel/:callAttemptId ──────────────
+
+router.post("/v1/assist/outbound-calls/cancel/:callAttemptId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const callAttemptId = req.params.callAttemptId;
+
+    const [updated] = await db
+      .update(callAttempts)
+      .set({
+        status: "canceled",
+        outcome: "canceled_by_user",
+        nextAttemptAt: null,
+      })
+      .where(
+        and(
+          eq(callAttempts.tenantId, tenantId),
+          eq(callAttempts.id, callAttemptId),
+          eq(callAttempts.direction, "outbound"),
+        ),
+      )
+      .returning({ id: callAttempts.id, status: callAttempts.status, outcome: callAttempts.outcome });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Outbound call attempt not found" });
+      return;
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PUBLIC ROUTES (no Clerk auth, validates tenantId from DB) ──────────────
+
+// POST /api/v1/assist/chat — widget chat (public, no auth)
+publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantIdFromBody = String(req.body?.tenantId ?? "").trim();
+    if (!tenantIdFromBody) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "tenantId is required" });
+      return;
+    }
+
+    // Validate tenantId exists in DB
+    const tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, tenantIdFromBody),
+    });
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const originError = validateWidgetOrigin(req, tenant);
+    if (originError) {
+      res.status(403).json({ error: "FORBIDDEN", message: originError });
+      return;
+    }
+
+    const rateLimitError = enforcePublicRateLimit(req, tenant.id);
+    if (rateLimitError) {
+      res.status(429).json({ error: "RATE_LIMITED", message: rateLimitError });
+      return;
+    }
+
+    const tenantId = tenantIdFromBody;
+    const message = String(req.body?.message ?? "").trim();
+    const sessionId = req.body?.sessionId ? String(req.body.sessionId) : undefined;
+    const history = Array.isArray(req.body?.history)
+      ? req.body.history
+          .map((m: any) => ({ role: m?.role === "assistant" ? "assistant" : "user", content: String(m?.content ?? "") }))
+          .filter((m: any) => m.content.trim().length > 0)
+      : [];
+
+    if (!message) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "message is required" });
+      return;
+    }
+
+    const contact = (req.body?.contact ?? {}) as { name?: string; phone?: string; email?: string };
+    const prospect = await getOrCreateProspect({
+      tenantId,
+      name: contact.name,
+      phone: contact.phone,
+      email: contact.email,
+    });
+
+    const result = await runClientAssistant({
+      tenantId,
+      sessionId,
+      message,
+      history,
+      sessionType: "website_widget",
+      runId: req.body?.runId ? String(req.body.runId) : undefined,
+    });
+
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+
+    const channel = req.body?.channel === "email" ? "email" : "chat";
+
+    const [msg] = await db
+      .insert(messageAttempts)
+      .values({
+        tenantId,
+        prospectId: prospect.id,
+        channel,
+        direction: "outbound",
+        messageText: result.data.reply,
+        status: "pending_approval",
+      })
+      .returning({ id: messageAttempts.id });
+
+    res.json({
+      data: {
+        ...result.data,
+        messageId: msg.id,
+        status: "pending_approval",
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/assist/missed-call — missed call SMS (public, no auth)
+publicRouter.post("/missed-call", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantIdFromBody = String(req.body?.tenantId ?? "").trim();
+    if (!tenantIdFromBody) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "tenantId is required" });
+      return;
+    }
+
+    // Validate tenantId exists in DB
+    const tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, tenantIdFromBody),
+    });
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const originError = validateWidgetOrigin(req, tenant);
+    if (originError) {
+      res.status(403).json({ error: "FORBIDDEN", message: originError });
+      return;
+    }
+
+    const rateLimitError = enforcePublicRateLimit(req, tenant.id);
+    if (rateLimitError) {
+      res.status(429).json({ error: "RATE_LIMITED", message: rateLimitError });
+      return;
+    }
+
+    const tenantId = tenantIdFromBody;
+    const phone = String(req.body?.phone ?? "").trim();
+    const name = String(req.body?.name ?? "").trim() || "Caller";
+
+    if (!phone) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "phone is required" });
+      return;
+    }
+
+    const prospect = await getOrCreateProspect({ tenantId, name, phone });
+
+    const [session] = await db
+      .insert(assistantSessions)
+      .values({
+        tenantId,
+        prospectId: prospect.id,
+        sessionType: "missed_call_sms",
+      })
+      .returning({ id: assistantSessions.id });
+
+    const text = `Hi ${name}, sorry we missed your call. How can we help today? Reply STOP to opt out.`;
+
+    const [msg] = await db
+      .insert(messageAttempts)
+      .values({
+        tenantId,
+        prospectId: prospect.id,
+        channel: "sms",
+        direction: "outbound",
+        messageText: text,
+        status: "pending_approval",
+      })
+      .returning({ id: messageAttempts.id });
+
+    res.json({
+      data: {
+        sessionId: session.id,
+        messageId: msg.id,
+        status: "pending_approval",
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
+export { publicRouter as assistPublicRouter };

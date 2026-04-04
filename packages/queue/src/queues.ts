@@ -18,6 +18,7 @@ export const QUEUE_NAMES = {
   RESEARCH:   "research",
   OUTREACH:   "outreach",
   REPLY:      "reply",
+  OUTBOUND_CALL: "outbound_call",
 } as const;
 
 // ─── Job payload types ────────────────────────────────────────────────────────
@@ -39,6 +40,11 @@ export type ReplyJobData = {
   tenantId:  string;
   messageId: string;
   replyText: string;
+};
+
+export type OutboundCallJobData = {
+  tenantId: string;
+  callAttemptId: string;
 };
 
 // ─── Queue instances ──────────────────────────────────────────────────────────
@@ -70,5 +76,14 @@ export const replyQueue = new Queue<ReplyJobData>(QUEUE_NAMES.REPLY, {
     backoff:     { type: "exponential", delay: 2_000 },
     removeOnComplete: { count: 200 },
     removeOnFail:     { count: 500 },
+  },
+});
+
+export const outboundCallQueue = new Queue<OutboundCallJobData>(QUEUE_NAMES.OUTBOUND_CALL, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 1,
+    removeOnComplete: { count: 200 },
+    removeOnFail: { count: 500 },
   },
 });

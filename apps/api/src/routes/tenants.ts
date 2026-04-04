@@ -40,6 +40,18 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       approvedServices: (meta.approvedServices as string) ?? "",
       bookingLink:      (meta.bookingLink as string) ?? "",
       emailFromName:    (meta.emailFromName as string) ?? "",
+      calendarProvider: (meta.calendarProvider as string) ?? "cal_com",
+      providersList:    (meta.providersList as string) ?? "",
+      autoRespond:      Boolean(meta.autoRespond ?? false),
+      businessHours:    (meta.businessHours as string) ?? "",
+      twilioNumber:     (meta.twilioNumber as string) ?? "",
+      widgetAllowedOrigins: Array.isArray(meta.widget_allowed_origins)
+        ? meta.widget_allowed_origins
+        : typeof meta.widgetAllowedOrigins === "string"
+          ? meta.widgetAllowedOrigins
+          : "",
+      voiceRuntime: (meta.voice_runtime as string) ?? "twilio",
+      retellAgentId: (meta.retell_agent_id as string) ?? "",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
       hasApolloApiKey:       !!apolloApiKey,
       hasHunterApiKey:       !!hunterApiKey,
@@ -62,6 +74,14 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       approvedServices,
       bookingLink,
       emailFromName,
+      calendarProvider,
+      providersList,
+      autoRespond,
+      businessHours,
+      twilioNumber,
+      widgetAllowedOrigins,
+      voiceRuntime,
+      retellAgentId,
       enrichmentProvider,
       apolloApiKey,
       hunterApiKey,
@@ -71,6 +91,14 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       approvedServices?: string;
       bookingLink?:      string;
       emailFromName?:    string;
+      calendarProvider?: "cal_com" | "google_calendar";
+      providersList?: string;
+      autoRespond?: boolean;
+      businessHours?: string;
+      twilioNumber?: string;
+      widgetAllowedOrigins?: string | string[];
+      voiceRuntime?: "twilio" | "retell";
+      retellAgentId?: string;
       enrichmentProvider?: "mock" | "apollo" | "hunter";
       apolloApiKey?: string;
       hunterApiKey?: string;
@@ -93,6 +121,21 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(approvedServices !== undefined && { approvedServices }),
       ...(bookingLink      !== undefined && { bookingLink }),
       ...(emailFromName    !== undefined && { emailFromName }),
+      ...(calendarProvider !== undefined && { calendarProvider }),
+      ...(providersList    !== undefined && { providersList }),
+      ...(autoRespond      !== undefined && { autoRespond: Boolean(autoRespond) }),
+      ...(businessHours    !== undefined && { businessHours }),
+      ...(twilioNumber     !== undefined && { twilioNumber }),
+      ...(widgetAllowedOrigins !== undefined && {
+        widget_allowed_origins: Array.isArray(widgetAllowedOrigins)
+          ? widgetAllowedOrigins.map((value) => String(value).trim()).filter(Boolean)
+          : String(widgetAllowedOrigins)
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+      }),
+      ...(voiceRuntime !== undefined && { voice_runtime: voiceRuntime === "retell" ? "retell" : "twilio" }),
+      ...(retellAgentId !== undefined && { retell_agent_id: retellAgentId.trim() }),
       ...(enrichmentProvider !== undefined && { enrichmentProvider }),
       ...(apolloApiKey !== undefined && apolloApiKey.trim().length > 0 && { apolloApiKey: apolloApiKey.trim() }),
       ...(hunterApiKey !== undefined && hunterApiKey.trim().length > 0 && { hunterApiKey: hunterApiKey.trim() }),

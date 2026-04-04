@@ -11,7 +11,9 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "ignoreDeprecations": "5.0",
+    "jsx": "react-jsx"
   },
-  "exclude": ["node_modules", "**/dist", "**/.next", "**/migrations"]
+  "exclude": ["node_modules", "**/dist", "**/.next", "**/migrations", "apps/web", "scripts"]
 }

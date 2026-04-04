@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 type Session = {
   id: string;

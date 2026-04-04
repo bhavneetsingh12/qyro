@@ -1,0 +1,391 @@
+import express, { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
+import { db } from "@qyro/db";
+import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact } from "@qyro/db";
+import { and, desc, eq, or } from "drizzle-orm";
+import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
+import { compactHistory, shouldCompact } from "@qyro/agents/compact";
+import { outboundCallQueue } from "@qyro/queue";
+
+const router: ExpressRouter = Router();
+router.use(express.urlencoded({ extended: true }));
+
+function twimlSay(text: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${text}</Say></Response>`;
+}
+
+function twimlGatherAndSay(text: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="/api/v1/voice/turn" method="POST" speechTimeout="auto"><Say>${text}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
+}
+
+function twimlGatherAndSayWithAction(actionUrl: string, text: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${actionUrl}" method="POST" speechTimeout="auto"><Say>${text}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
+}
+
+function normalizePhone(value?: string): string {
+  return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
+function isDndRequest(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd)\b/.test(lowered);
+}
+
+function getVoiceRuntime(metaRaw: unknown): "retell" | "twilio" {
+  const meta = metaRaw && typeof metaRaw === "object" ? (metaRaw as Record<string, unknown>) : {};
+  const raw = String(meta.voice_runtime ?? "twilio").trim().toLowerCase();
+  return raw === "retell" ? "retell" : "twilio";
+}
+
+function getRetellAgentId(metaRaw: unknown): string {
+  const meta = metaRaw && typeof metaRaw === "object" ? (metaRaw as Record<string, unknown>) : {};
+  const fromMeta = String(meta.retell_agent_id ?? "").trim();
+  if (fromMeta) return fromMeta;
+  return String(process.env.RETELL_AGENT_ID_DEFAULT ?? "").trim();
+}
+
+function twimlRetellRedirect(agentId: string): string {
+  const base = String(process.env.RETELL_BASE_URL ?? "https://api.retellai.com").replace(/\/$/, "");
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${base}/twilio-voice-webhook/${encodeURIComponent(agentId)}</Redirect></Response>`;
+}
+
+function mapTwilioStatusToPipeline(status: string): string {
+  const normalized = status.toLowerCase();
+  if (normalized === "initiated") return "dialing";
+  if (normalized === "ringing") return "ringing";
+  if (normalized === "in-progress") return "answered";
+  if (normalized === "completed") return "completed";
+  if (normalized === "no-answer") return "no_answer";
+  if (normalized === "busy") return "busy";
+  if (normalized === "failed") return "failed";
+  if (normalized === "canceled") return "canceled";
+  return normalized || "unknown";
+}
+
+function getNextRetryDate(attemptCount: number): Date | null {
+  const mins = [15, 120, 1440, 4320][Math.max(0, attemptCount - 1)];
+  if (!mins) return null;
+  return new Date(Date.now() + mins * 60 * 1000);
+}
+
+async function findTenantByTwilioNumber(toPhone: string) {
+  const activeTenants = await db.query.tenants.findMany({
+    where: eq(tenants.active, true),
+  });
+
+  const target = normalizePhone(toPhone);
+  return activeTenants.find((t) => {
+    const meta = (t.metadata as Record<string, unknown>) ?? {};
+    const twilio = typeof meta.twilio_number === "string" ? meta.twilio_number : "";
+    return normalizePhone(twilio) === target;
+  }) ?? null;
+}
+
+async function findProspectByPhone(tenantId: string, fromPhone: string) {
+  const target = normalizePhone(fromPhone);
+  if (!target) return null;
+
+  const prospects = await db.query.prospectsRaw.findMany({
+    where: eq(prospectsRaw.tenantId, tenantId),
+    orderBy: desc(prospectsRaw.createdAt),
+    limit: 200,
+  });
+
+  return prospects.find((p) => normalizePhone(p.phone ?? "") === target) ?? null;
+}
+
+router.post("/incoming", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const toPhone = String(req.body.To ?? "");
+    const fromPhone = String(req.body.From ?? "");
+    const callSid = String(req.body.CallSid ?? "");
+
+    const tenant = await findTenantByTwilioNumber(toPhone);
+    if (!tenant) {
+      res.type("text/xml").send(twimlSay("We could not route your call. Please try again later."));
+      return;
+    }
+
+    // ── Retell runtime path ───────────────────────────────────────────────────
+    const runtime = getVoiceRuntime(tenant.metadata);
+    if (runtime === "retell") {
+      const agentId = getRetellAgentId(tenant.metadata);
+      if (agentId) {
+        // Create a minimal session record for audit trail.
+        // callAttempt is created by the Retell call-events or tool endpoints.
+        await db.insert(assistantSessions).values({
+          tenantId: tenant.id,
+          sessionType: "voice_inbound",
+        });
+        res.type("text/xml").send(twimlRetellRedirect(agentId));
+        return;
+      }
+      console.warn(`[voice/incoming] voice_runtime=retell but no agent ID configured for tenant ${tenant.id} — falling back to Twilio`);
+    }
+
+    // ── Twilio TwiML path (default) ───────────────────────────────────────────
+    const prospect = await findProspectByPhone(tenant.id, fromPhone);
+
+    const [session] = await db
+      .insert(assistantSessions)
+      .values({
+        tenantId: tenant.id,
+        prospectId: prospect?.id,
+        sessionType: "voice_inbound",
+      })
+      .returning({ id: assistantSessions.id });
+
+    if (prospect?.id) {
+      await db.insert(callAttempts).values({
+        tenantId: tenant.id,
+        prospectId: prospect.id,
+        twilioCallSid: callSid || null,
+        outcome: "in_progress",
+      });
+    }
+
+    const businessName = tenant.name || "the business";
+    const greet = await greeting({ businessName });
+    const reply = greet.ok ? greet.data.reply : "Hi, you've reached the business. I'm an AI assistant. How can I help you today?";
+
+    const say = reply;
+    const action = `/api/v1/voice/turn?sessionId=${encodeURIComponent(session.id)}`;
+    res.type("text/xml").send(twimlGatherAndSayWithAction(action, say));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/outbound/twiml", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const callAttemptId = String(req.query.callAttemptId ?? req.body?.callAttemptId ?? "").trim();
+    if (!callAttemptId) {
+      res.type("text/xml").send(twimlSay("We could not start this call. Please try again later."));
+      return;
+    }
+
+    const attempt = await db.query.callAttempts.findFirst({
+      where: eq(callAttempts.id, callAttemptId),
+    });
+
+    if (!attempt) {
+      res.type("text/xml").send(twimlSay("This call request was not found."));
+      return;
+    }
+
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, attempt.tenantId) });
+    const businessName = tenant?.name || "the business";
+
+    const [session] = await db
+      .insert(assistantSessions)
+      .values({
+        tenantId: attempt.tenantId,
+        prospectId: attempt.prospectId,
+        sessionType: "voice_outbound",
+      })
+      .returning({ id: assistantSessions.id });
+
+    const greet = await greeting({ businessName });
+    const greetingText = greet.ok
+      ? greet.data.reply
+      : "Hi, this is an AI assistant calling from the business. How can I help you today?";
+
+    const safeGreeting = `${greetingText} You can say stop at any time to opt out of future calls.`;
+    const action = `/api/v1/voice/turn?sessionId=${encodeURIComponent(session.id)}&callAttemptId=${encodeURIComponent(callAttemptId)}`;
+    res.type("text/xml").send(twimlGatherAndSayWithAction(action, safeGreeting));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/turn", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const callSid = String(req.body.CallSid ?? "");
+    const speech = String(req.body.SpeechResult ?? req.body.Body ?? "").trim();
+    const sessionId = String(req.query.sessionId ?? req.body.sessionId ?? "").trim();
+    const callAttemptId = String(req.query.callAttemptId ?? req.body.callAttemptId ?? "").trim();
+
+    if (!speech) {
+      res.type("text/xml").send(twimlGatherAndSay("I did not catch that. Could you repeat your request?"));
+      return;
+    }
+
+    if (isDndRequest(speech)) {
+      if (callAttemptId) {
+        const attempt = await db.query.callAttempts.findFirst({
+          where: eq(callAttempts.id, callAttemptId),
+        });
+
+        if (attempt) {
+          const prospect = await db.query.prospectsRaw.findFirst({
+            where: and(eq(prospectsRaw.id, attempt.prospectId), eq(prospectsRaw.tenantId, attempt.tenantId)),
+          });
+
+          await db.insert(doNotContact).values({
+            tenantId: attempt.tenantId,
+            phone: prospect?.phone ?? null,
+            email: prospect?.email ?? null,
+            domain: prospect?.domain ?? null,
+            reason: "unsubscribe",
+          });
+
+          await db
+            .update(callAttempts)
+            .set({
+              status: "dnd",
+              outcome: "do_not_contact",
+              dndAt: new Date(),
+              nextAttemptAt: null,
+            })
+            .where(eq(callAttempts.id, callAttemptId));
+
+          await db
+            .update(callAttempts)
+            .set({
+              status: "dnd",
+              outcome: "do_not_contact",
+              dndAt: new Date(),
+              nextAttemptAt: null,
+            })
+            .where(
+              and(
+                eq(callAttempts.tenantId, attempt.tenantId),
+                eq(callAttempts.prospectId, attempt.prospectId),
+                eq(callAttempts.direction, "outbound"),
+                or(eq(callAttempts.status, "queued"), eq(callAttempts.status, "retry_scheduled")) as any,
+              ),
+            );
+        }
+      }
+
+      res.type("text/xml").send(twimlSay("Understood. We will not call you again. Goodbye."));
+      return;
+    }
+
+    const session = sessionId
+      ? await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) })
+      : null;
+
+    if (!session) {
+      res.type("text/xml").send(twimlSay("Your session was not found. Please call again so we can help."));
+      return;
+    }
+
+    // Load stored conversation history and compact if needed
+    type HistoryEntry = { role: "user" | "assistant"; content: string };
+    const rawHistory = (session.conversationHistory as HistoryEntry[] | null) ?? [];
+
+    let history: HistoryEntry[] = rawHistory;
+    if (shouldCompact(session.turnCount)) {
+      try {
+        const compacted = await compactHistory({
+          sessionId: session.id,
+          messages: rawHistory.map((m) => ({ role: m.role, content: m.content })),
+        });
+        history = compacted
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: typeof m.content === "string" ? m.content : "" }));
+      } catch (err) {
+        console.error("[voice/turn] compaction failed, proceeding with raw history:", err);
+      }
+    }
+
+    const turn = await processTurn({
+      tenantId: session.tenantId,
+      sessionId: session.id,
+      message: speech,
+      history,
+      runId: callSid || undefined,
+    });
+
+    if (!turn.ok) {
+      const transfer = await transferToStaff();
+      const transferReply = transfer.ok
+        ? transfer.data.reply
+        : "I am connecting you with a team member now.";
+      res.type("text/xml").send(twimlSay(transferReply));
+      return;
+    }
+
+    const reply = turn.data.reply;
+
+    // Persist this turn to conversation history
+    const updatedHistory: HistoryEntry[] = [
+      ...history,
+      { role: "user", content: speech },
+      { role: "assistant", content: reply },
+    ];
+    await db
+      .update(assistantSessions)
+      .set({ conversationHistory: updatedHistory })
+      .where(eq(assistantSessions.id, session.id));
+
+    res.type("text/xml").send(twimlGatherAndSay(reply));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/status", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const callSid = String(req.body.CallSid ?? "");
+    const callStatus = String(req.body.CallStatus ?? "");
+    const durationRaw = String(req.body.CallDuration ?? "0");
+    const duration = Number.parseInt(durationRaw, 10) || 0;
+    const queryCallAttemptId = String(req.query.callAttemptId ?? "").trim();
+
+    if (!callSid && !queryCallAttemptId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "CallSid or callAttemptId is required" });
+      return;
+    }
+
+    if (process.env.NODE_ENV === "production" && !callSid) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "CallSid is required in production" });
+      return;
+    }
+
+    const attempt = await db.query.callAttempts.findFirst({
+      where: callSid && queryCallAttemptId
+        ? and(eq(callAttempts.twilioCallSid, callSid), eq(callAttempts.id, queryCallAttemptId))
+        : callSid
+          ? eq(callAttempts.twilioCallSid, callSid)
+          : eq(callAttempts.id, queryCallAttemptId),
+    });
+
+    if (attempt) {
+      const pipelineStatus = mapTwilioStatusToPipeline(callStatus);
+      const retryable = ["no_answer", "busy", "failed"].includes(pipelineStatus);
+      const attemptsUsed = attempt.attemptCount ?? 0;
+      const maxAttempts = attempt.maxAttempts ?? 4;
+      const shouldRetry = attempt.direction === "outbound" && retryable && attemptsUsed < maxAttempts;
+      const retryAt = shouldRetry ? getNextRetryDate(attemptsUsed) : null;
+
+      await db
+        .update(callAttempts)
+        .set({
+          duration,
+          outcome: pipelineStatus || callStatus || attempt.outcome,
+          status: shouldRetry ? "retry_scheduled" : (pipelineStatus || attempt.status),
+          nextAttemptAt: retryAt,
+        })
+        .where(eq(callAttempts.id, attempt.id));
+
+      if (shouldRetry && retryAt) {
+        const delayMs = Math.max(0, retryAt.getTime() - Date.now());
+        await outboundCallQueue.add(
+          "outbound-call",
+          { tenantId: attempt.tenantId, callAttemptId: attempt.id },
+          {
+            delay: delayMs,
+            jobId: `outbound-call:${attempt.id}:${attemptsUsed + 1}`,
+          },
+        );
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

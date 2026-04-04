@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 type Appointment = {
   id: string;
@@ -39,10 +39,9 @@ export default async function BookingsPage() {
     try {
       const res = await fetch(`${API_URL}/api/appointments?limit=100`, {
         headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
       });
       if (res.ok) {
-        const body = await res.json();
+        const body = (await res.json()) as { data?: Appointment[] };
         appointments = body.data ?? [];
       } else {
         fetchError = true;

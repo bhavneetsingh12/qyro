@@ -4,7 +4,7 @@ import { useState, useRef, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Search, X, Loader2, MapPin } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 // Common US locations for autocomplete
 const COMMON_LOCATIONS = [

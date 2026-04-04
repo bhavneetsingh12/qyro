@@ -114,3 +114,11 @@ pnpm --filter @qyro/queue worker:outreach
 4. Verify n8n workers are running
 5. Run a single test lead through the full pipeline manually before opening to tenants
 6. Monitor error logs for 30 minutes post-deploy
+
+---
+
+## Solo rollout tracker
+
+If you are deploying solo, use this checklist as the source of truth and check items in order:
+
+- docs/SOLO_ROLLOUT_CHECKLIST.md

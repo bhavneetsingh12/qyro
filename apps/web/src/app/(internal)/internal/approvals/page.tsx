@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import ApprovalQueue, { type QueueItem } from "./ApprovalQueue";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export default async function ApprovalsPage() {
   const { getToken } = await auth();

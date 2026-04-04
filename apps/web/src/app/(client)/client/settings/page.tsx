@@ -4,13 +4,18 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Save, CheckCircle } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
 type SettingsForm = {
   name:             string;
   approvedServices: string;
   bookingLink:      string;
   emailFromName:    string;
+  calendarProvider: string;
+  providersList:    string;
+  autoRespond:      boolean;
+  businessHours:    string;
+  twilioNumber:     string;
 };
 
 export default function ClientSettingsPage() {
@@ -21,6 +26,11 @@ export default function ClientSettingsPage() {
     approvedServices: "",
     bookingLink:      "",
     emailFromName:    "",
+    calendarProvider: "cal_com",
+    providersList:    "",
+    autoRespond:      false,
+    businessHours:    "",
+    twilioNumber:     "",
   });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -42,6 +52,11 @@ export default function ClientSettingsPage() {
             approvedServices: data.approvedServices ?? "",
             bookingLink:      data.bookingLink      ?? "",
             emailFromName:    data.emailFromName    ?? "",
+            calendarProvider: data.calendarProvider ?? "cal_com",
+            providersList:    data.providersList    ?? "",
+            autoRespond:      !!data.autoRespond,
+            businessHours:    data.businessHours    ?? "",
+            twilioNumber:     data.twilioNumber     ?? "",
           });
         }
       } catch {
@@ -90,7 +105,7 @@ export default function ClientSettingsPage() {
       {loading ? (
         <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] p-6 space-y-5">
           <div className="skeleton h-4 w-32" />
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
             <div key={i} className="space-y-2">
               <div className="skeleton h-3 w-28" />
               <div className="skeleton h-9 w-full" />
@@ -139,6 +154,72 @@ export default function ClientSettingsPage() {
                 placeholder="https://calendly.com/your-business"
               />
             </FormField>
+
+            <FormField
+              label="Calendar provider"
+              hint="Select the booking backend used by the assistant."
+            >
+              <select
+                className="input"
+                value={form.calendarProvider}
+                onChange={(e) => setForm({ ...form, calendarProvider: e.target.value })}
+              >
+                <option value="cal_com">Cal.com</option>
+                <option value="google_calendar">Google Calendar</option>
+              </select>
+            </FormField>
+
+            <FormField
+              label="Providers / staff list"
+              hint="Comma-separated staff names shown for provider-aware booking flows."
+            >
+              <input
+                className="input"
+                value={form.providersList}
+                onChange={(e) => setForm({ ...form, providersList: e.target.value })}
+                placeholder="Sarah, Mike, Front Desk"
+              />
+            </FormField>
+
+            <FormField
+              label="Business hours"
+              hint="Natural text format used for assistant guidance."
+            >
+              <input
+                className="input"
+                value={form.businessHours}
+                onChange={(e) => setForm({ ...form, businessHours: e.target.value })}
+                placeholder="Mon-Fri 9am-6pm, Sat 10am-2pm"
+              />
+            </FormField>
+
+            <FormField
+              label="Twilio number"
+              hint="Inbound voice number displayed for quick reference."
+            >
+              <input
+                className="input"
+                value={form.twilioNumber}
+                onChange={(e) => setForm({ ...form, twilioNumber: e.target.value })}
+                placeholder="+15035551234"
+              />
+            </FormField>
+
+            <div className="flex items-start gap-3 rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5">
+              <input
+                id="autoRespond"
+                type="checkbox"
+                checked={form.autoRespond}
+                onChange={(e) => setForm({ ...form, autoRespond: e.target.checked })}
+                className="mt-0.5"
+              />
+              <div>
+                <label htmlFor="autoRespond" className="text-sm font-medium text-stone-700">Enable auto-respond</label>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  When enabled, assistant-approved replies can be sent automatically.
+                </p>
+              </div>
+            </div>
 
             <FormField
               label="Email from name"

@@ -6,7 +6,10 @@
     ".": "./src/index.ts",
     "./runner": "./src/runner.ts",
     "./budget": "./src/budget.ts",
-    "./leadDiscovery": "./src/agents/leadDiscovery.ts"
+    "./leadDiscovery": "./src/agents/leadDiscovery.ts",
+    "./clientAssistant": "./src/agents/clientAssistant.ts",
+    "./voiceAssistant": "./src/agents/voiceAssistant.ts",
+    "./compact": "./src/compact.ts"
   },
   "dependencies": {
     "@qyro/db": "workspace:*",

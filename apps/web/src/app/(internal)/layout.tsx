@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import InternalSidebar from "@/components/sidebar/InternalSidebar";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3005";
+const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
 export default async function InternalLayout({
   children,

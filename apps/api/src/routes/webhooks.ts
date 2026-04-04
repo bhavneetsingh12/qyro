@@ -132,10 +132,11 @@ router.post("/nightly/ingest", async (req: Request, res: Response, next: NextFun
 			const startedAt = new Date();
 			const maxResults = Math.max(1, Math.min(50, run.maxResults ?? 15));
 
+			const normalizedLocation = typeof run.location === "string" ? run.location : run.location.locations.join(", ");
 			const discovery = await runLeadDiscovery({
 				tenantId: run.tenantId,
 				niche: run.niche,
-				location: run.location,
+				location: normalizedLocation,
 				maxResults,
 			});
 

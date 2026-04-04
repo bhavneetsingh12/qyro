@@ -1,0 +1,20 @@
+{
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.pnpm": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.pnpm": true
+  },
+  "typescript.tsserver.watchOptions": {
+    "excludeDirectories": [
+      "**/node_modules",
+      "**/.pnpm",
+      "**/.git",
+      "**/.next",
+      "**/dist"
+    ]
+  },
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false
+}

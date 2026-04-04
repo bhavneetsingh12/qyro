@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@qyro/db": ["../packages/db/src/index.ts"],
+      "@qyro/db/*": ["../packages/db/src/*"],
+      "@qyro/queue": ["../packages/queue/src/index.ts"],
+      "@qyro/queue/*": ["../packages/queue/src/*"],
+      "@qyro/agents": ["../packages/agents/src/index.ts"],
+      "@qyro/agents/*": ["../packages/agents/src/*"],
+      "@qyro/prompts": ["../packages/prompts/src/index.ts"],
+      "@qyro/prompts/*": ["../packages/prompts/src/*"]
+    }
+  },
+  "include": ["**/*.ts"],
+  "exclude": []
+}

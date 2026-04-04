@@ -152,6 +152,18 @@ export const callAttempts = pgTable("call_attempts", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   prospectId:     uuid("prospect_id").notNull().references(() => prospectsRaw.id),
+  direction:      text("direction").notNull().default("inbound"), // "inbound" | "outbound"
+  status:         text("status").notNull().default("queued"),
+  attemptCount:   integer("attempt_count").notNull().default(0),
+  maxAttempts:    integer("max_attempts").notNull().default(4),
+  nextAttemptAt:  timestamp("next_attempt_at"),
+  lastAttemptAt:  timestamp("last_attempt_at"),
+  source:         text("source"), // "lead_manual" | "campaign" | "callback"
+  complianceBlockedReason: text("compliance_blocked_reason"),
+  bookingStatus:  text("booking_status").notNull().default("none"), // "none" | "proposed" | "confirmed" | "declined"
+  bookingRef:     text("booking_ref"), // appointments.id when booked
+  dndAt:          timestamp("dnd_at"),
+  scheduledBy:    uuid("scheduled_by").references(() => users.id),
   twilioCallSid:  text("twilio_call_sid"),
   duration:       integer("duration"),               // seconds
   outcome:        text("outcome"),
@@ -212,6 +224,7 @@ export const assistantSessions = pgTable("assistant_sessions", {
   tokenCountBeforeComp: integer("token_count_before_comp"),
   tokenCountAfterComp:  integer("token_count_after_comp"),
   escalated:            boolean("escalated").notNull().default(false),
+  conversationHistory:  jsonb("conversation_history").notNull().default([]),  // [{role, content}] for voice turns
   endedAt:              timestamp("ended_at"),
   createdAt:            timestamp("created_at").defaultNow().notNull(),
 });

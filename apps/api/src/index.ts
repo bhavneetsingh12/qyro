@@ -3,16 +3,18 @@ import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
-import { requireClerkAuth } from "./middleware/auth";
+import { requireClerkAuth, validateRetellRequest, validateTwilioSignature } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
 import leadsRouter from "./routes/leads";
 import campaignsRouter from "./routes/campaigns";
-import assistRouter from "./routes/assist";
+import assistRouter, { assistPublicRouter } from "./routes/assist";
 import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
+import voiceRouter from "./routes/voice";
+import retellRouter from "./routes/retell";
 
 const app: Express = express();
-const PORT = Number(process.env.PORT ?? 3005);
+const PORT = Number(process.env.PORT ?? 3001);
 
 // ─── Global middleware ────────────────────────────────────────────────────────
 
@@ -28,8 +30,12 @@ app.use(cors({
   credentials: true,
 }));
 
-// Parse JSON bodies
-app.use(express.json());
+// Parse JSON bodies — capture rawBody for HMAC signature verification
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as unknown as Record<string, unknown>).rawBody = buf;
+  },
+}));
 
 // Clerk session verification on all requests (attaches auth to req).
 // Does not reject unauthenticated requests — that's done per-route.
@@ -46,9 +52,12 @@ app.get("/", (_req: Request, res: Response) => {
       health: "GET /health",
       leads: "GET|POST /api/leads",
       campaigns: "GET|POST /api/campaigns",
-      assist: "POST /api/assist",
-      tenants: "GET /api/v1/tenants",
-      webhooks: "POST /webhooks"
+      assistPublic: "POST /api/v1/assist/chat | POST /api/v1/assist/missed-call",
+      assistAuthed: "GET /api/sessions | GET /api/appointments | GET/POST /api/v1/assist/*",
+      tenants: "GET|PATCH /api/v1/tenants/settings",
+      voice: "POST /api/v1/voice/*",
+      retell: "POST /api/v1/retell/*",
+      webhooks: "POST /webhooks/nightly/ingest | POST /webhooks/morning/digest"
     }
   });
 });
@@ -59,6 +68,11 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // Webhooks use their own signature verification — not Clerk auth
 app.use("/webhooks", webhooksRouter);
+app.use("/api/v1/voice", validateTwilioSignature, voiceRouter);
+app.use("/api/v1/retell", validateRetellRequest, retellRouter);
+
+// Public assist routes (widget chat) — no Clerk auth, validates tenantId from DB
+app.use("/api/v1/assist", assistPublicRouter);
 
 // ─── Authenticated + tenant-scoped routes ─────────────────────────────────────
 // requireClerkAuth rejects 401 if no valid Clerk session.
