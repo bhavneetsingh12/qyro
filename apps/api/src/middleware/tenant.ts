@@ -30,17 +30,29 @@ async function provisionTenantForClerkUser(clerkUserId: string) {
     })
     .returning();
 
-  const [user] = await adminDb
-    .insert(users)
-    .values({
-      tenantId: tenant.id,
-      clerkId: clerkUserId,
-      email: `${clerkUserId}@clerk.local`,
-      name: null,
-      role: "owner",
-      active: true,
-    })
-    .returning();
+  let user;
+  try {
+    [user] = await adminDb
+      .insert(users)
+      .values({
+        tenantId: tenant.id,
+        clerkId: clerkUserId,
+        email: `${clerkUserId}@clerk.local`,
+        name: null,
+        role: "owner",
+        active: true,
+      })
+      .returning();
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code !== "23505") throw err;
+
+    const existing = await adminDb.query.users.findFirst({
+      where: eq(users.clerkId, clerkUserId),
+    });
+    if (!existing) throw err;
+    user = existing;
+  }
 
   return { tenant, user };
 }

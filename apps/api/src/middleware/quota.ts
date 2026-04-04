@@ -6,6 +6,17 @@ import { sql } from "drizzle-orm";
 import { adminDb, plans, tenants } from "@qyro/db";
 import { eq } from "drizzle-orm";
 
+async function ensureDefaultPlans() {
+  await adminDb.execute(sql`
+    INSERT INTO plans (name, daily_input_tokens, daily_output_tokens, max_seats, price_monthly, setup_fee)
+    VALUES
+      ('starter', 50000, 20000, 2, 4900, 0),
+      ('growth', 200000, 80000, 5, 9900, 0),
+      ('agency', 800000, 300000, 20, 29900, 50000)
+    ON CONFLICT (name) DO NOTHING
+  `);
+}
+
 export class QuotaExceededError extends Error {
   readonly code = "QUOTA_EXCEEDED";
   constructor(
@@ -38,7 +49,7 @@ async function getTodayUsage(tenantId: string): Promise<{ input: number; output:
 
 // Returns the plan limits for the tenant
 async function getPlanLimits(tenantId: string): Promise<{ dailyInputTokens: number; dailyOutputTokens: number }> {
-  const result = await adminDb
+  const fetch = async () => adminDb
     .select({
       dailyInputTokens: plans.dailyInputTokens,
       dailyOutputTokens: plans.dailyOutputTokens,
@@ -47,6 +58,16 @@ async function getPlanLimits(tenantId: string): Promise<{ dailyInputTokens: numb
     .innerJoin(plans, eq(tenants.plan, plans.name))
     .where(eq(tenants.id, tenantId))
     .limit(1);
+
+  let result = await fetch();
+  if (!result.length) {
+    await ensureDefaultPlans();
+    await adminDb
+      .update(tenants)
+      .set({ plan: "starter", updatedAt: new Date() })
+      .where(eq(tenants.id, tenantId));
+    result = await fetch();
+  }
 
   if (!result.length) throw new Error(`No plan found for tenant ${tenantId}`);
   return result[0];
