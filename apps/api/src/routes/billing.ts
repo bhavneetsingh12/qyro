@@ -256,6 +256,21 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
     }
 
     const baseAppUrl = process.env.APP_BASE_URL ?? "https://qyro.us";
+
+    const productLabels: Record<string, string> = {
+      lead: "QYRO Lead",
+      assist: "QYRO Assist",
+      bundle: "QYRO Bundle",
+    };
+    const planLabels: Record<string, string> = {
+      starter: "Starter",
+      growth: "Growth",
+    };
+    const sessionLabel =
+      product && plan
+        ? `${productLabels[product] ?? product} — ${planLabels[plan] ?? plan}`
+        : "QYRO";
+
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
@@ -267,6 +282,11 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
       ],
       success_url: successUrl ?? `${baseAppUrl}/products?billing=success`,
       cancel_url: cancelUrl ?? `${baseAppUrl}/products?billing=canceled`,
+      custom_text: {
+        submit: {
+          message: `You're subscribing to ${sessionLabel}. You can manage or cancel your subscription at any time from your account.`,
+        },
+      },
       metadata: {
         tenantId,
       },
