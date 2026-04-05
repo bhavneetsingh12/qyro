@@ -22,6 +22,9 @@ export default async function ProductsPage() {
       });
       if (res.ok) {
         const body = await res.json();
+        if (body.isMasterAdmin === true) {
+          redirect("/internal/admin");
+        }
         productAccess = body.productAccess ?? productAccess;
       }
     }

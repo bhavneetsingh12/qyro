@@ -24,8 +24,9 @@ export default async function InternalLayout({
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
         const access = settings.productAccess ?? { lead: true, assist: true };
+        const isMasterAdmin = settings.isMasterAdmin === true;
         canSwitchToAssist = access.lead === true && access.assist === true;
-        if (access.lead === false) {
+        if (!isMasterAdmin && access.lead === false) {
           redirect("/products");
         }
       }
