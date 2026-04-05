@@ -207,6 +207,12 @@ All items below were implemented and deployed across API/web/DB.
 [x] Middleware updated to keep / public while protecting app routes
 [x] Product selector sign-out added so users are never trapped before choosing a product
 [x] Landing page upgraded with Product/Solutions/Pricing sections and improved nav/CTA structure
+[x] Footer legal links: Terms, Privacy, Contact added to homepage footer
+[x] Sign-in page: ToS/Privacy policy acknowledgment line added below Clerk component
+[x] CTA buttons (Get started, Start for free, Create free account) now route to /sign-up not /sign-in
+[x] Pricing section rebuilt: real Starter ($200/mo) and Pro ($400/mo) tier cards with feature lists
+[x] Contact page created at /contact with support@qyro.us and demo booking link
+[x] Public widget rate limiting migrated from in-memory Map to Redis-backed INCR/EXPIRE (persists across restarts)
 ```
 
 Production configuration work completed during the same window:

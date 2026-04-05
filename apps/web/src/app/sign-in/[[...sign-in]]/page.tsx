@@ -1,4 +1,5 @@
 import { SignIn } from "@clerk/nextjs";
+import Link from "next/link";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
 export default function SignInPage() {
@@ -18,6 +19,12 @@ export default function SignInPage() {
             },
           }}
         />
+        <p className="text-center text-xs text-stone-400 mt-5">
+          By continuing, you agree to our{" "}
+          <Link href="/terms" className="text-stone-600 hover:text-stone-900 underline">Terms of Service</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="text-stone-600 hover:text-stone-900 underline">Privacy Policy</Link>
+        </p>
       </div>
     </div>
   );

@@ -10,15 +10,14 @@ import { db } from "@qyro/db";
 import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions } from "@qyro/db";
 import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
-import { outboundCallQueue } from "@qyro/queue";
+import { outboundCallQueue, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
 const publicRouter: ExpressRouter = Router();
 const OUTBOUND_CONTROL_ROLES = new Set(["owner", "admin", "operator"]);
-const PUBLIC_RATE_WINDOW_MS = 60 * 1000;
+const PUBLIC_RATE_WINDOW_SEC = 60;
 const PUBLIC_RATE_LIMIT = 30;
-const publicRateBuckets = new Map<string, { count: number; resetAt: number }>();
 const CALL_ATTEMPTS_SCHEMA_TTL_MS = 60_000;
 
 type CallAttemptsSchemaMode = "modern" | "legacy";
@@ -127,22 +126,15 @@ function validateWidgetOrigin(req: Request, tenant: { metadata: unknown }): stri
   return allowedOrigins.includes(normalizeOrigin(origin)) ? null : "Origin is not allowed for this tenant";
 }
 
-function enforcePublicRateLimit(req: Request, tenantId: string): string | null {
-  const now = Date.now();
-  const key = `${tenantId}:${getRequestIp(req)}`;
-  const bucket = publicRateBuckets.get(key);
-
-  if (!bucket || bucket.resetAt <= now) {
-    publicRateBuckets.set(key, { count: 1, resetAt: now + PUBLIC_RATE_WINDOW_MS });
-    return null;
+async function enforcePublicRateLimit(req: Request, tenantId: string): Promise<string | null> {
+  const key = `rl:widget:${tenantId}:${getRequestIp(req)}`;
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, PUBLIC_RATE_WINDOW_SEC);
   }
-
-  if (bucket.count >= PUBLIC_RATE_LIMIT) {
+  if (count > PUBLIC_RATE_LIMIT) {
     return "Too many requests";
   }
-
-  bucket.count += 1;
-  publicRateBuckets.set(key, bucket);
   return null;
 }
 
@@ -910,7 +902,7 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const rateLimitError = enforcePublicRateLimit(req, tenant.id);
+    const rateLimitError = await enforcePublicRateLimit(req, tenant.id);
     if (rateLimitError) {
       res.status(429).json({ error: "RATE_LIMITED", message: rateLimitError });
       return;
@@ -1002,7 +994,7 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       return;
     }
 
-    const rateLimitError = enforcePublicRateLimit(req, tenant.id);
+    const rateLimitError = await enforcePublicRateLimit(req, tenant.id);
     if (rateLimitError) {
       res.status(429).json({ error: "RATE_LIMITED", message: rateLimitError });
       return;
