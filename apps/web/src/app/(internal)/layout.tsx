@@ -11,6 +11,7 @@ export default async function InternalLayout({
 }) {
   const { getToken } = await auth();
   const token = await getToken();
+  let canSwitchToAssist = false;
 
   // Entitlement check — redirect to product selector if Lead not enabled
   let approvalCount = 0;
@@ -23,6 +24,7 @@ export default async function InternalLayout({
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
         const access = settings.productAccess ?? { lead: true, assist: true };
+        canSwitchToAssist = access.lead === true && access.assist === true;
         if (access.lead === false) {
           redirect("/products");
         }
@@ -47,7 +49,7 @@ export default async function InternalLayout({
 
   return (
     <div className="flex h-screen bg-[#FAFAF8]">
-      <InternalSidebar approvalCount={approvalCount} />
+      <InternalSidebar approvalCount={approvalCount} canSwitchToAssist={canSwitchToAssist} />
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
         {children}
       </main>

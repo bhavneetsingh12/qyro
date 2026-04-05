@@ -11,6 +11,7 @@ export default async function ClientLayout({
 }) {
   const { getToken } = await auth();
   const token = await getToken();
+  let canSwitchToLead = false;
 
   if (token) {
     try {
@@ -21,6 +22,7 @@ export default async function ClientLayout({
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
         const access = settings.productAccess ?? { lead: true, assist: true };
+        canSwitchToLead = access.lead === true && access.assist === true;
         if (access.assist === false) {
           redirect("/products");
         }
@@ -32,7 +34,7 @@ export default async function ClientLayout({
 
   return (
     <div className="flex h-screen bg-[#FAFAF8]">
-      <ClientSidebar />
+      <ClientSidebar canSwitchToLead={canSwitchToLead} />
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
         {children}
       </main>

@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   GitMerge,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 import clsx from "clsx";
@@ -39,7 +40,7 @@ function Logo() {
   );
 }
 
-export default function ClientSidebar() {
+export default function ClientSidebar({ canSwitchToLead = false }: { canSwitchToLead?: boolean }) {
   const pathname = usePathname();
   const { signOut } = useClerk();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -65,6 +66,16 @@ export default function ClientSidebar() {
         </nav>
 
         <div className="px-3 py-4 border-t border-[#E8E6E1]">
+          {canSwitchToLead && (
+            <Link
+              href="/internal/dashboard"
+              onClick={onLinkClick}
+              className="sidebar-link"
+            >
+              <ArrowLeftRight size={16} strokeWidth={1.75} />
+              Switch to QYRO Lead
+            </Link>
+          )}
           <button
             onClick={() => signOut({ redirectUrl: "/sign-in" })}
             className="sidebar-link w-full text-left"
