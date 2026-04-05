@@ -47,6 +47,10 @@ function normalizePhone(value?: string | null): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
 }
 
+function isMissingColumnError(err: unknown): boolean {
+  return (err as { code?: string })?.code === "42703";
+}
+
 function getRequestIp(req: Request): string {
   const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
   return forwarded || req.ip || "unknown";
@@ -419,6 +423,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 
     let enqueued = 0;
     const callAttemptIds: string[] = [];
+    let legacyMode = false;
 
     for (const prospectId of prospectSet) {
       const prospect = await db.query.prospectsRaw.findFirst({
@@ -427,28 +432,50 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 
       if (!prospect || !normalizePhone(prospect.phone)) continue;
 
-      const [attempt] = await db
-        .insert(callAttempts)
-        .values({
-          tenantId,
-          prospectId,
-          direction: "outbound",
-          source: "lead_manual",
-          status: "queued",
-          outcome: "queued",
-          attemptCount: 0,
-          maxAttempts,
-          scheduledBy: userId,
-        })
-        .returning({ id: callAttempts.id });
+      let attemptId: string;
+      try {
+        const [attempt] = await db
+          .insert(callAttempts)
+          .values({
+            tenantId,
+            prospectId,
+            direction: "outbound",
+            source: "lead_manual",
+            status: "queued",
+            outcome: "queued",
+            attemptCount: 0,
+            maxAttempts,
+            scheduledBy: userId,
+          })
+          .returning({ id: callAttempts.id });
 
-      callAttemptIds.push(attempt.id);
+        attemptId = attempt.id;
+      } catch (err) {
+        if (!isMissingColumnError(err)) throw err;
 
-      await outboundCallQueue.add(
-        "outbound-call",
-        { tenantId, callAttemptId: attempt.id },
-        { jobId: `outbound-call:${attempt.id}:1` },
-      );
+        // Compatibility fallback for databases that don't yet have migration 0002.
+        const [legacyAttempt] = await db
+          .insert(callAttempts)
+          .values({
+            tenantId,
+            prospectId,
+            outcome: "queued",
+          })
+          .returning({ id: callAttempts.id });
+
+        attemptId = legacyAttempt.id;
+        legacyMode = true;
+      }
+
+      callAttemptIds.push(attemptId);
+
+      if (!legacyMode) {
+        await outboundCallQueue.add(
+          "outbound-call",
+          { tenantId, callAttemptId: attemptId },
+          { jobId: `outbound-call:${attemptId}:1` },
+        );
+      }
 
       enqueued += 1;
     }
@@ -458,6 +485,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
         enqueued,
         callAttemptIds,
         createdProspectIds,
+        legacyMode,
       },
     });
   } catch (err) {
@@ -652,19 +680,76 @@ router.get("/v1/assist/outbound-calls/metrics", async (req: Request, res: Respon
     const meta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
     const control = getOutboundControl(meta);
 
-    const grouped = await db
-      .select({
-        status: callAttempts.status,
-        count: sql<number>`count(*)`,
-      })
-      .from(callAttempts)
-      .where(
-        and(
-          eq(callAttempts.tenantId, tenantId),
-          eq(callAttempts.direction, "outbound"),
-        ),
-      )
-      .groupBy(callAttempts.status);
+    let grouped: Array<{ status: string | null; count: number }> = [];
+    let recent: Array<{
+      id: string;
+      status: string;
+      outcome: string | null;
+      attemptCount: number;
+      maxAttempts: number;
+      nextAttemptAt: Date | null;
+      createdAt: Date;
+    }> = [];
+
+    try {
+      grouped = await db
+        .select({
+          status: callAttempts.status,
+          count: sql<number>`count(*)`,
+        })
+        .from(callAttempts)
+        .where(
+          and(
+            eq(callAttempts.tenantId, tenantId),
+            eq(callAttempts.direction, "outbound"),
+          ),
+        )
+        .groupBy(callAttempts.status);
+
+      recent = await db
+        .select({
+          id: callAttempts.id,
+          status: callAttempts.status,
+          outcome: callAttempts.outcome,
+          attemptCount: callAttempts.attemptCount,
+          maxAttempts: callAttempts.maxAttempts,
+          nextAttemptAt: callAttempts.nextAttemptAt,
+          createdAt: callAttempts.createdAt,
+        })
+        .from(callAttempts)
+        .where(
+          and(
+            eq(callAttempts.tenantId, tenantId),
+            eq(callAttempts.direction, "outbound"),
+          ),
+        )
+        .orderBy(desc(callAttempts.createdAt))
+        .limit(30);
+    } catch (err) {
+      if (!isMissingColumnError(err)) throw err;
+
+      const legacyRecent = await db
+        .select({
+          id: callAttempts.id,
+          outcome: callAttempts.outcome,
+          createdAt: callAttempts.createdAt,
+        })
+        .from(callAttempts)
+        .where(eq(callAttempts.tenantId, tenantId))
+        .orderBy(desc(callAttempts.createdAt))
+        .limit(30);
+
+      grouped = [{ status: "queued", count: legacyRecent.length }];
+      recent = legacyRecent.map((row) => ({
+        id: row.id,
+        status: "queued",
+        outcome: row.outcome,
+        attemptCount: 0,
+        maxAttempts: 0,
+        nextAttemptAt: null,
+        createdAt: row.createdAt,
+      }));
+    }
 
     const statusCounts = grouped.reduce<Record<string, number>>((acc, row) => {
       acc[row.status ?? "unknown"] = Number(row.count ?? 0);
@@ -677,26 +762,6 @@ router.get("/v1/assist/outbound-calls/metrics", async (req: Request, res: Respon
     const completed = statusCounts.completed ?? 0;
     const dnd = statusCounts.dnd ?? 0;
     const blocked = statusCounts.blocked_compliance ?? 0;
-
-    const recent = await db
-      .select({
-        id: callAttempts.id,
-        status: callAttempts.status,
-        outcome: callAttempts.outcome,
-        attemptCount: callAttempts.attemptCount,
-        maxAttempts: callAttempts.maxAttempts,
-        nextAttemptAt: callAttempts.nextAttemptAt,
-        createdAt: callAttempts.createdAt,
-      })
-      .from(callAttempts)
-      .where(
-        and(
-          eq(callAttempts.tenantId, tenantId),
-          eq(callAttempts.direction, "outbound"),
-        ),
-      )
-      .orderBy(desc(callAttempts.createdAt))
-      .limit(30);
 
     res.json({
       data: {
