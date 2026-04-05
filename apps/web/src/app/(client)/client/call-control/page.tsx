@@ -94,6 +94,9 @@ export default function ClientCallControlPage() {
   const [pausedReasonDraft, setPausedReasonDraft] = useState("");
   const [maxConcurrentDraft, setMaxConcurrentDraft] = useState(3);
   const [drainWhenPause, setDrainWhenPause] = useState(false);
+  const [numbersDraft, setNumbersDraft] = useState("");
+  const [enqueueMaxAttempts, setEnqueueMaxAttempts] = useState(3);
+  const [enqueueResult, setEnqueueResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -164,6 +167,57 @@ export default function ClientCallControlPage() {
     }
   }
 
+  async function enqueueOutboundCalls() {
+    const token = await getToken();
+    if (!token) return;
+
+    const numbers = numbersDraft
+      .split(/[\n,;]/g)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (numbers.length === 0) {
+      setError("Enter at least one phone number to queue outbound calls.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setEnqueueResult(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/assist/outbound-calls/enqueue`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          numbers,
+          maxAttempts: enqueueMaxAttempts,
+        }),
+      });
+
+      const body = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        error?: string;
+        data?: { enqueued?: number };
+      };
+
+      if (!res.ok) {
+        throw new Error(body.message ?? body.error ?? "Failed to enqueue outbound calls");
+      }
+
+      const enqueued = Number(body.data?.enqueued ?? 0);
+      setEnqueueResult(`${enqueued} outbound call${enqueued === 1 ? "" : "s"} queued.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to enqueue outbound calls");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const statCards = useMemo(() => ([
     { label: "Queued", value: metrics.totals.queued, tone: "bg-amber-50 text-amber-700" },
     { label: "Retry Scheduled", value: metrics.totals.retryScheduled, tone: "bg-blue-50 text-blue-700" },
@@ -225,6 +279,44 @@ export default function ClientCallControlPage() {
 
       <div className="mt-6 grid lg:grid-cols-[1.1fr_1fr] gap-5">
         <section className="rounded-[14px] border border-[#E8E6E1] bg-white p-5">
+          <h2 className="text-sm font-semibold text-stone-800">Queue Outbound Calls</h2>
+          <p className="mt-1 text-xs text-stone-500">Enter one or more phone numbers to create manual outbound attempts.</p>
+
+          <div className="mt-4 space-y-3">
+            <label className="block text-sm text-stone-700">Phone numbers</label>
+            <textarea
+              value={numbersDraft}
+              onChange={(e) => setNumbersDraft((e.target as HTMLTextAreaElement).value)}
+              placeholder="+15035551234, +12065550123"
+              className="input min-h-[92px]"
+              disabled={saving}
+            />
+
+            <label className="block text-sm text-stone-700">Max attempts per number</label>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={enqueueMaxAttempts}
+              onChange={(e) => setEnqueueMaxAttempts(Math.max(1, Math.min(8, Number((e.target as HTMLInputElement).value) || 1)))}
+              className="input w-28"
+              disabled={saving}
+            />
+          </div>
+
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={enqueueOutboundCalls}
+              disabled={saving || !control.enabled || control.globalPaused}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              Queue Calls
+            </button>
+            {enqueueResult && <span className="text-xs text-teal-700">{enqueueResult}</span>}
+          </div>
+
+          <div className="mt-5 h-px bg-[#F0EEE9]" />
+
           <h2 className="text-sm font-semibold text-stone-800">Control Plane</h2>
           <p className="mt-1 text-xs text-stone-500">Pause/resume tenant outbound, set max concurrent capacity, and optionally drain queued jobs.</p>
 
