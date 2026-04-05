@@ -285,7 +285,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   }
 
   const to = normalizePhone(prospect.phone);
-  const from = normalizePhone((tenantMeta.twilio_number as string) ?? "");
+  const from = normalizePhone((tenantMeta.voice_number as string) ?? "");
 
   if (!to || !from) {
     await db
@@ -345,7 +345,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
       await db
         .update(callAttempts)
         .set({
-          twilioCallSid: retell.callId,
+          callSid: retell.callId,
           status: "ringing",
           outcome: retell.status ?? "ringing",
         })
@@ -356,7 +356,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
       await db
         .update(callAttempts)
         .set({
-          twilioCallSid: sw.sid,
+          callSid: sw.sid,
           status: "ringing",
           outcome: sw.status ?? "ringing",
         })

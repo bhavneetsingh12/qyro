@@ -83,10 +83,10 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       ? ((subscription.productAccess as ProductAccess | null) ?? resolveProductAccess(meta))
       : resolveProductAccess(meta);
 
-    const twilioNumber =
-      tenant.twilioNumber
-      ?? (meta.twilioNumber as string)
-      ?? (meta.twilio_number as string)
+    const voiceNumber =
+      tenant.voiceNumber
+      ?? (meta.voiceNumber as string)
+      ?? (meta.voice_number as string)
       ?? "";
 
     res.json({
@@ -99,7 +99,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       providersList:    (meta.providersList as string) ?? "",
       autoRespond:      Boolean(meta.autoRespond ?? false),
       businessHours:    (meta.businessHours as string) ?? "",
-      twilioNumber,
+      voiceNumber,
       widgetAllowedOrigins: Array.isArray(meta.widget_allowed_origins)
         ? meta.widget_allowed_origins
         : typeof meta.widgetAllowedOrigins === "string"
@@ -134,7 +134,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       providersList,
       autoRespond,
       businessHours,
-      twilioNumber,
+      voiceNumber,
       widgetAllowedOrigins,
       voiceRuntime,
       retellAgentId,
@@ -151,9 +151,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       providersList?: string;
       autoRespond?: boolean;
       businessHours?: string;
-      twilioNumber?: string;
+      voiceNumber?: string;
       widgetAllowedOrigins?: string | string[];
-      voiceRuntime?: "twilio" | "retell";
+      voiceRuntime?: "signalwire" | "retell";
       retellAgentId?: string;
       enrichmentProvider?: "mock" | "apollo" | "hunter";
       apolloApiKey?: string;
@@ -181,9 +181,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(providersList    !== undefined && { providersList }),
       ...(autoRespond      !== undefined && { autoRespond: Boolean(autoRespond) }),
       ...(businessHours    !== undefined && { businessHours }),
-      ...(twilioNumber     !== undefined && {
-        twilioNumber,
-        twilio_number: twilioNumber,
+      ...(voiceNumber !== undefined && {
+        voiceNumber,
+        voice_number: voiceNumber,
       }),
       ...(widgetAllowedOrigins !== undefined && {
         widget_allowed_origins: Array.isArray(widgetAllowedOrigins)
@@ -193,7 +193,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
               .map((value) => value.trim())
               .filter(Boolean),
       }),
-      ...(voiceRuntime !== undefined && { voice_runtime: voiceRuntime === "retell" ? "retell" : "twilio" }),
+      ...(voiceRuntime !== undefined && { voice_runtime: voiceRuntime === "retell" ? "retell" : "signalwire" }),
       ...(retellAgentId !== undefined && { retell_agent_id: retellAgentId.trim() }),
       ...(enrichmentProvider !== undefined && { enrichmentProvider }),
       ...(apolloApiKey !== undefined && apolloApiKey.trim().length > 0 && { apolloApiKey: apolloApiKey.trim() }),
@@ -207,8 +207,8 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       .update(tenants)
       .set({
         ...(name !== undefined && { name: name.trim() }),
-        ...(twilioNumber !== undefined && {
-          twilioNumber: normalizePhone(twilioNumber) || null,
+        ...(voiceNumber !== undefined && {
+          voiceNumber: normalizePhone(voiceNumber) || null,
         }),
         metadata:  updatedMeta,
         updatedAt: new Date(),

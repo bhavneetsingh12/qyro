@@ -15,7 +15,7 @@ type SettingsForm = {
   providersList:    string;
   autoRespond:      boolean;
   businessHours:    string;
-  twilioNumber:     string;
+  voiceNumber:      string;
 };
 
 export default function ClientSettingsPage() {
@@ -30,7 +30,7 @@ export default function ClientSettingsPage() {
     providersList:    "",
     autoRespond:      false,
     businessHours:    "",
-    twilioNumber:     "",
+    voiceNumber:      "",
   });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -56,7 +56,7 @@ export default function ClientSettingsPage() {
             providersList:    data.providersList    ?? "",
             autoRespond:      !!data.autoRespond,
             businessHours:    data.businessHours    ?? "",
-            twilioNumber:     data.twilioNumber     ?? "",
+            voiceNumber:      data.voiceNumber      ?? "",
           });
         }
       } catch {
@@ -199,8 +199,8 @@ export default function ClientSettingsPage() {
             >
               <input
                 className="input"
-                value={form.twilioNumber}
-                onChange={(e) => setForm({ ...form, twilioNumber: e.target.value })}
+                value={form.voiceNumber}
+                onChange={(e) => setForm({ ...form, voiceNumber: e.target.value })}
                 placeholder="+15035551234"
               />
             </FormField>

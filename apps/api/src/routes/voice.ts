@@ -67,11 +67,11 @@ function getNextRetryDate(attemptCount: number): Date | null {
   return new Date(Date.now() + mins * 60 * 1000);
 }
 
-async function findTenantByTwilioNumber(toPhone: string) {
+async function findTenantByVoiceNumber(toPhone: string) {
   const target = normalizePhone(toPhone);
 
   const indexedTenant = await db.query.tenants.findFirst({
-    where: and(eq(tenants.active, true), eq(tenants.twilioNumber, target)),
+    where: and(eq(tenants.active, true), eq(tenants.voiceNumber, target)),
   });
 
   if (indexedTenant) return indexedTenant;
@@ -83,11 +83,11 @@ async function findTenantByTwilioNumber(toPhone: string) {
 
   return activeTenants.find((t) => {
     const meta = (t.metadata as Record<string, unknown>) ?? {};
-    const twilio =
-      typeof meta.twilio_number === "string"
-        ? meta.twilio_number
-        : (typeof meta.twilioNumber === "string" ? meta.twilioNumber : "");
-    return normalizePhone(twilio) === target;
+    const num =
+      typeof meta.voice_number === "string"
+        ? meta.voice_number
+        : (typeof meta.voiceNumber === "string" ? meta.voiceNumber : "");
+    return normalizePhone(num) === target;
   }) ?? null;
 }
 
@@ -110,7 +110,7 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     const fromPhone = String(req.body.From ?? "");
     const callSid = String(req.body.CallSid ?? "");
 
-    const tenant = await findTenantByTwilioNumber(toPhone);
+    const tenant = await findTenantByVoiceNumber(toPhone);
     if (!tenant) {
       res.type("text/xml").send(twimlSay("We could not route your call. Please try again later."));
       return;
@@ -149,7 +149,7 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
       await db.insert(callAttempts).values({
         tenantId: tenant.id,
         prospectId: prospect.id,
-        twilioCallSid: callSid || null,
+        callSid: callSid || null,
         outcome: "in_progress",
       });
     }
@@ -356,9 +356,9 @@ router.post("/status", async (req: Request, res: Response, next: NextFunction) =
 
     const attempt = await db.query.callAttempts.findFirst({
       where: callSid && queryCallAttemptId
-        ? and(eq(callAttempts.twilioCallSid, callSid), eq(callAttempts.id, queryCallAttemptId))
+        ? and(eq(callAttempts.callSid, callSid), eq(callAttempts.id, queryCallAttemptId))
         : callSid
-          ? eq(callAttempts.twilioCallSid, callSid)
+          ? eq(callAttempts.callSid, callSid)
           : eq(callAttempts.id, queryCallAttemptId),
     });
 

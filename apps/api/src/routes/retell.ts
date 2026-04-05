@@ -176,7 +176,7 @@ router.post("/call-events", async (req: Request, res: Response, next: NextFuncti
         status: shouldRetry ? "retry_scheduled" : status,
         outcome: status,
         duration,
-        twilioCallSid: retellCallId || attempt.twilioCallSid,
+        callSid: retellCallId || attempt.callSid,
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));

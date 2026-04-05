@@ -18,7 +18,7 @@ type CallAttempt = {
   maxAttempts: number;
   nextAttemptAt: string | null;
   lastAttemptAt: string | null;
-  twilioCallSid: string | null;
+  callSid: string | null;
   dndAt: string | null;
   createdAt: string;
 };

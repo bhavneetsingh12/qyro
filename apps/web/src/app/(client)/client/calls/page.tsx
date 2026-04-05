@@ -7,7 +7,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "pr
 
 type CallRow = {
   id: string;
-  twilioCallSid: string | null;
+  callSid: string | null;
   duration: number | null;
   outcome: string | null;
   transcriptUrl: string | null;

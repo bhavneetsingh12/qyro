@@ -37,13 +37,13 @@ export const tenants = pgTable("tenants", {
   name:         text("name").notNull(),
   slug:         text("slug").notNull().unique(),
   plan:         text("plan").notNull().default("starter"),
-  twilioNumber: text("twilio_number"),
+  voiceNumber:  text("voice_number"),
   active:       boolean("active").notNull().default(true),
   metadata:     jsonb("metadata").default({}),
   createdAt:    timestamp("created_at").defaultNow().notNull(),
   updatedAt:    timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
-  twilioNumberIdx: index("tenants_twilio_number_idx").on(t.twilioNumber),
+  voiceNumberIdx: index("tenants_voice_number_idx").on(t.voiceNumber),
 }));
 
 export const users = pgTable("users", {
@@ -167,7 +167,7 @@ export const callAttempts = pgTable("call_attempts", {
   bookingRef:     text("booking_ref"), // appointments.id when booked
   dndAt:          timestamp("dnd_at"),
   scheduledBy:    uuid("scheduled_by").references(() => users.id),
-  twilioCallSid:  text("twilio_call_sid"),
+  callSid:        text("call_sid"),
   duration:       integer("duration"),               // seconds
   outcome:        text("outcome"),
   recordingUrl:   text("recording_url"),             // object storage path

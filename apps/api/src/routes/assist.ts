@@ -361,7 +361,7 @@ router.get("/v1/assist/calls", async (req: Request, res: Response, next: NextFun
       .select({
         id: callAttempts.id,
         prospectId: callAttempts.prospectId,
-        twilioCallSid: callAttempts.twilioCallSid,
+        callSid: callAttempts.callSid,
         duration: callAttempts.duration,
         outcome: callAttempts.outcome,
         recordingUrl: callAttempts.recordingUrl,
@@ -551,7 +551,7 @@ router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Respo
           maxAttempts: callAttempts.maxAttempts,
           nextAttemptAt: callAttempts.nextAttemptAt,
           lastAttemptAt: callAttempts.lastAttemptAt,
-          twilioCallSid: callAttempts.twilioCallSid,
+          callSid: callAttempts.callSid,
           dndAt: callAttempts.dndAt,
           createdAt: callAttempts.createdAt,
         })
@@ -575,7 +575,7 @@ router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Respo
           phone: prospectsRaw.phone,
           businessName: prospectsRaw.businessName,
           outcome: callAttempts.outcome,
-          twilioCallSid: callAttempts.twilioCallSid,
+          callSid: callAttempts.callSid,
           createdAt: callAttempts.createdAt,
         })
         .from(callAttempts)
