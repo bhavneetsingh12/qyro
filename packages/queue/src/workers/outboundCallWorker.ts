@@ -419,6 +419,16 @@ if (require.main === module) {
   const worker = createOutboundCallWorker();
   console.log(`[outboundCallWorker] listening on queue: ${QUEUE_NAMES.OUTBOUND_CALL}`);
 
+  // Minimal HTTP server so Railway healthcheck passes (BullMQ workers have no web server)
+  const http = require("http") as typeof import("http");
+  const healthPort = Number(process.env.PORT ?? 3002);
+  http.createServer((_req: import("http").IncomingMessage, res: import("http").ServerResponse) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", worker: "outbound-call" }));
+  }).listen(healthPort, () => {
+    console.log(`[outboundCallWorker] health server on port ${healthPort}`);
+  });
+
   async function shutdown() {
     await worker.close();
     process.exit(0);

@@ -79,7 +79,15 @@ async function run() {
   await client.end();
 }
 
-run().catch((err) => {
-  console.error("Migration runner error:", err);
-  process.exit(1);
-});
+run()
+  .then(() => {
+    // Keep alive briefly so Railway healthcheck can register the service
+    // as healthy before it exits. migrate-db should be a one-shot job.
+    console.log("[migrate] waiting 5s before exit so Railway can register health...");
+    return new Promise<void>((resolve) => setTimeout(resolve, 5000));
+  })
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error("Migration runner error:", err);
+    process.exit(1);
+  });
