@@ -194,8 +194,8 @@ export default function ClientSettingsPage() {
             </FormField>
 
             <FormField
-              label="Twilio number"
-              hint="Inbound voice number displayed for quick reference."
+              label="Phone number"
+              hint="Your SignalWire inbound voice number (E.164 format, e.g. +15035551234)."
             >
               <input
                 className="input"

@@ -3,7 +3,7 @@ import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
-import { requireClerkAuth, validateRetellRequest, validateTwilioSignature } from "./middleware/auth";
+import { requireClerkAuth, validateRetellRequest, validateSignalWireSignature } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
 import leadsRouter from "./routes/leads";
 import campaignsRouter from "./routes/campaigns";
@@ -98,7 +98,7 @@ app.get("/health", (_req: Request, res: Response) => {
 // Webhooks use their own signature verification — not Clerk auth
 app.use("/webhooks", webhooksRouter);
 app.use("/webhooks", billingPublicRouter);
-app.use("/api/v1/voice", validateTwilioSignature, voiceRouter);
+app.use("/api/v1/voice", validateSignalWireSignature, voiceRouter);
 app.use("/api/v1/retell", validateRetellRequest, retellRouter);
 
 // Public assist routes (widget chat) — no Clerk auth, validates tenantId from DB

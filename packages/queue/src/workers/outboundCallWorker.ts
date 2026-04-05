@@ -64,13 +64,14 @@ async function isDnd(tenantId: string, phone?: string | null, email?: string | n
   return !!row;
 }
 
-async function dialTwilio(params: {
+async function dialSignalWire(params: {
   to: string;
   from: string;
   callAttemptId: string;
 }): Promise<{ sid: string; status?: string }> {
-  const accountSid = getEnv("TWILIO_ACCOUNT_SID");
-  const authToken = getEnv("TWILIO_AUTH_TOKEN");
+  const projectId = getEnv("SIGNALWIRE_PROJECT_ID");
+  const apiToken = getEnv("SIGNALWIRE_API_TOKEN");
+  const spaceUrl = getEnv("SIGNALWIRE_SPACE_URL").replace(/^https?:\/\//, "").replace(/\/$/, "");
   const apiBase = process.env.PUBLIC_API_BASE_URL ?? "http://localhost:3005";
 
   const form = new URLSearchParams();
@@ -81,10 +82,10 @@ async function dialTwilio(params: {
   form.set("StatusCallbackEvent", "initiated ringing answered completed");
   form.set("StatusCallbackMethod", "POST");
 
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls.json`, {
+  const res = await fetch(`https://${spaceUrl}/api/laml/2010-04-01/Accounts/${encodeURIComponent(projectId)}/Calls.json`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      Authorization: `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: form.toString(),
@@ -92,7 +93,7 @@ async function dialTwilio(params: {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Twilio dial failed ${res.status}: ${body.slice(0, 250)}`);
+    throw new Error(`SignalWire dial failed ${res.status}: ${body.slice(0, 250)}`);
   }
 
   const data = (await res.json()) as { sid: string; status?: string };
@@ -350,14 +351,14 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         })
         .where(eq(callAttempts.id, attempt.id));
     } else {
-      const twilio = await dialTwilio({ to, from, callAttemptId: attempt.id });
+      const sw = await dialSignalWire({ to, from, callAttemptId: attempt.id });
 
       await db
         .update(callAttempts)
         .set({
-          twilioCallSid: twilio.sid,
+          twilioCallSid: sw.sid,
           status: "ringing",
-          outcome: twilio.status ?? "ringing",
+          outcome: sw.status ?? "ringing",
         })
         .where(eq(callAttempts.id, attempt.id));
     }

@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getAuth } from "@clerk/express";
 import type { RequestHandler } from "express";
-import twilio from "twilio";
 
 // Applies Clerk session verification. Rejects 401 if no valid session.
 // Must come after clerkMiddleware() applied in index.ts.
@@ -21,34 +20,46 @@ export const requireClerkAuth: RequestHandler = (req, res, next) => {
   next();
 };
 
-// Validates that incoming requests to voice routes originated from Twilio.
-// Uses HMAC-SHA1 signature verification via the Twilio SDK.
-// Skipped in development to allow local testing without Twilio.
-export const validateTwilioSignature: RequestHandler = (req, res, next) => {
+// Validates that incoming requests to voice routes originated from SignalWire.
+// Uses HMAC-SHA1 signature verification (same algorithm as Twilio cXML).
+// Skipped in development to allow local testing without SignalWire.
+export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
   if (process.env.NODE_ENV !== "production") {
     next();
     return;
   }
 
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!authToken) {
-    console.error("[twilio] TWILIO_AUTH_TOKEN not set — rejecting voice request");
-    res.status(403).json({ error: "FORBIDDEN", message: "Twilio signature verification not configured" });
+  const apiToken = process.env.SIGNALWIRE_API_TOKEN;
+  if (!apiToken) {
+    console.error("[signalwire] SIGNALWIRE_API_TOKEN not set — rejecting voice request");
+    res.status(403).json({ error: "FORBIDDEN", message: "SignalWire signature verification not configured" });
     return;
   }
 
-  const signature = req.headers["x-twilio-signature"] as string | undefined;
+  const signature = req.headers["x-signalwire-signature"] as string | undefined;
   if (!signature) {
-    res.status(403).json({ error: "FORBIDDEN", message: "Missing Twilio signature" });
+    res.status(403).json({ error: "FORBIDDEN", message: "Missing SignalWire signature" });
     return;
   }
 
   const baseUrl = process.env.PUBLIC_API_BASE_URL ?? "";
   const url = `${baseUrl}${req.originalUrl}`;
 
-  const valid = twilio.validateRequest(authToken, signature, url, req.body ?? {});
+  // SignalWire uses the same HMAC-SHA1 scheme as Twilio cXML:
+  // sort POST params, append key+value pairs to URL, sign with HMAC-SHA1.
+  const params: Record<string, string> = req.body ?? {};
+  const sorted = Object.keys(params).sort().reduce((acc, k) => acc + k + params[k], "");
+  const computed = createHmac("sha1", apiToken).update(url + sorted, "utf-8").digest("base64");
+
+  let valid = false;
+  try {
+    valid = timingSafeEqual(Buffer.from(signature, "base64"), Buffer.from(computed, "base64"));
+  } catch {
+    valid = false;
+  }
+
   if (!valid) {
-    res.status(403).json({ error: "FORBIDDEN", message: "Invalid Twilio signature" });
+    res.status(403).json({ error: "FORBIDDEN", message: "Invalid SignalWire signature" });
     return;
   }
 
