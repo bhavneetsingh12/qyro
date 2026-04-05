@@ -1,17 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="qyro-favicon-ring" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F59E0B" />
-      <stop offset="0.55" stop-color="#F97316" />
-      <stop offset="1" stop-color="#14B8A6" />
+      <stop offset="0" stop-color="#FDBA74" />
+      <stop offset="0.5" stop-color="#F97316" />
+      <stop offset="1" stop-color="#EA580C" />
     </linearGradient>
     <linearGradient id="qyro-favicon-core" x1="12" y1="12" x2="52" y2="52" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFF4D6" />
-      <stop offset="0.6" stop-color="#FFD08A" />
-      <stop offset="1" stop-color="#7EE7D8" />
+      <stop offset="0" stop-color="#FFF7ED" />
+      <stop offset="0.6" stop-color="#FDBA74" />
+      <stop offset="1" stop-color="#FB923C" />
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="18" fill="url(#qyro-favicon-ring)"/>
   <rect x="3" y="3" width="58" height="58" rx="15" fill="#111111"/>
-  <path d="M32 10c12.15 0 22 9.85 22 22s-9.85 22-22 22-22-9.85-22-22 9.85-22 22-22Zm0 7.333c-8.1 0-14.667 6.567-14.667 14.667S23.9 46.667 32 46.667c2.717 0 5.262-.74 7.445-2.028l6.474 6.474 5.185-5.185-6.352-6.352A14.605 14.605 0 0 0 46.667 32c0-8.1-6.567-14.667-14.667-14.667Zm0 7.334A7.333 7.333 0 1 1 32 39.333a7.333 7.333 0 0 1 0-14.666Z" fill="url(#qyro-favicon-core)"/>
+  <circle cx="29" cy="29" r="13" fill="none" stroke="url(#qyro-favicon-core)" stroke-width="8"/>
+  <path d="M37 37 L49 49" stroke="url(#qyro-favicon-core)" stroke-width="8" stroke-linecap="round"/>
 </svg>
