@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { LeadsRefresher } from "./LeadsRefresher";
-import { runResearchAction, runResearchBatchAction, runOutreachBatchAction, runOutboundBatchAction } from "./actions";
+import { runResearchBatchAction, runSingleResearchSubmitAction, runOutreachBatchAction, runOutboundBatchAction } from "./actions";
 import PendingSubmitButton from "./PendingSubmitButton";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -262,17 +262,13 @@ export default async function LeadsPage({
                             Queued
                           </span>
                         )}
-                        <form
-                          action={async () => {
-                            "use server";
-                            await runResearchAction(lead.id);
-                          }}
+                        <button
+                          type="submit"
+                          formAction={runSingleResearchSubmitAction.bind(null, lead.id)}
+                          className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
                         >
-                          <PendingSubmitButton
-                            idleLabel={lead.researchedAt ? "Re-run" : "Research"}
-                            pendingLabel="Queuing..."
-                          />
-                        </form>
+                          {lead.researchedAt ? "Re-run" : "Research"}
+                        </button>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-stone-400 whitespace-nowrap text-xs">
@@ -293,7 +289,7 @@ export default async function LeadsPage({
             </table>
           </div>
               <div className="px-4 py-3 border-t border-[#F0EEE9] bg-[#FCFBF8] flex items-center justify-between">
-                <span className="text-xs text-stone-500">Selected leads</span>
+                <span className="text-xs text-stone-500">Selected leads. Only rows with a valid phone number can be queued for calls.</span>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                   <PendingSubmitButton
                     idleLabel="Research Selected"

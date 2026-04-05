@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Phone, RefreshCw, Ban, Clock, CheckCircle2, AlertCircle, Loader2, Voicemail } from "lucide-react";
+import { Phone, RefreshCw, Ban, Clock, CheckCircle2, AlertCircle, Loader2, Voicemail, Upload } from "lucide-react";
 import clsx from "clsx";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
@@ -21,6 +21,13 @@ type CallAttempt = {
   twilioCallSid: string | null;
   dndAt: string | null;
   createdAt: string;
+};
+
+type ImportContact = {
+  businessName: string;
+  phone?: string;
+  email?: string;
+  domain?: string;
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; Icon: React.ElementType }> = {
@@ -50,6 +57,84 @@ function fmt(ts: string | null) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function parseDelimitedLine(line: string, delimiter: string) {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+}
+
+function parseContacts(input: string): ImportContact[] {
+  const lines = input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return [];
+
+  const delimiter = lines.some((line) => line.includes("\t")) ? "\t" : ",";
+  const rows = lines.map((line) => parseDelimitedLine(line, delimiter));
+  const firstRow = rows[0].map((value) => value.toLowerCase());
+  const looksLikeHeader = firstRow.some((value) => ["businessname", "business", "name", "phone", "email", "domain"].includes(value.replace(/[^a-z]/g, "")));
+
+  const dataRows = looksLikeHeader ? rows.slice(1) : rows;
+  const headerMap = looksLikeHeader
+    ? rows[0].map((value) => value.toLowerCase().replace(/[^a-z]/g, ""))
+    : ["businessname", "phone", "email", "domain"];
+
+  return dataRows
+    .map((row) => {
+      const record: ImportContact = { businessName: "" };
+
+      row.forEach((value, index) => {
+        const key = headerMap[index] ?? "";
+        if (["businessname", "business", "name"].includes(key)) record.businessName = value;
+        if (key === "phone") record.phone = value;
+        if (key === "email") record.email = value;
+        if (key === "domain" || key === "website") record.domain = value;
+      });
+
+      if (!looksLikeHeader) {
+        record.businessName = row[0] ?? "";
+        record.phone = row[1] ?? "";
+        record.email = row[2] ?? "";
+        record.domain = row[3] ?? "";
+      }
+
+      return {
+        businessName: record.businessName.trim(),
+        phone: record.phone?.trim() || undefined,
+        email: record.email?.trim() || undefined,
+        domain: record.domain?.trim() || undefined,
+      };
+    })
+    .filter((row) => row.businessName);
+}
+
 export default function OutboundPipelinePage() {
   const { getToken } = useAuth();
   const [rows, setRows] = useState<CallAttempt[]>([]);
@@ -57,6 +142,10 @@ export default function OutboundPipelinePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [queueImportedCalls, setQueueImportedCalls] = useState(true);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   const load = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
@@ -64,8 +153,11 @@ export default function OutboundPipelinePage() {
     setError(null);
     try {
       const token = await getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(`${API_URL}/api/v1/assist/outbound-calls/pipeline?limit=200`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -89,13 +181,80 @@ export default function OutboundPipelinePage() {
     setCancellingId(attemptId);
     try {
       const token = await getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       await fetch(`${API_URL}/api/v1/assist/outbound-calls/attempt/${attemptId}/cancel`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
       });
       await load(true);
     } finally {
       setCancellingId(null);
+    }
+  }
+
+  async function importContacts() {
+    const contacts = parseContacts(importText);
+    if (contacts.length === 0) {
+      setError("Paste contacts first. Use CSV columns: businessName, phone, email, domain.");
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const createdIds: string[] = [];
+      const results = await Promise.allSettled(
+        contacts.map(async (contact) => {
+          const res = await fetch(`${API_URL}/api/leads`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(contact),
+          });
+
+          const body = (await res.json().catch(() => ({}))) as { data?: { id?: string }; message?: string };
+          if (!res.ok) {
+            throw new Error(body.message ?? `Failed to create ${contact.businessName}`);
+          }
+
+          if (body.data?.id) createdIds.push(body.data.id);
+          return contact;
+        }),
+      );
+
+      const created = results.filter((result) => result.status === "fulfilled").length;
+      const failed = results.length - created;
+
+      let queued = 0;
+      if (queueImportedCalls && createdIds.length > 0) {
+        const enqueueRes = await fetch(`${API_URL}/api/v1/assist/outbound-calls/enqueue`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ prospectIds: createdIds }),
+        });
+
+        const enqueueBody = (await enqueueRes.json().catch(() => ({}))) as { data?: { enqueued?: number }; message?: string };
+        if (!enqueueRes.ok) {
+          throw new Error(enqueueBody.message ?? "Contacts were created but queueing calls failed");
+        }
+
+        queued = Number(enqueueBody.data?.enqueued ?? 0);
+      }
+
+      setImportResult(`Imported ${created} contact${created === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}${queueImportedCalls ? `, ${queued} queued for calls` : ""}.`);
+      setImportText("");
+      await load(true);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Failed to import contacts");
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -128,6 +287,66 @@ export default function OutboundPipelinePage() {
           {error}
         </div>
       )}
+
+      <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-sm font-semibold text-stone-900">Add Contacts</h2>
+            <p className="text-sm text-stone-500 mt-1">
+              Paste CSV rows or upload a CSV to add leads directly in QYRO Assist.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-stone-200 bg-stone-50 text-stone-700 cursor-pointer hover:bg-stone-100 transition-colors">
+            <Upload size={14} />
+            Upload CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                setImportText(await file.text());
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+
+        <textarea
+          value={importText}
+          onChange={(event) => setImportText(event.target.value)}
+          placeholder={"businessName,phone,email,domain\nAcme Dental,+15035551234,frontdesk@acme.com,acmedental.com"}
+          className="w-full min-h-[140px] rounded-xl border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-300"
+          disabled={importing}
+        />
+
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <label className="inline-flex items-center gap-2 text-sm text-stone-600">
+            <input
+              type="checkbox"
+              checked={queueImportedCalls}
+              onChange={(event) => setQueueImportedCalls(event.target.checked)}
+              className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+            />
+            Queue calls immediately for imported contacts with phone numbers
+          </label>
+
+          <button
+            onClick={importContacts}
+            disabled={importing}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 disabled:opacity-50"
+          >
+            {importing ? "Importing..." : "Import Contacts"}
+          </button>
+        </div>
+
+        {importResult && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {importResult}
+          </div>
+        )}
+      </section>
 
       {/* Loading skeleton */}
       {loading && (

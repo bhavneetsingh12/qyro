@@ -1,13 +1,12 @@
 import { SignIn } from "@clerk/nextjs";
+import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
 export default function SignInPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8] flex items-center justify-center">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <span className="text-2xl font-bold text-stone-900 tracking-tight">
-            QYRO
-          </span>
+          <QyroBrandLockup surface="core" subtitle="Lead engine and client assistant" align="center" />
           <p className="text-sm text-stone-500 mt-1">Sign in to continue</p>
         </div>
         <SignIn

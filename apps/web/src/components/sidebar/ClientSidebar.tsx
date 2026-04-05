@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 import clsx from "clsx";
+import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
 const navItems = [
   { href: "/client/dashboard",          label: "Dashboard",          icon: LayoutDashboard },
@@ -34,15 +35,7 @@ const navItems = [
 
 function Logo() {
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-7 h-7 rounded-lg bg-amber-500 flex items-center justify-center">
-        <span className="text-white text-xs font-bold">Q</span>
-      </div>
-      <div>
-        <p className="text-sm font-semibold text-stone-900 leading-none">QYRO Assist</p>
-        <p className="text-xs text-stone-400 mt-0.5">Client Portal</p>
-      </div>
-    </div>
+    <QyroBrandLockup surface="assist" product="Assist" subtitle="Client portal" />
   );
 }
 

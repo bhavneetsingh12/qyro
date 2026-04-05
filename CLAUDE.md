@@ -167,6 +167,29 @@ Phase 1 (QYRO Lead backend) is complete. Phase 2 (QYRO Assist product) is comple
 P0/P1 critical fixes have been documented (see QYRO_P0_FIXES.md).
 Phase 3 will add Stripe billing, self-serve onboarding, and admin controls.
 
+### April 2026 shipping updates
+Recent working changes now in the codebase:
+
+```
+[x] Clerk first-login auto-provisioning for users/tenants
+[x] Duplicate first-login race fix on users.clerk_id unique constraint
+[x] Default plan bootstrap + starter fallback for quota checks
+[x] Client Call Control center with enable/disable, pause/resume, manual queue
+[x] Bulk handoff from QYRO Lead -> QYRO Assist for outbound calls and outreach
+[x] Product entitlement gating via tenant metadata.product_access
+[x] /client/outbound-pipeline page showing queued outbound leads + statuses
+[x] Direct contact add/import flow in outbound pipeline (CSV/paste rows)
+[x] Lead page hydration fix after nested form regression
+```
+
+Operational notes:
+
+```
+- Outbound queueing is blocked unless /api/v1/assist/outbound-calls/control has enabled=true
+- Local dev can silently break if macOS AppleDouble files (._*) leak into apps/web/.next
+- If Next chunks 404 locally, clean apps/web/.next and restart the web dev server from repo root
+```
+
 ### Phase 1 — COMPLETE
 ```
 [x] Task A — packages/db/client.ts + drizzle.config.ts + infra/seed.ts

@@ -59,6 +59,13 @@ export async function runResearchAction(leadId: string) {
   return { success: true };
 }
 
+export async function runSingleResearchSubmitAction(leadId: string): Promise<void> {
+  const normalizedLeadId = String(leadId ?? "").trim();
+  if (!normalizedLeadId) return;
+
+  await runResearchAction(normalizedLeadId);
+}
+
 export async function runResearchBatchAction(leadIds: string[]) {
   const ids = Array.from(new Set((leadIds ?? []).map((id) => String(id).trim()).filter(Boolean)));
   if (ids.length === 0) return { error: "No leads selected" };
@@ -159,4 +166,5 @@ export async function runOutboundBatchAction(formData: FormData): Promise<void> 
   revalidatePath("/internal/leads");
   revalidatePath("/client/call-control");
   revalidatePath("/client/calls");
+  revalidatePath("/client/outbound-pipeline");
 }
