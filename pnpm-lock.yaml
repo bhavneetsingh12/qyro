@@ -191,9 +191,6 @@ importers:
 
   packages/queue:
     dependencies:
-      '@qyro/agents':
-        specifier: workspace:*
-        version: link:../agents
       '@qyro/db':
         specifier: workspace:*
         version: link:../db
