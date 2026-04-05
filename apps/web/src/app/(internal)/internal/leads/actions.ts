@@ -89,22 +89,22 @@ export async function runResearchBatchAction(leadIds: string[]) {
   return { success: true, queued, failed };
 }
 
-export async function runOutreachBatchAction(formData: FormData) {
+export async function runOutreachBatchAction(formData: FormData): Promise<void> {
   const ids = Array.from(new Set(formData.getAll("leadIds").map((id) => String(id).trim()).filter(Boolean)));
-  if (ids.length === 0) return { error: "No leads selected" };
+  if (ids.length === 0) return;
 
   const sequenceData = String(formData.get("sequenceData") ?? "").trim();
-  if (!sequenceData) return { error: "No campaign selected" };
+  if (!sequenceData) return;
 
   const [sequenceId, channel] = sequenceData.split("|");
   if (!sequenceId || (channel !== "email" && channel !== "sms")) {
-    return { error: "Invalid campaign selection" };
+    return;
   }
 
   const { getToken } = await auth();
   const token = await getToken();
   const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
-  if (!token && !bypassAuth) return { error: "Not authenticated" };
+  if (!token && !bypassAuth) return;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -125,19 +125,19 @@ export async function runOutreachBatchAction(formData: FormData) {
 
   const queued = results.filter((r) => r.status === "fulfilled").length;
   const failed = results.length - queued;
+  console.info("[leads] outreach batch result", { queued, failed, total: ids.length });
 
   revalidatePath("/internal/leads");
-  return { success: true, queued, failed };
 }
 
-export async function runOutboundBatchAction(formData: FormData) {
+export async function runOutboundBatchAction(formData: FormData): Promise<void> {
   const ids = Array.from(new Set(formData.getAll("leadIds").map((id) => String(id).trim()).filter(Boolean)));
-  if (ids.length === 0) return { error: "No leads selected" };
+  if (ids.length === 0) return;
 
   const { getToken } = await auth();
   const token = await getToken();
   const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
-  if (!token && !bypassAuth) return { error: "Not authenticated" };
+  if (!token && !bypassAuth) return;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -152,11 +152,11 @@ export async function runOutboundBatchAction(formData: FormData) {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    return { error: (body as { message?: string }).message ?? "Failed to enqueue outbound calls" };
+    console.error("[leads] failed outbound enqueue", body);
+    return;
   }
 
   revalidatePath("/internal/leads");
   revalidatePath("/client/call-control");
   revalidatePath("/client/calls");
-  return { success: true };
 }
