@@ -216,3 +216,71 @@ Productization of QYRO Lead is deferred to Phase 4.
 - tenant_type: "internal" is a real tenant type in the schema
 - "lead_engine" tenant type exists in the enum but is not yet active
 - Phase 4 just adds UI + billing on top of Phase 1 backend
+
+---
+
+## ADR-013: Subscription-first entitlement model for product access
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Product access (`lead`, `assist`) resolves from `tenant_subscriptions` first. Tenant metadata remains a fallback path for transitional/back-compat reads.
+
+**Reasons:**
+- Metadata-only access cannot reliably represent Stripe lifecycle state.
+- Subscription status + price mapping must drive deterministic access revocation/grant.
+- Enables clear billing-first default (`lead=false`, `assist=false`) for unprovisioned tenants.
+
+**Implementation artifacts:**
+- DB table: `tenant_subscriptions`
+- Migration: `packages/db/migrations/0004_billing_subscriptions.sql`
+- Routes: `apps/api/src/routes/billing.ts`
+- Resolver updates: `apps/api/src/routes/tenants.ts`
+
+---
+
+## ADR-014: Stripe webhook as entitlement synchronization authority
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Stripe webhook events are the authoritative trigger for persisting subscription lifecycle and updating tenant product access.
+
+**Reasons:**
+- Checkout completion alone is insufficient to represent long-lived subscription state.
+- Lifecycle events (created/updated/deleted) must propagate to access controls.
+- Keeps entitlements consistent with Stripe truth under upgrades, cancellations, and status transitions.
+
+**Implementation artifacts:**
+- Public endpoint: `POST /webhooks/stripe`
+- Events handled: checkout completion + subscription created/updated/deleted
+- Side effects: upsert subscription row, write product access snapshot
+
+---
+
+## ADR-015: Schema-mode compatibility for outbound call_attempts
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Outbound assist routes detect `call_attempts` schema capabilities at runtime and branch between modern and legacy query/insert shapes.
+
+**Reasons:**
+- Production databases can lag migrations, causing hard failures on missing columns.
+- Error-driven fallback was insufficient because SQL generation could fail before catch paths.
+- Proactive detection via `information_schema.columns` avoids invalid SQL generation paths.
+
+**Implementation artifacts:**
+- Detection + cache logic in `apps/api/src/routes/assist.ts`
+- Legacy-safe insert path for minimal columns
+
+---
+
+## ADR-016: Public root landing with protected product/application surfaces
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Keep `/` public for signed-out visitors while continuing to protect authenticated app surfaces via Clerk middleware.
+
+**Reasons:**
+- Conversion flow requires a viewable marketing page before sign-in.
+- Full-route protection caused immediate auth redirect and removed product narrative.
+- Product selector also requires an explicit sign-out path to avoid trapping newly-authenticated users.
+
+**Implementation artifacts:**
+- Middleware public route update in `apps/web/src/middleware.ts`
+- Landing page redesign in `apps/web/src/app/page.tsx`
+- Product selector sign-out control in `apps/web/src/app/products/page.tsx`

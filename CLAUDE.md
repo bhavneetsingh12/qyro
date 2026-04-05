@@ -188,6 +188,42 @@ Operational notes:
 - Outbound queueing is blocked unless /api/v1/assist/outbound-calls/control has enabled=true
 - Local dev can silently break if macOS AppleDouble files (._*) leak into apps/web/.next
 - If Next chunks 404 locally, clean apps/web/.next and restart the web dev server from repo root
+
+### April 5, 2026 shipping log (traceability)
+All items below were implemented and deployed across API/web/DB.
+
+```
+[x] Outbound call_attempts schema compatibility: proactive information_schema detection in assist routes
+[x] Legacy-safe call_attempts insert path to avoid Drizzle emitting missing columns on older DB shape
+[x] Outbound call pipeline refresh UX fix: explicit manual refreshing state + button spinner behavior
+[x] Cross-product switching links in both sidebars for tenants with dual access (Lead + Assist)
+[x] Billing foundation: Stripe checkout, billing portal, and webhook ingestion routes
+[x] Subscription persistence: tenant_subscriptions table + migration 0004_billing_subscriptions.sql
+[x] Product access resolution now prefers subscription record over metadata fallback
+[x] Billing-first entitlement default changed to { lead: false, assist: false } when no access exists
+[x] Products page billing actions added: unlock Lead, unlock Assist, unlock Bundle, manage billing
+[x] Stripe checkout UX update: custom submit message to reduce blank/unclear checkout context
+[x] Public marketing entrypoint added at / (signed-out users now see landing page)
+[x] Middleware updated to keep / public while protecting app routes
+[x] Product selector sign-out added so users are never trapped before choosing a product
+[x] Landing page upgraded with Product/Solutions/Pricing sections and improved nav/CTA structure
+```
+
+Production configuration work completed during the same window:
+
+```
+[x] Stripe env wiring on API service: secret key, webhook secret, price IDs, app base URL
+[x] Migration 0004 executed in production Postgres
+[x] Clerk production key rollout completed (web + API)
+[x] End-to-end checkout completed: product unlock confirmed after webhook processing
+```
+
+Follow-up scheduled for next morning:
+
+```
+[ ] Twilio setup pass (phone numbers, env vars, webhooks)
+[ ] P1 optimization: replace JS tenant scan in voice number resolution with indexed DB lookup
+```
 ```
 
 ### Phase 1 — COMPLETE

@@ -1,5 +1,5 @@
 # QYRO Architecture Blueprint
-_Last updated: 2026-03-30 | Owner: Bhavneet Singh / Zentryx LLC_
+_Last updated: 2026-04-05 | Owner: Bhavneet Singh / Zentryx LLC_
 
 ## Two products, one platform
 
@@ -32,6 +32,44 @@ This is the immediate revenue product.
 
 They share agents where it makes sense (Reply Triage, Booking, QA).
 They have separate prompt packs, separate workflows, separate dashboards.
+
+---
+
+## Architecture change log — April 5, 2026
+
+This section records production architecture updates shipped during the April 5 stabilization window.
+
+### Data + billing architecture
+- Added `tenant_subscriptions` as the source-of-truth subscription state table (Stripe customer, subscription, price, status, period dates, product access snapshot).
+- Added production migration `packages/db/migrations/0004_billing_subscriptions.sql`.
+- Product entitlement resolution now prefers active subscription data, with tenant metadata retained as fallback/back-compat.
+- Default no-access posture is billing-first (`lead=false`, `assist=false`) when no entitlement source exists.
+
+### API surface updates
+- Added authenticated billing routes:
+     - `GET /api/v1/billing/subscription`
+     - `POST /api/v1/billing/checkout-session`
+     - `POST /api/v1/billing/portal-session`
+- Added public Stripe webhook route:
+     - `POST /webhooks/stripe`
+- Webhook flow now upserts subscription state and synchronizes tenant product access.
+
+### Voice/outbound stability updates
+- Added schema-mode detection in outbound assist APIs to support mixed `call_attempts` schemas in production.
+- Detection probes `information_schema.columns` and selects modern vs legacy query/insert paths.
+- This avoids runtime failures when `status`/`direction` and related columns are absent in older DB shapes.
+
+### Web app routing + UX updates
+- Root route `/` is now intentionally public for signed-out users (marketing/landing path).
+- App routes remain protected through Clerk middleware.
+- Product selector now includes explicit Sign out action before product selection.
+- Products view and landing page were redesigned to improve clarity, standard SaaS navigation, and conversion flow.
+
+### Operational checkpoints completed
+- Stripe API and webhook secrets configured in production API environment.
+- Price-ID mapping variables configured for Lead/Assist/Bundle plans.
+- Clerk production keys rolled out to web + API.
+- Checkout -> webhook -> entitlement unlock flow validated end-to-end in production.
 
 ---
 
