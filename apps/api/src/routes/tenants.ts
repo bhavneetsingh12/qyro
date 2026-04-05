@@ -7,14 +7,10 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, tenantSubscriptions, tenants } from "@qyro/db";
+import { db, tenantSubscriptions, tenants, users } from "@qyro/db";
+import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
-
-type ProductAccess = {
-  lead: boolean;
-  assist: boolean;
-};
 
 function normalizePhone(value?: string): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
@@ -26,37 +22,16 @@ function maskApiKey(value: string): string {
   return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
 }
 
-function resolveProductAccess(meta: Record<string, unknown>): ProductAccess {
-  const access = (meta.product_access as Record<string, unknown> | undefined) ?? {};
-
-  if (typeof access.lead === "boolean" || typeof access.assist === "boolean") {
-    return {
-      lead: access.lead === true,
-      assist: access.assist === true,
-    };
+function requireTenantManager(req: Request, res: Response): boolean {
+  if (isTenantManagerRole(req.userRole)) {
+    return true;
   }
 
-  const products = Array.isArray(meta.products)
-    ? meta.products.map((v) => String(v).toLowerCase())
-    : [];
-
-  if (products.length > 0) {
-    return {
-      lead: products.includes("lead") || products.includes("qyro_lead"),
-      assist: products.includes("assist") || products.includes("qyro_assist"),
-    };
-  }
-
-  const singleProduct = String(meta.product ?? "").toLowerCase();
-  if (singleProduct === "lead" || singleProduct === "qyro_lead") {
-    return { lead: true, assist: false };
-  }
-  if (singleProduct === "assist" || singleProduct === "qyro_assist") {
-    return { lead: false, assist: true };
-  }
-
-  // Billing-first default: no product access unless explicitly granted.
-  return { lead: false, assist: false };
+  res.status(403).json({
+    error: "FORBIDDEN",
+    message: "Only tenant owners or admins can manage user permissions",
+  });
+  return false;
 }
 
 // ─── GET /api/v1/tenants/settings ─────────────────────────────────────────────
@@ -79,9 +54,20 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       where: eq(tenantSubscriptions.tenantId, req.tenantId),
     });
 
-    const productAccess = subscription
-      ? ((subscription.productAccess as ProductAccess | null) ?? resolveProductAccess(meta))
-      : resolveProductAccess(meta);
+    const productAccess = resolveEffectiveAccessForUser({
+      meta,
+      subscription,
+      userId: req.userId,
+    });
+
+    const tenantBaseAccess = resolveTenantBaseAccess(meta, subscription);
+    const trial = resolveTrialState(meta);
+    const currentUser = await db.query.users.findFirst({ where: eq(users.id, req.userId) });
+    const isMasterAdmin = isMasterAdminUser({
+      role: req.userRole,
+      clerkId: currentUser?.clerkId ?? "",
+      email: currentUser?.email ?? null,
+    });
 
     const voiceNumber =
       tenant.voiceNumber
@@ -105,7 +91,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
         : typeof meta.widgetAllowedOrigins === "string"
           ? meta.widgetAllowedOrigins
           : "",
-      voiceRuntime: (meta.voice_runtime as string) ?? "twilio",
+      voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
       retellAgentId: (meta.retell_agent_id as string) ?? "",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
       hasApolloApiKey:       !!apolloApiKey,
@@ -115,6 +101,10 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       enrichmentMonthlyLimit: Number(meta.enrichmentMonthlyLimit ?? 2500),
       enrichmentMonthlyUsed:  Number(meta.enrichmentMonthlyUsed ?? 0),
       productAccess,
+      tenantBaseAccess,
+      trial,
+      currentUserRole: req.userRole,
+      isMasterAdmin,
     });
   } catch (err) {
     next(err);
@@ -214,6 +204,118 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
         updatedAt: new Date(),
       })
       .where(eq(tenants.id, req.tenantId));
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/tenants/users ───────────────────────────────────────────────
+
+router.get("/users", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!requireTenantManager(req, res)) return;
+
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, req.tenantId) });
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const userAccessMap = (meta.user_product_access as Record<string, unknown> | undefined) ?? {};
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, req.tenantId),
+    });
+
+    const rows = await db.query.users.findMany({ where: eq(users.tenantId, req.tenantId) });
+    const data = rows.map((u) => ({
+      id: u.id,
+      clerkId: u.clerkId,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      active: u.active,
+      productAccess: resolveEffectiveAccessForUser({
+        meta,
+        subscription,
+        userId: u.id,
+      }),
+      accessOverride: (userAccessMap[u.id] as Record<string, unknown> | undefined) ?? null,
+    }));
+
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/v1/tenants/users/:userId ────────────────────────────────────
+
+router.patch("/users/:userId", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!requireTenantManager(req, res)) return;
+
+    const userId = String(req.params.userId ?? "").trim();
+    if (!userId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "userId is required" });
+      return;
+    }
+
+    const target = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!target || target.tenantId !== req.tenantId) {
+      res.status(404).json({ error: "NOT_FOUND", message: "User not found in this tenant" });
+      return;
+    }
+
+    const { role, active, access } = req.body as {
+      role?: string;
+      active?: boolean;
+      access?: { lead?: boolean; assist?: boolean };
+    };
+
+    if (role !== undefined) {
+      const allowedRoles = new Set(["owner", "admin", "operator", "sales_rep", "analyst", "client_viewer"]);
+      if (!allowedRoles.has(role)) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Unsupported role" });
+        return;
+      }
+      await db.update(users).set({ role }).where(eq(users.id, userId));
+    }
+
+    if (active !== undefined) {
+      await db.update(users).set({ active: Boolean(active) }).where(eq(users.id, userId));
+    }
+
+    if (access !== undefined) {
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, req.tenantId) });
+      if (!tenant) {
+        res.status(404).json({ error: "Tenant not found" });
+        return;
+      }
+
+      const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+      const userAccessMap = (meta.user_product_access as Record<string, unknown> | undefined) ?? {};
+      const nextMap = {
+        ...userAccessMap,
+        [userId]: {
+          ...(typeof access.lead === "boolean" && { lead: access.lead }),
+          ...(typeof access.assist === "boolean" && { assist: access.assist }),
+        },
+      };
+
+      await db
+        .update(tenants)
+        .set({
+          metadata: {
+            ...meta,
+            user_product_access: nextMap,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, req.tenantId));
+    }
 
     res.json({ ok: true });
   } catch (err) {

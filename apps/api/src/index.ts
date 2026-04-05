@@ -13,6 +13,7 @@ import webhooksRouter from "./routes/webhooks";
 import voiceRouter from "./routes/voice";
 import retellRouter from "./routes/retell";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
+import adminRouter from "./routes/admin";
 
 const app: Express = express();
 const PORT = Number(process.env.PORT ?? 3001);
@@ -83,6 +84,7 @@ app.get("/", (_req: Request, res: Response) => {
       assistPublic: "POST /api/v1/assist/chat | POST /api/v1/assist/missed-call",
       assistAuthed: "GET /api/sessions | GET /api/appointments | GET/POST /api/v1/assist/*",
       tenants: "GET|PATCH /api/v1/tenants/settings",
+      admin: "GET /api/v1/admin/me | GET /api/v1/admin/tenants | PATCH /api/v1/admin/tenants/:tenantId/access",
       billing: "GET|POST /api/v1/billing/*",
       voice: "POST /api/v1/voice/*",
       retell: "POST /api/v1/retell/*",
@@ -134,6 +136,12 @@ app.use(
   requireClerkAuth,
   tenantMiddleware,
   tenantsRouter
+);
+
+app.use(
+  "/api",
+  requireClerkAuth,
+  adminRouter
 );
 
 app.use(

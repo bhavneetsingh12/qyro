@@ -1,10 +1,11 @@
 import express, { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
-import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact } from "@qyro/db";
+import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, tenantSubscriptions } from "@qyro/db";
 import { and, desc, eq, or } from "drizzle-orm";
 import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
 import { outboundCallQueue } from "@qyro/queue";
+import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
 router.use(express.urlencoded({ extended: true }));
@@ -114,6 +115,32 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     if (!tenant) {
       res.type("text/xml").send(twimlSay("We could not route your call. Please try again later."));
       return;
+    }
+
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenant.id),
+    });
+    const tenantAccess = resolveTenantBaseAccess(meta, subscription);
+    if (!tenantAccess.assist) {
+      res.type("text/xml").send(twimlSay("Voice assistant access is not enabled for this account."));
+      return;
+    }
+
+    const trial = resolveTrialState(meta);
+    const trialAccess = ((meta.trial_product_access as Record<string, unknown> | undefined) ?? {});
+    if (trial.active && trialAccess.assist === true) {
+      const remaining = Math.max(0, trial.callsRemaining - 1);
+      await db
+        .update(tenants)
+        .set({
+          metadata: {
+            ...meta,
+            trial_calls_remaining: remaining,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, tenant.id));
     }
 
     // ── Retell runtime path ───────────────────────────────────────────────────

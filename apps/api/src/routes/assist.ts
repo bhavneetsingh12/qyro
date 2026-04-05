@@ -7,10 +7,11 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants } from "@qyro/db";
+import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions } from "@qyro/db";
 import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
 import { outboundCallQueue } from "@qyro/queue";
+import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
 const publicRouter: ExpressRouter = Router();
@@ -392,6 +393,18 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
     });
 
     const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, tenantId),
+    });
+    const tenantAccess = resolveTenantBaseAccess(tenantMeta, subscription);
+    if (!tenantAccess.lead) {
+      res.status(403).json({
+        error: "ACCESS_BLOCK",
+        message: "Lead access is not enabled for this tenant",
+      });
+      return;
+    }
+
     if (tenantMeta.outbound_voice_enabled === false) {
       res.status(403).json({
         error: "COMPLIANCE_BLOCK",
@@ -512,6 +525,22 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
       }
 
       enqueued += 1;
+    }
+
+    const trial = resolveTrialState(tenantMeta);
+    const trialAccess = ((tenantMeta.trial_product_access as Record<string, unknown> | undefined) ?? {});
+    if (trial.active && trialAccess.lead === true) {
+      const remaining = Math.max(0, trial.callsRemaining - enqueued);
+      await db
+        .update(tenants)
+        .set({
+          metadata: {
+            ...tenantMeta,
+            trial_calls_remaining: remaining,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, tenantId));
     }
 
     res.json({
