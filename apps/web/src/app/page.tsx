@@ -17,6 +17,11 @@ export default async function RootPage() {
             <QyroMark surface="core" />
             <span className="text-sm font-bold tracking-tight text-stone-900">QYRO</span>
           </div>
+          <nav className="hidden md:flex items-center gap-6">
+            <a href="#products" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Products</a>
+            <a href="#solutions" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Solutions</a>
+            <a href="#pricing" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Pricing</a>
+          </nav>
           <div className="flex items-center gap-3">
             <Link
               href="/sign-in"
@@ -63,7 +68,7 @@ export default async function RootPage() {
       </section>
 
       {/* Product cards */}
-      <section className="py-16 px-4 sm:px-6">
+      <section id="products" className="py-16 px-4 sm:px-6 scroll-mt-20">
         <div className="max-w-5xl mx-auto">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 text-center mb-8">Two products. One platform.</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -108,6 +113,27 @@ export default async function RootPage() {
         </div>
       </section>
 
+      {/* Solutions */}
+      <section id="solutions" className="py-14 px-4 sm:px-6 scroll-mt-20">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 text-center mb-8">Solutions</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-stone-200 bg-white p-6">
+              <h3 className="text-sm font-bold text-stone-900">Home Services</h3>
+              <p className="text-sm text-stone-500 mt-2">Capture missed calls, book jobs faster, and keep your schedule full.</p>
+            </div>
+            <div className="rounded-2xl border border-stone-200 bg-white p-6">
+              <h3 className="text-sm font-bold text-stone-900">Local Healthcare</h3>
+              <p className="text-sm text-stone-500 mt-2">Handle routine call volume and booking requests with compliant workflows.</p>
+            </div>
+            <div className="rounded-2xl border border-stone-200 bg-white p-6">
+              <h3 className="text-sm font-bold text-stone-900">Agencies</h3>
+              <p className="text-sm text-stone-500 mt-2">Scale lead operations and client response times without adding headcount.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Stats / trust bar */}
       <section className="py-14 px-4 sm:px-6 border-y border-stone-200 bg-white">
         <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
@@ -126,11 +152,11 @@ export default async function RootPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-24 px-4 sm:px-6">
+      <section id="pricing" className="py-24 px-4 sm:px-6 scroll-mt-20">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-stone-900">Ready to get started?</h2>
           <p className="mt-4 text-stone-500 text-base">
-            Create your account in seconds. Choose the plan that fits your business.
+            Create your account in seconds. Starter plans begin at $200/month.
           </p>
           <Link
             href="/sign-in"

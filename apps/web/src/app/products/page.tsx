@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Lock, Users, PhoneCall } from "lucide-react";
 import BillingActions from "@/components/billing/BillingActions";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
+import SignOutButton from "@/components/auth/SignOutButton";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -50,6 +51,13 @@ export default async function ProductsPage() {
   return (
     <main className="min-h-screen bg-[#F7F6F2] flex flex-col items-center justify-center px-4 py-16">
       <div className="w-full max-w-3xl">
+        <div className="mb-5 flex justify-end">
+          <SignOutButton
+            className="text-xs font-medium text-stone-500 hover:text-stone-900 transition-colors"
+            label="Sign out"
+          />
+        </div>
+
         {/* Brand */}
         <div className="text-center mb-10">
           <div className="flex justify-center mb-3">
