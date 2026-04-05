@@ -11,10 +11,48 @@ import { db, tenants } from "@qyro/db";
 
 const router: ExpressRouter = Router();
 
+type ProductAccess = {
+  lead: boolean;
+  assist: boolean;
+};
+
 function maskApiKey(value: string): string {
   if (!value) return "";
   if (value.length <= 8) return "*".repeat(value.length);
   return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
+}
+
+function resolveProductAccess(meta: Record<string, unknown>): ProductAccess {
+  const access = (meta.product_access as Record<string, unknown> | undefined) ?? {};
+
+  if (typeof access.lead === "boolean" || typeof access.assist === "boolean") {
+    return {
+      lead: access.lead === true,
+      assist: access.assist === true,
+    };
+  }
+
+  const products = Array.isArray(meta.products)
+    ? meta.products.map((v) => String(v).toLowerCase())
+    : [];
+
+  if (products.length > 0) {
+    return {
+      lead: products.includes("lead") || products.includes("qyro_lead"),
+      assist: products.includes("assist") || products.includes("qyro_assist"),
+    };
+  }
+
+  const singleProduct = String(meta.product ?? "").toLowerCase();
+  if (singleProduct === "lead" || singleProduct === "qyro_lead") {
+    return { lead: true, assist: false };
+  }
+  if (singleProduct === "assist" || singleProduct === "qyro_assist") {
+    return { lead: false, assist: true };
+  }
+
+  // Default during transition: existing tenants can access both products.
+  return { lead: true, assist: true };
 }
 
 // ─── GET /api/v1/tenants/settings ─────────────────────────────────────────────
@@ -33,6 +71,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
     const meta = (tenant.metadata as Record<string, unknown>) ?? {};
     const apolloApiKey = (meta.apolloApiKey as string) ?? "";
     const hunterApiKey = (meta.hunterApiKey as string) ?? "";
+    const productAccess = resolveProductAccess(meta);
 
     res.json({
       id:               tenant.id,
@@ -59,6 +98,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       hunterApiKeyMasked:    hunterApiKey ? maskApiKey(hunterApiKey) : "",
       enrichmentMonthlyLimit: Number(meta.enrichmentMonthlyLimit ?? 2500),
       enrichmentMonthlyUsed:  Number(meta.enrichmentMonthlyUsed ?? 0),
+      productAccess,
     });
   } catch (err) {
     next(err);

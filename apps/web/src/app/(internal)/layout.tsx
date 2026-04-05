@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import InternalSidebar from "@/components/sidebar/InternalSidebar";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -8,12 +9,29 @@ export default async function InternalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Fetch approval count for sidebar badge — lightweight, no-store
+  const { getToken } = await auth();
+  const token = await getToken();
+
+  // Entitlement check — redirect to product selector if Lead not enabled
   let approvalCount = 0;
-  try {
-    const { getToken } = await auth();
-    const token = await getToken();
-    if (token) {
+  if (token) {
+    try {
+      const settingsRes = await fetch(`${API_URL}/api/v1/tenants/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (settingsRes.ok) {
+        const settings = await settingsRes.json();
+        const access = settings.productAccess ?? { lead: true, assist: true };
+        if (access.lead === false) {
+          redirect("/products");
+        }
+      }
+    } catch {
+      // Network error — allow through rather than lock user out
+    }
+
+    try {
       const res = await fetch(`${API_URL}/api/campaigns/queue`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
@@ -22,9 +40,9 @@ export default async function InternalLayout({
         const body = await res.json();
         approvalCount = body.count ?? 0;
       }
+    } catch {
+      // Badge stays 0 on error — non-critical
     }
-  } catch {
-    // Badge stays 0 on error — non-critical
   }
 
   return (

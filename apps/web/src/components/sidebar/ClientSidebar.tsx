@@ -15,19 +15,21 @@ import {
   LogOut,
   Menu,
   X,
+  GitMerge,
 } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 import clsx from "clsx";
 
 const navItems = [
-  { href: "/client/dashboard",      label: "Dashboard",     icon: LayoutDashboard },
-  { href: "/client/conversations",  label: "Conversations", icon: MessageSquare },
-  { href: "/client/bookings",       label: "Bookings",      icon: CalendarCheck },
-  { href: "/client/calls",          label: "Calls",         icon: Phone },
-  { href: "/client/call-control",   label: "Call Control",  icon: Radio },
-  { href: "/client/approvals",      label: "Approvals",     icon: CheckSquare },
-  { href: "/client/widget",         label: "Widget",        icon: Code2 },
-  { href: "/client/settings",       label: "Settings",      icon: Settings },
+  { href: "/client/dashboard",          label: "Dashboard",          icon: LayoutDashboard },
+  { href: "/client/conversations",      label: "Conversations",      icon: MessageSquare },
+  { href: "/client/bookings",           label: "Bookings",           icon: CalendarCheck },
+  { href: "/client/calls",              label: "Calls",              icon: Phone },
+  { href: "/client/call-control",       label: "Call Control",       icon: Radio },
+  { href: "/client/outbound-pipeline",  label: "Outbound Pipeline",  icon: GitMerge },
+  { href: "/client/approvals",          label: "Approvals",          icon: CheckSquare },
+  { href: "/client/widget",             label: "Widget",             icon: Code2 },
+  { href: "/client/settings",           label: "Settings",           icon: Settings },
 ];
 
 function Logo() {
