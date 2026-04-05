@@ -68,14 +68,25 @@ function getNextRetryDate(attemptCount: number): Date | null {
 }
 
 async function findTenantByTwilioNumber(toPhone: string) {
+  const target = normalizePhone(toPhone);
+
+  const indexedTenant = await db.query.tenants.findFirst({
+    where: and(eq(tenants.active, true), eq(tenants.twilioNumber, target)),
+  });
+
+  if (indexedTenant) return indexedTenant;
+
+  // Compatibility fallback while older tenants are backfilled from metadata.
   const activeTenants = await db.query.tenants.findMany({
     where: eq(tenants.active, true),
   });
 
-  const target = normalizePhone(toPhone);
   return activeTenants.find((t) => {
     const meta = (t.metadata as Record<string, unknown>) ?? {};
-    const twilio = typeof meta.twilio_number === "string" ? meta.twilio_number : "";
+    const twilio =
+      typeof meta.twilio_number === "string"
+        ? meta.twilio_number
+        : (typeof meta.twilioNumber === "string" ? meta.twilioNumber : "");
     return normalizePhone(twilio) === target;
   }) ?? null;
 }

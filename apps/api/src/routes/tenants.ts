@@ -16,6 +16,10 @@ type ProductAccess = {
   assist: boolean;
 };
 
+function normalizePhone(value?: string): string {
+  return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
 function maskApiKey(value: string): string {
   if (!value) return "";
   if (value.length <= 8) return "*".repeat(value.length);
@@ -79,6 +83,12 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       ? ((subscription.productAccess as ProductAccess | null) ?? resolveProductAccess(meta))
       : resolveProductAccess(meta);
 
+    const twilioNumber =
+      tenant.twilioNumber
+      ?? (meta.twilioNumber as string)
+      ?? (meta.twilio_number as string)
+      ?? "";
+
     res.json({
       id:               tenant.id,
       name:             tenant.name,
@@ -89,7 +99,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       providersList:    (meta.providersList as string) ?? "",
       autoRespond:      Boolean(meta.autoRespond ?? false),
       businessHours:    (meta.businessHours as string) ?? "",
-      twilioNumber:     (meta.twilioNumber as string) ?? "",
+      twilioNumber,
       widgetAllowedOrigins: Array.isArray(meta.widget_allowed_origins)
         ? meta.widget_allowed_origins
         : typeof meta.widgetAllowedOrigins === "string"
@@ -171,7 +181,10 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(providersList    !== undefined && { providersList }),
       ...(autoRespond      !== undefined && { autoRespond: Boolean(autoRespond) }),
       ...(businessHours    !== undefined && { businessHours }),
-      ...(twilioNumber     !== undefined && { twilioNumber }),
+      ...(twilioNumber     !== undefined && {
+        twilioNumber,
+        twilio_number: twilioNumber,
+      }),
       ...(widgetAllowedOrigins !== undefined && {
         widget_allowed_origins: Array.isArray(widgetAllowedOrigins)
           ? widgetAllowedOrigins.map((value) => String(value).trim()).filter(Boolean)
@@ -194,6 +207,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       .update(tenants)
       .set({
         ...(name !== undefined && { name: name.trim() }),
+        ...(twilioNumber !== undefined && {
+          twilioNumber: normalizePhone(twilioNumber) || null,
+        }),
         metadata:  updatedMeta,
         updatedAt: new Date(),
       })

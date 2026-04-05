@@ -54,9 +54,9 @@ export default async function CampaignsPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-stone-900">Campaigns</h1>
           <p className="text-sm text-stone-400 mt-0.5">
@@ -72,8 +72,79 @@ export default async function CampaignsPage() {
         </Link>
       </div>
 
+      {/* Mobile cards */}
+      {fetchError && (
+        <div className="mt-6 md:hidden bg-white border border-[#E8E6E1] rounded-[14px] px-5 py-10 text-center">
+          <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
+          <p className="text-xs text-stone-400 mt-1">
+            Make sure API_URL / NEXT_PUBLIC_API_URL points to https://api.qyro.us.
+          </p>
+        </div>
+      )}
+
+      {!fetchError && campaigns.length === 0 && (
+        <div className="mt-6 md:hidden bg-white border border-[#E8E6E1] rounded-[14px] px-5 py-12 text-center">
+          <p className="text-sm text-stone-500 font-medium">No campaigns yet</p>
+          <p className="text-xs text-stone-400 mt-1 mb-4">Create an outreach sequence to get started.</p>
+          <Link
+            href="/internal/campaigns/new"
+            className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
+          >
+            <Plus size={14} />
+            New campaign
+          </Link>
+        </div>
+      )}
+
+      {!fetchError && campaigns.length > 0 && (
+        <div className="mt-6 space-y-3 md:hidden">
+          {campaigns.map((campaign) => (
+            <div key={campaign.id} className="rounded-[14px] border border-[#E8E6E1] bg-white p-4 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-stone-800">{campaign.name}</p>
+                  <p className="text-xs text-stone-500 mt-1">{campaign.niche ?? "General"}</p>
+                </div>
+                <ChannelBadge channel={campaign.channel} />
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${campaign.active ? "bg-teal-50 text-teal-700" : "bg-amber-50 text-amber-700"}`}>
+                  {campaign.active ? "Active" : "Inactive"}
+                </span>
+                <span className="text-[11px] font-mono text-stone-400">{campaign.promptPackId}</span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {!campaign.active ? (
+                  <form action={activateCampaignAction}>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <button
+                      type="submit"
+                      className="w-full px-3 py-2.5 rounded-lg bg-teal-500 text-white text-sm font-medium hover:bg-teal-600 transition-colors"
+                    >
+                      Start campaign
+                    </button>
+                  </form>
+                ) : (
+                  <div className="w-full px-3 py-2.5 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium text-center">
+                    Running
+                  </div>
+                )}
+                <Link
+                  href="/internal/approvals"
+                  className="w-full px-3 py-2.5 rounded-lg border border-[#E8E6E1] text-stone-700 text-sm font-medium text-center hover:bg-stone-50 transition-colors"
+                >
+                  View queue
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Table card */}
-      <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
+      <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden hidden md:block">
         {fetchError ? (
           <div className="px-5 py-10 text-center">
             <p className="text-sm text-rose-500 font-medium">Could not reach API</p>
@@ -150,15 +221,15 @@ export default async function CampaignsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2 justify-end">
                       {!campaign.active && (
                         <form action={activateCampaignAction}>
                           <input type="hidden" name="id" value={campaign.id} />
                           <button
                             type="submit"
-                            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition-colors"
+                            className="text-xs font-medium px-3 py-2 rounded-lg bg-teal-500 text-white hover:bg-teal-600 transition-colors"
                           >
-                            Activate
+                            Start
                           </button>
                         </form>
                       )}

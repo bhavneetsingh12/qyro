@@ -240,8 +240,10 @@ export default function ClientCallControlPage() {
     { label: "Compliance Blocked", value: metrics.totals.blocked, tone: "bg-stone-100 text-stone-700" },
   ]), [metrics]);
 
+  const canPauseResume = control.canManage && !saving && !control.globalPaused;
+
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-4 md:p-8 max-w-6xl pb-28 md:pb-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold text-stone-900">Call Control Center</h1>
@@ -251,7 +253,7 @@ export default function ClientCallControlPage() {
           type="button"
           onClick={() => void load(true)}
           disabled={loading || refreshing}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E8E6E1] bg-white text-sm text-stone-700 hover:bg-stone-50"
+          className="inline-flex items-center gap-2 px-3 py-2.5 rounded-lg border border-[#E8E6E1] bg-white text-sm text-stone-700 hover:bg-stone-50"
         >
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           {refreshing ? "Refreshing..." : "Refresh"}
@@ -276,7 +278,7 @@ export default function ClientCallControlPage() {
         <p className="mt-4 text-sm text-rose-600">{error}</p>
       )}
 
-      <div className="mt-6 grid grid-cols-2 lg:grid-cols-6 gap-3">
+      <div className="mt-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {statCards.map((card) => (
           <div key={card.label} className="rounded-[12px] border border-[#E8E6E1] bg-white p-4">
             <p className="text-xs text-stone-500">{card.label}</p>
@@ -322,7 +324,7 @@ export default function ClientCallControlPage() {
             <button
               onClick={enqueueOutboundCalls}
               disabled={saving || !control.enabled || control.globalPaused}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-amber-600 text-white text-sm font-medium disabled:opacity-50"
             >
               Queue Calls
             </button>
@@ -373,14 +375,14 @@ export default function ClientCallControlPage() {
             <button
               onClick={() => patchControl({ enabled: true })}
               disabled={!control.canManage || saving || control.globalPaused || control.enabled}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
             >
               Enable Outbound
             </button>
             <button
               onClick={() => patchControl({ enabled: false, paused: true, pausedReason: pausedReasonDraft || "disabled by user" })}
               disabled={!control.canManage || saving || !control.enabled}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-stone-700 text-white text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-stone-700 text-white text-sm font-medium disabled:opacity-50"
             >
               Disable Outbound
             </button>
@@ -392,7 +394,7 @@ export default function ClientCallControlPage() {
                 drainQueued: drainWhenPause,
               })}
               disabled={!control.canManage || saving || control.globalPaused}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
             >
               <PauseCircle size={14} />
               Pause Outbound
@@ -404,7 +406,7 @@ export default function ClientCallControlPage() {
                 maxConcurrentCalls: maxConcurrentDraft,
               })}
               disabled={!control.canManage || saving || control.globalPaused}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium disabled:opacity-50"
             >
               <PlayCircle size={14} />
               Resume Outbound
@@ -412,7 +414,7 @@ export default function ClientCallControlPage() {
             <button
               onClick={() => patchControl({ maxConcurrentCalls: maxConcurrentDraft, pausedReason: pausedReasonDraft })}
               disabled={!control.canManage || saving}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#E8E6E1] bg-white text-sm font-medium text-stone-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg border border-[#E8E6E1] bg-white text-sm font-medium text-stone-700 disabled:opacity-50"
             >
               <Activity size={14} />
               Save Capacity
@@ -451,6 +453,35 @@ export default function ClientCallControlPage() {
             )}
           </div>
         </section>
+      </div>
+
+      <div className="md:hidden fixed bottom-0 left-0 right-0 border-t border-[#E8E6E1] bg-white/95 backdrop-blur-sm p-3">
+        <div className="max-w-6xl mx-auto grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => void load(true)}
+            disabled={refreshing}
+            className="px-3 py-2.5 rounded-lg border border-[#E8E6E1] text-sm font-medium text-stone-700 disabled:opacity-50"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => patchControl({ paused: true, pausedReason: pausedReasonDraft || "paused from mobile" })}
+            disabled={!canPauseResume}
+            className="px-3 py-2.5 rounded-lg bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            Pause
+          </button>
+          <button
+            type="button"
+            onClick={() => patchControl({ paused: false, pausedReason: pausedReasonDraft })}
+            disabled={!canPauseResume}
+            className="px-3 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            Resume
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -117,7 +117,7 @@ function MessageCard({
       </div>
 
       {/* Actions */}
-      <div className="px-5 py-3 border-t border-[#F5F4F1] bg-[#FAFAF8]">
+      <div className="px-5 py-3 border-t border-[#F5F4F1] bg-[#FAFAF8] sticky bottom-0">
         {showReject ? (
           <div className="space-y-2">
             <textarea
@@ -132,14 +132,14 @@ function MessageCard({
               <button
                 onClick={handleRejectConfirm}
                 disabled={isPending}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-rose-500 hover:bg-rose-600 text-white transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium bg-rose-500 hover:bg-rose-600 text-white transition-colors disabled:opacity-50"
               >
                 <X size={13} />
                 Confirm reject
               </button>
               <button
                 onClick={() => { setShowReject(false); setReason(""); }}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium text-stone-500 hover:bg-stone-100 transition-colors"
+                className="px-3 py-2.5 rounded-lg text-sm font-medium text-stone-500 hover:bg-stone-100 transition-colors"
               >
                 Cancel
               </button>
@@ -150,7 +150,7 @@ function MessageCard({
             <button
               onClick={handleApprove}
               disabled={isPending}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white transition-colors disabled:opacity-50"
             >
               <Check size={13} />
               Approve
@@ -158,7 +158,7 @@ function MessageCard({
             <button
               onClick={() => setShowReject(true)}
               disabled={isPending}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium bg-white border border-[#E8E6E1] text-stone-600 hover:border-rose-300 hover:text-rose-600 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium bg-white border border-[#E8E6E1] text-stone-600 hover:border-rose-300 hover:text-rose-600 transition-colors disabled:opacity-50"
             >
               <X size={13} />
               Reject

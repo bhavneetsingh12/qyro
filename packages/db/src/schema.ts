@@ -37,11 +37,14 @@ export const tenants = pgTable("tenants", {
   name:         text("name").notNull(),
   slug:         text("slug").notNull().unique(),
   plan:         text("plan").notNull().default("starter"),
+  twilioNumber: text("twilio_number"),
   active:       boolean("active").notNull().default(true),
   metadata:     jsonb("metadata").default({}),
   createdAt:    timestamp("created_at").defaultNow().notNull(),
   updatedAt:    timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  twilioNumberIdx: index("tenants_twilio_number_idx").on(t.twilioNumber),
+}));
 
 export const users = pgTable("users", {
   id:           uuid("id").primaryKey().defaultRandom(),
