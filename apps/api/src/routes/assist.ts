@@ -18,6 +18,13 @@ const OUTBOUND_CONTROL_ROLES = new Set(["owner", "admin", "operator"]);
 const PUBLIC_RATE_WINDOW_MS = 60 * 1000;
 const PUBLIC_RATE_LIMIT = 30;
 const publicRateBuckets = new Map<string, { count: number; resetAt: number }>();
+const CALL_ATTEMPTS_SCHEMA_TTL_MS = 60_000;
+
+type CallAttemptsSchemaMode = "modern" | "legacy";
+
+let callAttemptsSchemaCache:
+  | { mode: CallAttemptsSchemaMode; expiresAt: number }
+  | null = null;
 
 function canManageOutbound(req: Request): boolean {
   return OUTBOUND_CONTROL_ROLES.has(req.userRole);
@@ -49,6 +56,36 @@ function normalizePhone(value?: string | null): string {
 
 function isMissingColumnError(err: unknown): boolean {
   return (err as { code?: string })?.code === "42703";
+}
+
+async function getCallAttemptsSchemaMode(): Promise<CallAttemptsSchemaMode> {
+  const now = Date.now();
+  if (callAttemptsSchemaCache && callAttemptsSchemaCache.expiresAt > now) {
+    return callAttemptsSchemaCache.mode;
+  }
+
+  const rows = await db.execute<{ column_name: string }>(sql`
+    select column_name
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'call_attempts'
+      and column_name in (
+        'direction',
+        'status',
+        'attempt_count',
+        'max_attempts',
+        'next_attempt_at',
+        'last_attempt_at',
+        'dnd_at'
+      )
+  `);
+
+  const available = new Set((rows as Array<{ column_name: string }>).map((row) => row.column_name));
+  const required = ["direction", "status", "attempt_count", "max_attempts", "next_attempt_at", "last_attempt_at", "dnd_at"];
+  const mode: CallAttemptsSchemaMode = required.every((col) => available.has(col)) ? "modern" : "legacy";
+
+  callAttemptsSchemaCache = { mode, expiresAt: now + CALL_ATTEMPTS_SCHEMA_TTL_MS };
+  return mode;
 }
 
 function getRequestIp(req: Request): string {
@@ -423,7 +460,8 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 
     let enqueued = 0;
     const callAttemptIds: string[] = [];
-    let legacyMode = false;
+    const schemaMode = await getCallAttemptsSchemaMode();
+    const legacyMode = schemaMode === "legacy";
 
     for (const prospectId of prospectSet) {
       const prospect = await db.query.prospectsRaw.findFirst({
@@ -433,7 +471,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
       if (!prospect || !normalizePhone(prospect.phone)) continue;
 
       let attemptId: string;
-      try {
+      if (schemaMode === "modern") {
         const [attempt] = await db
           .insert(callAttempts)
           .values({
@@ -450,21 +488,17 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
           .returning({ id: callAttempts.id });
 
         attemptId = attempt.id;
-      } catch (err) {
-        if (!isMissingColumnError(err)) throw err;
-
-        // Compatibility fallback for databases that don't yet have migration 0002.
-        const [legacyAttempt] = await db
-          .insert(callAttempts)
-          .values({
-            tenantId,
-            prospectId,
-            outcome: "queued",
-          })
-          .returning({ id: callAttempts.id });
-
-        attemptId = legacyAttempt.id;
-        legacyMode = true;
+      } else {
+        // Legacy schema path: only insert columns that definitely exist.
+        const legacyInserted = await db.execute<{ id: string }>(sql`
+          insert into call_attempts (tenant_id, prospect_id, outcome)
+          values (${tenantId}, ${prospectId}, ${"queued"})
+          returning id
+        `);
+        attemptId = (legacyInserted as Array<{ id: string }>)[0]?.id;
+        if (!attemptId) {
+          throw new Error("Failed to create legacy call attempt");
+        }
       }
 
       callAttemptIds.push(attemptId);
@@ -501,8 +535,10 @@ router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Respo
     const limit = Math.min(parseInt((req.query.limit as string) || "100", 10), 300);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
+    const schemaMode = await getCallAttemptsSchemaMode();
     let rows;
-    try {
+
+    if (schemaMode === "modern") {
       rows = await db
         .select({
           id: callAttempts.id,
@@ -530,11 +566,8 @@ router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Respo
         .orderBy(desc(callAttempts.createdAt))
         .limit(limit)
         .offset(offset);
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code !== "42703") throw err;
-
-      // Compatibility fallback for databases that don't yet have migration 0002.
+    } else {
+      // Legacy schema fallback.
       rows = await db
         .select({
           id: callAttempts.id,
@@ -691,7 +724,9 @@ router.get("/v1/assist/outbound-calls/metrics", async (req: Request, res: Respon
       createdAt: Date;
     }> = [];
 
-    try {
+    const schemaMode = await getCallAttemptsSchemaMode();
+
+    if (schemaMode === "modern") {
       grouped = await db
         .select({
           status: callAttempts.status,
@@ -725,9 +760,7 @@ router.get("/v1/assist/outbound-calls/metrics", async (req: Request, res: Respon
         )
         .orderBy(desc(callAttempts.createdAt))
         .limit(30);
-    } catch (err) {
-      if (!isMissingColumnError(err)) throw err;
-
+    } else {
       const legacyRecent = await db
         .select({
           id: callAttempts.id,
