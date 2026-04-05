@@ -6,6 +6,11 @@ import type { RequestHandler } from "express";
 // Must come after clerkMiddleware() applied in index.ts.
 
 export const requireClerkAuth: RequestHandler = (req, res, next) => {
+  if (process.env.NODE_ENV === "production" && process.env.DEV_BYPASS_AUTH === "true") {
+    res.status(500).json({ error: "CONFIG_ERROR", message: "DEV_BYPASS_AUTH cannot be enabled in production" });
+    return;
+  }
+
   if (process.env.DEV_BYPASS_AUTH === "true") {
     next();
     return;

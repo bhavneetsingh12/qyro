@@ -177,6 +177,8 @@ export default async function RootPage() {
           </div>
           <div className="flex items-center gap-5 text-xs text-stone-400">
             <Link href="/sign-in" className="hover:text-stone-700 transition-colors">Sign in</Link>
+            <Link href="/terms" className="hover:text-stone-700 transition-colors">Terms</Link>
+            <Link href="/privacy" className="hover:text-stone-700 transition-colors">Privacy</Link>
           </div>
         </div>
       </footer>

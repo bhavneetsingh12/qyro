@@ -393,6 +393,31 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
       }
     }
 
+    if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object as any;
+      const subscriptionId = String(invoice.subscription ?? "").trim();
+
+      if (subscriptionId) {
+        const existing = await db.query.tenantSubscriptions.findFirst({
+          where: eq(tenantSubscriptions.stripeSubscriptionId, subscriptionId),
+        });
+
+        if (existing) {
+          const productAccess = { lead: false, assist: false };
+          await db
+            .update(tenantSubscriptions)
+            .set({
+              status: "past_due",
+              productAccess,
+              updatedAt: new Date(),
+            })
+            .where(eq(tenantSubscriptions.id, existing.id));
+
+          await writeTenantProductAccess(existing.tenantId, productAccess);
+        }
+      }
+    }
+
     if (event.type === "customer.subscription.deleted") {
       const subscription = event.data.object as any;
       const existing = await db.query.tenantSubscriptions.findFirst({
