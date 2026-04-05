@@ -473,33 +473,66 @@ router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Respo
     const limit = Math.min(parseInt((req.query.limit as string) || "100", 10), 300);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
-    const rows = await db
-      .select({
-        id: callAttempts.id,
-        prospectId: callAttempts.prospectId,
-        phone: prospectsRaw.phone,
-        businessName: prospectsRaw.businessName,
-        status: callAttempts.status,
-        outcome: callAttempts.outcome,
-        attemptCount: callAttempts.attemptCount,
-        maxAttempts: callAttempts.maxAttempts,
-        nextAttemptAt: callAttempts.nextAttemptAt,
-        lastAttemptAt: callAttempts.lastAttemptAt,
-        twilioCallSid: callAttempts.twilioCallSid,
-        dndAt: callAttempts.dndAt,
-        createdAt: callAttempts.createdAt,
-      })
-      .from(callAttempts)
-      .leftJoin(prospectsRaw, eq(callAttempts.prospectId, prospectsRaw.id))
-      .where(
-        and(
-          eq(callAttempts.tenantId, tenantId),
-          eq(callAttempts.direction, "outbound"),
-        ),
-      )
-      .orderBy(desc(callAttempts.createdAt))
-      .limit(limit)
-      .offset(offset);
+    let rows;
+    try {
+      rows = await db
+        .select({
+          id: callAttempts.id,
+          prospectId: callAttempts.prospectId,
+          phone: prospectsRaw.phone,
+          businessName: prospectsRaw.businessName,
+          status: callAttempts.status,
+          outcome: callAttempts.outcome,
+          attemptCount: callAttempts.attemptCount,
+          maxAttempts: callAttempts.maxAttempts,
+          nextAttemptAt: callAttempts.nextAttemptAt,
+          lastAttemptAt: callAttempts.lastAttemptAt,
+          twilioCallSid: callAttempts.twilioCallSid,
+          dndAt: callAttempts.dndAt,
+          createdAt: callAttempts.createdAt,
+        })
+        .from(callAttempts)
+        .leftJoin(prospectsRaw, eq(callAttempts.prospectId, prospectsRaw.id))
+        .where(
+          and(
+            eq(callAttempts.tenantId, tenantId),
+            eq(callAttempts.direction, "outbound"),
+          ),
+        )
+        .orderBy(desc(callAttempts.createdAt))
+        .limit(limit)
+        .offset(offset);
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== "42703") throw err;
+
+      // Compatibility fallback for databases that don't yet have migration 0002.
+      rows = await db
+        .select({
+          id: callAttempts.id,
+          prospectId: callAttempts.prospectId,
+          phone: prospectsRaw.phone,
+          businessName: prospectsRaw.businessName,
+          outcome: callAttempts.outcome,
+          twilioCallSid: callAttempts.twilioCallSid,
+          createdAt: callAttempts.createdAt,
+        })
+        .from(callAttempts)
+        .leftJoin(prospectsRaw, eq(callAttempts.prospectId, prospectsRaw.id))
+        .where(eq(callAttempts.tenantId, tenantId))
+        .orderBy(desc(callAttempts.createdAt))
+        .limit(limit)
+        .offset(offset)
+        .then((legacyRows) => legacyRows.map((row) => ({
+          ...row,
+          status: "queued",
+          attemptCount: 0,
+          maxAttempts: 0,
+          nextAttemptAt: null,
+          lastAttemptAt: null,
+          dndAt: null,
+        })));
+    }
 
     res.json({ data: rows, limit, offset });
   } catch (err) {

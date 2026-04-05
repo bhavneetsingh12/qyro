@@ -1,18 +1,24 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { requireAuth, getAuth } from "@clerk/express";
+import { getAuth } from "@clerk/express";
 import type { RequestHandler } from "express";
 import twilio from "twilio";
 
 // Applies Clerk session verification. Rejects 401 if no valid session.
 // Must come after clerkMiddleware() applied in index.ts.
-const clerkRequireAuth = requireAuth();
 
 export const requireClerkAuth: RequestHandler = (req, res, next) => {
   if (process.env.DEV_BYPASS_AUTH === "true") {
     next();
     return;
   }
-  clerkRequireAuth(req, res, next);
+
+  const { userId } = getAuth(req);
+  if (!userId) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Authentication required" });
+    return;
+  }
+
+  next();
 };
 
 // Validates that incoming requests to voice routes originated from Twilio.
