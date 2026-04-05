@@ -12,6 +12,7 @@ import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 import voiceRouter from "./routes/voice";
 import retellRouter from "./routes/retell";
+import billingRouter, { billingPublicRouter } from "./routes/billing";
 
 const app: Express = express();
 const PORT = Number(process.env.PORT ?? 3001);
@@ -82,9 +83,10 @@ app.get("/", (_req: Request, res: Response) => {
       assistPublic: "POST /api/v1/assist/chat | POST /api/v1/assist/missed-call",
       assistAuthed: "GET /api/sessions | GET /api/appointments | GET/POST /api/v1/assist/*",
       tenants: "GET|PATCH /api/v1/tenants/settings",
+      billing: "GET|POST /api/v1/billing/*",
       voice: "POST /api/v1/voice/*",
       retell: "POST /api/v1/retell/*",
-      webhooks: "POST /webhooks/nightly/ingest | POST /webhooks/morning/digest"
+      webhooks: "POST /webhooks/nightly/ingest | POST /webhooks/morning/digest | POST /webhooks/stripe"
     }
   });
 });
@@ -95,6 +97,7 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // Webhooks use their own signature verification — not Clerk auth
 app.use("/webhooks", webhooksRouter);
+app.use("/webhooks", billingPublicRouter);
 app.use("/api/v1/voice", validateTwilioSignature, voiceRouter);
 app.use("/api/v1/retell", validateRetellRequest, retellRouter);
 
@@ -131,6 +134,13 @@ app.use(
   requireClerkAuth,
   tenantMiddleware,
   tenantsRouter
+);
+
+app.use(
+  "/api",
+  requireClerkAuth,
+  tenantMiddleware,
+  billingRouter
 );
 
 // ─── Global error handler ─────────────────────────────────────────────────────

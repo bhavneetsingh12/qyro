@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { Lock } from "lucide-react";
+import BillingActions from "@/components/billing/BillingActions";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -83,6 +84,8 @@ export default async function ProductsPage() {
             );
           })}
         </div>
+
+        <BillingActions productAccess={productAccess} />
       </div>
     </main>
   );

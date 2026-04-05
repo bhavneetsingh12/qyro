@@ -270,6 +270,24 @@ export const billingEvents = pgTable("billing_events", {
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
 
+export const tenantSubscriptions = pgTable("tenant_subscriptions", {
+  id:                   uuid("id").primaryKey().defaultRandom(),
+  tenantId:             uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  stripeCustomerId:     text("stripe_customer_id").notNull().unique(),
+  stripeSubscriptionId: text("stripe_subscription_id").notNull().unique(),
+  stripePriceId:        text("stripe_price_id").notNull(),
+  status:               text("status").notNull(), // trialing | active | past_due | canceled | unpaid
+  productAccess:        jsonb("product_access").notNull().default({ lead: false, assist: false }),
+  currentPeriodStart:   timestamp("current_period_start"),
+  currentPeriodEnd:     timestamp("current_period_end"),
+  cancelAtPeriodEnd:    boolean("cancel_at_period_end").notNull().default(false),
+  createdAt:            timestamp("created_at").defaultNow().notNull(),
+  updatedAt:            timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantIdx:            uniqueIndex("tenant_subscriptions_tenant_idx").on(t.tenantId),
+  statusIdx:            index("tenant_subscriptions_status_idx").on(t.status),
+}));
+
 export const auditLogs = pgTable("audit_logs", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id),

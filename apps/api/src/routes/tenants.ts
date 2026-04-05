@@ -7,7 +7,7 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, tenants } from "@qyro/db";
+import { db, tenantSubscriptions, tenants } from "@qyro/db";
 
 const router: ExpressRouter = Router();
 
@@ -51,8 +51,8 @@ function resolveProductAccess(meta: Record<string, unknown>): ProductAccess {
     return { lead: false, assist: true };
   }
 
-  // Default during transition: existing tenants can access both products.
-  return { lead: true, assist: true };
+  // Billing-first default: no product access unless explicitly granted.
+  return { lead: false, assist: false };
 }
 
 // ─── GET /api/v1/tenants/settings ─────────────────────────────────────────────
@@ -71,7 +71,13 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
     const meta = (tenant.metadata as Record<string, unknown>) ?? {};
     const apolloApiKey = (meta.apolloApiKey as string) ?? "";
     const hunterApiKey = (meta.hunterApiKey as string) ?? "";
-    const productAccess = resolveProductAccess(meta);
+    const subscription = await db.query.tenantSubscriptions.findFirst({
+      where: eq(tenantSubscriptions.tenantId, req.tenantId),
+    });
+
+    const productAccess = subscription
+      ? ((subscription.productAccess as ProductAccess | null) ?? resolveProductAccess(meta))
+      : resolveProductAccess(meta);
 
     res.json({
       id:               tenant.id,
