@@ -329,29 +329,35 @@ qyro/
 
 ## Known remaining issues
 
-### P0 Critical (Phase 2 must-fix before client onboarding)
-See QYRO_P0_FIXES.md for detailed instructions. These block client signup:
-1. Widget chat blocked by Clerk auth — needs public endpoint
-2. Session UUID spoken aloud in voice greeting
-3. Inbound call session ID not passed to turn route
-4. Twilio signature verification missing (security gap)
-5. Voice AI has no memory between turns
-6. Wrong session type for inbound voice (missed_call_sms instead of voice_inbound)
-7. Widget sends wrong channel value (sms instead of chat)
-8. Missing env vars in .env.example (12 vars undocumented)
-9. DEV_BYPASS_AUTH allowed in production
-10. Port default mismatch (code uses 3005, env example uses 3001)
+### P0 Critical — ALL FIXED (2026-04-05 audit)
+All P0 issues from QYRO_P0_FIXES.md have been resolved:
+[x] 1. Widget chat public endpoint — assistPublicRouter mounted correctly
+[x] 2. Session UUID in greeting — removed
+[x] 3. Inbound sessionId in TwiML action URL — passing ?sessionId=
+[x] 4. Signature verification — validateSignalWireSignature applied to voice routes
+[x] 5. Voice memory between turns — history loaded/saved via conversationHistory
+[x] 6. Wrong session type — voice_inbound used correctly
+[x] 7. Widget channel — channel: "chat" set correctly
+[x] 8. Missing env vars — .env.example updated with all vars incl. SignalWire, master admin, API_URL
+[x] 9. DEV_BYPASS_AUTH in production — guard added to both requireClerkAuth and tenantMiddleware
+[x] 10. Port mismatch — defaults to 3001
+
+Security fixes also applied (2026-04-05 audit):
+[x] invoice.payment_failed Stripe webhook — now revokes access on failed payments
+[x] icon.svg added (was referenced in layout.tsx but missing)
+[x] stripe product assets committed (were untracked, would not deploy)
+[x] Terms of service page (/terms) added
+[x] Privacy policy page (/privacy) added
+[x] Sign-up page (/sign-up) added
 
 ### P1 Important (Phase 3)
-- Rate limiting missing on chat endpoint (DDoS risk)
+- Rate limiting on chat endpoint is in-memory only — resets on server restart (acceptable for single-instance dev, upgrade before scaling)
 - Self-serve tenant onboarding not built (manual onboarding only)
 - Clerk webhooks not implemented (user lifecycle sync)
 - Cal.com webhooks not implemented (booking confirmation)
 - Calendly / Square Appointments adapters not built
 
 ### P2 Nice-to-have (Phase 3+)
-- Stripe billing integration (billingEvents table exists, zero Stripe code)
-- Stripe webhooks (subscription/usage events)
 - Session P (polish + mobile UI refinement)
 - Lead engine as product (Phase 4)
 - Additional calendar integrations
