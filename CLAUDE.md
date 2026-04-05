@@ -619,6 +619,81 @@ This file is the execution guide for phased implementation and testing.
 
 ---
 
+## Implementation Addendum (2026-04-05, SignalWire + Admin Control Plane)
+
+This addendum records platform-control and voice-provider changes shipped after prior April 5 stabilization work.
+No prior content was removed or replaced.
+
+### Voice transport migration completed
+
+Primary telephony runtime moved from Twilio-specific wiring to SignalWire cXML-compatible transport:
+- Signature middleware now validates `x-signalwire-signature`
+- Outbound dial path now uses SignalWire LaML REST endpoint
+- API env vars switched to SignalWire set (`SIGNALWIRE_PROJECT_ID`, `SIGNALWIRE_API_TOKEN`, `SIGNALWIRE_SPACE_URL`)
+
+### Provider-neutral schema naming completed
+
+DB and application field naming was normalized to avoid Twilio-specific confusion:
+- `tenants.twilio_number` -> `tenants.voice_number`
+- `call_attempts.twilio_call_sid` -> `call_attempts.call_sid`
+- App-level field names updated accordingly (`voiceNumber`, `callSid`)
+
+Migration added:
+- `packages/db/migrations/0006_rename_voice_fields.sql`
+
+### Master admin and permissions control plane added
+
+New admin APIs (Clerk-authenticated) added:
+- `GET /api/v1/admin/me`
+- `GET /api/v1/admin/tenants`
+- `PATCH /api/v1/admin/tenants/:tenantId/access`
+- `PATCH /api/v1/admin/users/:userId/role`
+
+Tenant-level user management APIs added:
+- `GET /api/v1/tenants/users`
+- `PATCH /api/v1/tenants/users/:userId`
+
+New entitlement resolver added:
+- `apps/api/src/lib/entitlements.ts`
+- Resolves paid access + billing override access + trial access + per-user access overrides
+
+### Trial behavior now enforced at voice entry points
+
+Inbound/outbound enforcement implemented:
+- Inbound voice rejects when Assist access is not enabled
+- Outbound enqueue rejects when Lead access is not enabled
+- Trial call counters decrement when trial access is consumed
+
+### New frontend control surfaces
+
+Master admin UI:
+- `/internal/admin` for cross-tenant access/trial controls
+
+Tenant owner/admin UI:
+- `/internal/team` for role, active-state, and per-user product-access management
+
+Sidebar updates:
+- Internal nav includes Admin and Team entries
+
+### Master-admin UX behavior finalized
+
+Master admin sessions no longer follow tenant subscription UX constraints:
+- `/products` redirects master admins to `/internal/admin`
+- Internal/client layouts bypass entitlement redirects for master admins
+- Billing action/status UI is suppressed for master-admin session context
+
+### SQL tracking file added
+
+Operational SQL checklist retained at:
+- `infra/sql_todo_master_admin.sql`
+
+Purpose:
+- Promote/demote master admin role safely
+- Verify role changes
+- Keep repeatable runbook for Railway Postgres operations
+
+---
+
 ## Implementation Addendum (2026-04-03, Retell + Twilio Integration Slice 1)
 
 This addendum records the first code implementation slice for the Retell migration.

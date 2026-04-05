@@ -284,3 +284,73 @@ Date: 2026-04-05 | Status: Accepted
 - Middleware public route update in `apps/web/src/middleware.ts`
 - Landing page redesign in `apps/web/src/app/page.tsx`
 - Product selector sign-out control in `apps/web/src/app/products/page.tsx`
+
+---
+
+## ADR-017: SignalWire as primary cXML telephony transport
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Replace Twilio-specific inbound signature verification and outbound call-init wiring with SignalWire-compatible implementations while retaining cXML-compatible webhook behavior.
+
+**Reasons:**
+- Lower recurring telephony cost target with comparable cXML compatibility.
+- Existing webhook/call-control architecture already aligned with cXML patterns, minimizing migration blast radius.
+- Keeps voice transport configurable while removing hard provider coupling in middleware and worker paths.
+
+**Implementation artifacts:**
+- Signature validation middleware in `apps/api/src/middleware/auth.ts`
+- Middleware mount in `apps/api/src/index.ts`
+- Outbound dial worker endpoint/auth updates in `packages/queue/src/workers/outboundCallWorker.ts`
+
+---
+
+## ADR-018: Provider-neutral voice identifiers in schema and app code
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Rename provider-branded fields to neutral names in both database schema and runtime code.
+
+**Renames:**
+- `tenants.twilio_number` -> `tenants.voice_number`
+- `call_attempts.twilio_call_sid` -> `call_attempts.call_sid`
+
+**Reasons:**
+- Avoids repeated refactors when switching telephony providers.
+- Reduces developer/operator confusion where naming implies the wrong provider.
+- Supports long-term multi-provider capability without schema churn.
+
+**Implementation artifacts:**
+- Schema updates in `packages/db/src/schema.ts`
+- Migration `packages/db/migrations/0006_rename_voice_fields.sql`
+- Route/worker/frontend reference updates across API, queue, and web app.
+
+---
+
+## ADR-019: Master-admin control plane and billing-UX bypass semantics
+Date: 2026-04-05 | Status: Accepted
+
+**Decision:** Introduce a platform-level master-admin role that can manage tenant/user access and trial controls across all tenants, and bypass tenant billing-gated UX constraints.
+
+**Reasons:**
+- Platform operators need emergency/operational controls independent of tenant subscription state.
+- Tenant billing status should not block platform support and administration workflows.
+- Access policy requires deterministic composition of paid access, overrides, trial, and user-level controls.
+
+**Implementation details:**
+- Added central entitlement resolver combining:
+    - subscription-derived access
+    - billing override flags
+    - trial days/quota controls
+    - per-user product access overrides
+- Added master-admin API routes and internal admin UI for cross-tenant management.
+- Added tenant owner/admin team-management route/UI for role and product-access control.
+- Updated internal/client routing and products UX to suppress tenant billing prompts for master-admin sessions.
+
+**Implementation artifacts:**
+- `apps/api/src/lib/entitlements.ts`
+- `apps/api/src/routes/admin.ts`
+- `apps/api/src/routes/tenants.ts`
+- `apps/web/src/app/(internal)/internal/admin/page.tsx`
+- `apps/web/src/app/(internal)/internal/team/page.tsx`
+- `apps/web/src/app/products/page.tsx`
+- `apps/web/src/app/(internal)/layout.tsx`
+- `apps/web/src/app/(client)/layout.tsx`

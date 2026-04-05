@@ -59,6 +59,29 @@ This section records production architecture updates shipped during the April 5 
 - Detection probes `information_schema.columns` and selects modern vs legacy query/insert paths.
 - This avoids runtime failures when `status`/`direction` and related columns are absent in older DB shapes.
 
+### Voice provider + naming normalization updates
+- Migrated transport wiring from Twilio-specific verification/call creation to SignalWire cXML-compatible transport.
+- Added SignalWire signature verification in API middleware (`x-signalwire-signature`).
+- Outbound dial initiation now targets SignalWire LaML REST endpoint.
+- Renamed provider-specific DB fields to provider-neutral names:
+     - `tenants.voice_number`
+     - `call_attempts.call_sid`
+- Added migration `packages/db/migrations/0006_rename_voice_fields.sql` for production consistency.
+
+### Admin control plane updates
+- Added master-admin API surface for cross-tenant controls:
+     - `GET /api/v1/admin/me`
+     - `GET /api/v1/admin/tenants`
+     - `PATCH /api/v1/admin/tenants/:tenantId/access`
+     - `PATCH /api/v1/admin/users/:userId/role`
+- Added tenant owner/admin APIs for staff permission control:
+     - `GET /api/v1/tenants/users`
+     - `PATCH /api/v1/tenants/users/:userId`
+- Added entitlement resolver combining subscription access, billing overrides, trial limits, and per-user product overrides.
+- Added frontend control surfaces:
+     - `/internal/admin` (master admin)
+     - `/internal/team` (tenant owner/admin)
+
 ### Web app routing + UX updates
 - Root route `/` is now intentionally public for signed-out users (marketing/landing path).
 - App routes remain protected through Clerk middleware.
@@ -103,7 +126,7 @@ const PRODUCT_ACCESS = {
 | Auth | Clerk | multi-tenant, RBAC |
 | Billing | Stripe | Phase 2+ for QYRO Assist |
 | AI | OpenAI (tiered) | see TOKEN_BUDGET.md |
-| Voice | Twilio | Phase 5 only |
+| Voice | SignalWire (+ Retell runtime path) | cXML-compatible transport with provider-neutral DB fields |
 | Calendar | Cal.com | booking + reschedule |
 | CRM | HubSpot | contact sync |
 | Lead sources | Google Places API (New) | primary search source; no scraping |
