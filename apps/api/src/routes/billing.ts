@@ -264,7 +264,7 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
 
     const productDescriptions: Record<string, string> = {
       lead: "Automated outbound calling pipeline with AI voice agents. Upload prospects, set campaigns, and let QYRO Lead handle the outreach 24/7.",
-      assist: "AI-powered inbound assistant that answers calls, qualifies leads, books appointments, and hands off to your team — automatically.",
+      assist: "AI-powered inbound assistant that handles calls on your existing business number — answers questions, books appointments, and hands off to your team automatically. No number porting required.",
       bundle: "Full QYRO access: outbound lead generation + inbound AI assistant. Everything you need to run a hands-free voice pipeline.",
     };
 

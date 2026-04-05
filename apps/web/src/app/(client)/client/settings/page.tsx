@@ -16,6 +16,7 @@ type SettingsForm = {
   autoRespond:      boolean;
   businessHours:    string;
   voiceNumber:      string;
+  connectionMethod: string;
 };
 
 export default function ClientSettingsPage() {
@@ -31,6 +32,7 @@ export default function ClientSettingsPage() {
     autoRespond:      false,
     businessHours:    "",
     voiceNumber:      "",
+    connectionMethod: "forwarding",
   });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -57,6 +59,7 @@ export default function ClientSettingsPage() {
             autoRespond:      !!data.autoRespond,
             businessHours:    data.businessHours    ?? "",
             voiceNumber:      data.voiceNumber      ?? "",
+            connectionMethod: data.connectionMethod ?? "forwarding",
           });
         }
       } catch {
@@ -194,8 +197,8 @@ export default function ClientSettingsPage() {
             </FormField>
 
             <FormField
-              label="Phone number"
-              hint="Your SignalWire inbound voice number (E.164 format, e.g. +15035551234)."
+              label="Your business phone number"
+              hint="Enter your existing business number in E.164 format (e.g. +15035551234). QYRO does not provision numbers — this is the number your customers already call."
             >
               <input
                 className="input"
@@ -203,6 +206,24 @@ export default function ClientSettingsPage() {
                 onChange={(e) => setForm({ ...form, voiceNumber: e.target.value })}
                 placeholder="+15035551234"
               />
+            </FormField>
+
+            <FormField
+              label="How are you connecting this number?"
+              hint={
+                form.connectionMethod === "forwarding"
+                  ? "Option A: Forward your existing number to the QYRO endpoint shown in your setup instructions. Your carrier or VoIP provider handles the forward — no porting required."
+                  : "Option B: If your number is on Twilio or SignalWire, paste your QYRO webhook URL into that number's voice configuration in your provider dashboard."
+              }
+            >
+              <select
+                className="input"
+                value={form.connectionMethod}
+                onChange={(e) => setForm({ ...form, connectionMethod: e.target.value })}
+              >
+                <option value="forwarding">Call forwarding (landline, mobile, or VoIP)</option>
+                <option value="webhook">Webhook (Twilio or SignalWire number)</option>
+              </select>
             </FormField>
 
             <div className="flex items-start gap-3 rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5">

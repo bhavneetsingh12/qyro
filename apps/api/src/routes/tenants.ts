@@ -89,6 +89,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       autoRespond:      Boolean(meta.autoRespond ?? false),
       businessHours:    (meta.businessHours as string) ?? "",
       voiceNumber,
+      connectionMethod: (meta.connectionMethod as string) ?? "forwarding",
       widgetAllowedOrigins: Array.isArray(meta.widget_allowed_origins)
         ? meta.widget_allowed_origins
         : typeof meta.widgetAllowedOrigins === "string"
@@ -129,6 +130,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       autoRespond,
       businessHours,
       voiceNumber,
+      connectionMethod,
       widgetAllowedOrigins,
       voiceRuntime,
       retellAgentId,
@@ -146,6 +148,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       autoRespond?: boolean;
       businessHours?: string;
       voiceNumber?: string;
+      connectionMethod?: "forwarding" | "webhook";
       widgetAllowedOrigins?: string | string[];
       voiceRuntime?: "signalwire" | "retell";
       retellAgentId?: string;
@@ -178,6 +181,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(voiceNumber !== undefined && {
         voiceNumber,
         voice_number: voiceNumber,
+      }),
+      ...(connectionMethod !== undefined && {
+        connectionMethod: connectionMethod === "webhook" ? "webhook" : "forwarding",
       }),
       ...(widgetAllowedOrigins !== undefined && {
         widget_allowed_origins: Array.isArray(widgetAllowedOrigins)

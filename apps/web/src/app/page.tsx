@@ -54,6 +54,9 @@ export default async function RootPage() {
           <p className="mt-6 text-lg sm:text-xl text-stone-500 max-w-2xl mx-auto leading-relaxed">
             QYRO combines an intelligent lead engine with an AI client assistant — so you can find more customers and serve them better, without the overhead.
           </p>
+          <p className="mt-3 text-sm text-stone-400 max-w-xl mx-auto">
+            Works with your existing business number — no porting, no changes, customers call the same number they always have.
+          </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href="/sign-up"
@@ -101,7 +104,12 @@ export default async function RootPage() {
                 An AI voice agent that handles inbound and outbound calls, books appointments, answers questions, and escalates when needed.
               </p>
               <ul className="mt-5 space-y-2">
-                {["AI inbound & outbound calls", "Automated appointment booking", "Call transcripts & recordings", "Human escalation controls"].map((f) => (
+                {[
+                  "Bring your own number — connect any existing landline, VoIP, or mobile number in minutes",
+                  "Automated appointment booking",
+                  "Call transcripts & recordings",
+                  "Human escalation controls",
+                ].map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm text-stone-600">
                     <span className="h-1.5 w-1.5 rounded-full bg-stone-400 shrink-0" />
                     {f}
@@ -156,25 +164,25 @@ export default async function RootPage() {
         <div className="max-w-5xl mx-auto">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 text-center mb-2">Pricing</p>
           <h2 className="text-3xl sm:text-4xl font-bold text-stone-900 text-center mb-3">Simple, transparent pricing</h2>
-          <p className="text-stone-500 text-center text-sm mb-12">QYRO Assist plans for local businesses. No setup fees.</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+          <p className="text-stone-500 text-center text-sm mb-12">QYRO Assist plans for local businesses. No setup fees. Bring your own number.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {/* Starter */}
-            <div className="rounded-2xl border border-stone-200 bg-[#FAFAF8] p-8 flex flex-col">
+            <div className="rounded-2xl border border-stone-200 bg-[#FAFAF8] p-7 flex flex-col">
               <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-3">Starter</p>
               <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-bold text-stone-900">$200</span>
+                <span className="text-4xl font-bold text-stone-900">$297</span>
                 <span className="text-sm text-stone-400 mb-1">/month</span>
               </div>
-              <p className="text-sm text-stone-500 mb-6">Perfect for small businesses handling everyday call volume.</p>
-              <ul className="space-y-2.5 flex-1 mb-8">
+              <p className="text-sm text-stone-500 mb-5">Perfect for small businesses handling everyday call volume.</p>
+              <ul className="space-y-2.5 flex-1 mb-7">
                 {[
+                  "300 AI-handled minutes/month",
+                  "1 number connected",
                   "AI inbound call handling",
                   "Missed-call SMS follow-up",
                   "FAQ & appointment booking",
                   "Website chat widget",
                   "Call transcripts (90-day retention)",
-                  "1 voice number included",
-                  "Up to 3 concurrent calls",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
@@ -191,26 +199,26 @@ export default async function RootPage() {
               </Link>
             </div>
 
-            {/* Pro */}
-            <div className="rounded-2xl border-2 border-amber-400 bg-white p-8 flex flex-col relative shadow-sm">
+            {/* Growth */}
+            <div className="rounded-2xl border-2 border-amber-400 bg-white p-7 flex flex-col relative shadow-sm">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                 <span className="text-xs font-semibold bg-amber-400 text-white px-3 py-1 rounded-full">Most popular</span>
               </div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-amber-600 mb-3">Pro</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-amber-600 mb-3">Growth</p>
               <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-bold text-stone-900">$400</span>
+                <span className="text-4xl font-bold text-stone-900">$497</span>
                 <span className="text-sm text-stone-400 mb-1">/month</span>
               </div>
-              <p className="text-sm text-stone-500 mb-6">For growing businesses that need higher volume and advanced controls.</p>
-              <ul className="space-y-2.5 flex-1 mb-8">
+              <p className="text-sm text-stone-500 mb-5">For growing businesses that need more volume and outbound follow-up.</p>
+              <ul className="space-y-2.5 flex-1 mb-7">
                 {[
+                  "600 AI-handled minutes/month",
+                  "Up to 3 numbers connected",
                   "Everything in Starter",
-                  "Outbound AI call campaigns",
-                  "Up to 10 concurrent calls",
-                  "Advanced call control center",
-                  "Priority human escalation routing",
+                  "Inbound + outbound follow-up",
+                  "CRM sync",
                   "Multi-user team access",
-                  "Dedicated onboarding support",
+                  "Advanced call control center",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
@@ -226,11 +234,52 @@ export default async function RootPage() {
                 <ArrowRight size={13} strokeWidth={2.5} />
               </Link>
             </div>
+
+            {/* Pro */}
+            <div className="rounded-2xl border border-stone-200 bg-[#FAFAF8] p-7 flex flex-col">
+              <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-3">Pro</p>
+              <div className="flex items-end gap-1 mb-1">
+                <span className="text-4xl font-bold text-stone-900">$797</span>
+                <span className="text-sm text-stone-400 mb-1">/month</span>
+              </div>
+              <p className="text-sm text-stone-500 mb-5">High-volume operations with custom voice and unlimited number connections.</p>
+              <ul className="space-y-2.5 flex-1 mb-7">
+                {[
+                  "1,200 AI-handled minutes/month",
+                  "Unlimited numbers connected",
+                  "Everything in Growth",
+                  "Custom voice persona",
+                  "Priority support",
+                  "Dedicated onboarding",
+                  "Early access to new features",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="/sign-up"
+                className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white transition-colors"
+              >
+                Get started
+                <ArrowRight size={13} strokeWidth={2.5} />
+              </Link>
+            </div>
           </div>
-          <p className="text-center text-xs text-stone-400 mt-8">
-            Need a custom plan or want to see it in action?{" "}
-            <Link href="/contact" className="text-amber-600 hover:underline">Book a demo</Link>
-          </p>
+          <div className="mt-8 text-center space-y-1.5">
+            <p className="text-xs text-stone-400">
+              Overage: <span className="font-medium text-stone-500">$0.35/min</span> beyond included minutes.
+            </p>
+            <p className="text-xs text-stone-400">
+              Your existing carrier costs apply separately. QYRO charges only for AI-handled call time.
+            </p>
+            <p className="text-xs text-stone-400 mt-3">
+              Need a custom plan or want to see it in action?{" "}
+              <Link href="/contact" className="text-amber-600 hover:underline">Book a demo</Link>
+            </p>
+          </div>
         </div>
       </section>
 
