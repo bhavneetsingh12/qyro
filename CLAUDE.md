@@ -189,6 +189,13 @@ Operational notes:
 - Local dev can silently break if macOS AppleDouble files (._*) leak into apps/web/.next
 - If Next chunks 404 locally, clean apps/web/.next and restart the web dev server from repo root
 
+DEPLOY METHOD: git push origin main triggers Vercel auto-deploy via GitHub integration
+  - Vercel project ID: prj_C4gIk9spUIqDKCQblnCJtNLlmlrJ (in .vercel/project.json, gitignored)
+  - GitHub repo: bhavneetsingh12/qyro
+  - There is no vercel.json — using Vercel defaults
+  - NO manual deploy step needed — push = deploy
+  - IMPORTANT: changes committed locally but not pushed will NOT appear on qyro.us
+
 ### April 5, 2026 shipping log (traceability)
 All items below were implemented and deployed across API/web/DB.
 
