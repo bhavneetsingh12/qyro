@@ -30,7 +30,7 @@ function normalizeBool(value: unknown): boolean {
 function getOutboundControl(meta: Record<string, unknown>) {
   const maxConcurrentRaw = Number(meta.outbound_voice_max_concurrent_calls ?? 3);
   return {
-    enabled: normalizeBool(meta.outbound_voice_enabled),
+    enabled: meta.outbound_voice_enabled !== false,
     paused: normalizeBool(meta.outbound_voice_paused),
     pausedReason: (meta.outbound_voice_paused_reason as string) ?? "",
     maxConcurrentCalls: Number.isFinite(maxConcurrentRaw)
@@ -351,7 +351,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
     });
 
     const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
-    if (tenantMeta.outbound_voice_enabled !== true) {
+    if (tenantMeta.outbound_voice_enabled === false) {
       res.status(403).json({
         error: "COMPLIANCE_BLOCK",
         message: "Outbound voice is disabled for this tenant",

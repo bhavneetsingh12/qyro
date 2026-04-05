@@ -208,7 +208,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   });
 
   const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
-  const outboundEnabled = tenantMeta.outbound_voice_enabled === true;
+  const outboundEnabled = tenantMeta.outbound_voice_enabled !== false;
   const tenantPaused = tenantMeta.outbound_voice_paused === true;
   const globalPaused = outboundGlobalPauseEnabled();
 
