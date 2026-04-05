@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm turbo build --filter=@qyro/web",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "pnpm install",
+  "framework": "nextjs"
+}

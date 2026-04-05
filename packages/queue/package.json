@@ -23,7 +23,6 @@
     }
   },
   "dependencies": {
-    "@qyro/agents": "workspace:*",
     "@qyro/db": "workspace:*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.3.0"

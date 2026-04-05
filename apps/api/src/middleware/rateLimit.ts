@@ -9,41 +9,30 @@
 import type { RequestHandler } from "express";
 import { db } from "@qyro/db";
 import { rateLimitHits } from "@qyro/db";
-
-// Lazy Redis import — same IORedis instance from queue package.
-// We import lazily so the API server doesn't crash if REDIS_URL is missing.
-let _redis: import("ioredis").default | null = null;
-
-function getRedis(): import("ioredis").default {
-  if (_redis) return _redis;
-  const IORedis = require("ioredis");
-  if (!process.env.REDIS_URL) throw new Error("REDIS_URL is required");
-  _redis = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
-  return _redis!;
-}
+import { redis } from "@qyro/queue";
 
 export type RateLimitTier = "general" | "heavy" | "export";
 
-interface Window {
-  key: string;      // Redis key suffix
+interface RateLimitWindow {
+  key: string;
   limit: number;
   ttlSeconds: number;
   limitType: string;
 }
 
-const TIER_WINDOWS: Record<RateLimitTier, Window[]> = {
+const TIER_WINDOWS: Record<RateLimitTier, RateLimitWindow[]> = {
   general: [
-    { key: "min",  limit: 100,    ttlSeconds: 60,         limitType: "general_min"  },
-    { key: "hour", limit: 1_000,  ttlSeconds: 3_600,      limitType: "general_hour" },
-    { key: "day",  limit: 10_000, ttlSeconds: 86_400,     limitType: "general_day"  },
+    { key: "min",  limit: 100,    ttlSeconds: 60,     limitType: "general_min"  },
+    { key: "hour", limit: 1_000,  ttlSeconds: 3_600,  limitType: "general_hour" },
+    { key: "day",  limit: 10_000, ttlSeconds: 86_400, limitType: "general_day"  },
   ],
   heavy: [
-    { key: "min",  limit: 30,     ttlSeconds: 60,         limitType: "heavy_min"    },
-    { key: "hour", limit: 200,    ttlSeconds: 3_600,      limitType: "heavy_hour"   },
+    { key: "min",  limit: 30,  ttlSeconds: 60,    limitType: "heavy_min"  },
+    { key: "hour", limit: 200, ttlSeconds: 3_600, limitType: "heavy_hour" },
   ],
   export: [
-    { key: "hour", limit: 5,      ttlSeconds: 3_600,      limitType: "export_hour"  },
-    { key: "day",  limit: 20,     ttlSeconds: 86_400,     limitType: "export_day"   },
+    { key: "hour", limit: 5,  ttlSeconds: 3_600,  limitType: "export_hour" },
+    { key: "day",  limit: 20, ttlSeconds: 86_400, limitType: "export_day"  },
   ],
 };
 
@@ -56,14 +45,13 @@ async function logRateLimitHit(tenantId: string, endpoint: string, limitType: st
   try {
     await db.insert(rateLimitHits).values({ tenantId, endpoint, limitType, ipAddress: ip });
   } catch {
-    // Best-effort — do not let logging failure block the rate limit response
     console.warn(`[rateLimit] failed to log rate limit hit for tenant ${tenantId}`);
   }
 }
 
 /**
  * Returns a middleware that enforces the given rate limit tier per tenant.
- * If the tenant has no tenantId on req (not yet set by tenantMiddleware), it skips.
+ * Skips if tenantId is not yet set on req.
  */
 export function rateLimit(tier: RateLimitTier): RequestHandler {
   return async (req, res, next) => {
@@ -73,7 +61,6 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
       return;
     }
 
-    const redis = getRedis();
     const endpoint = req.path;
     const windows = TIER_WINDOWS[tier];
 
@@ -104,7 +91,7 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
 
         res.status(429).json({
           error: "RATE_LIMIT_EXCEEDED",
-          message: `Too many requests. Limit: ${win.limit} per ${win.key}. Retry after ${retryAfter} seconds.`,
+          message: `Too many requests. Limit: ${win.limit} per ${win.key}. Retry after ${retryAfter}s.`,
           retryAfter,
         });
         return;
@@ -113,15 +100,4 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
 
     next();
   };
-}
-
-/**
- * Checks if a tenant's data is frozen (cancelled subscription).
- * Returns 403 for export and mutating endpoints if frozen.
- */
-export function blockIfDataFrozen(req: Parameters<RequestHandler>[0], res: Parameters<RequestHandler>[1]): boolean {
-  // dataFrozenAt is attached to req by tenantMiddleware if we extend it,
-  // but for now we check via the tenant record fetched in the route handler.
-  // This function is intentionally left for explicit use in export routes.
-  return false;
 }
