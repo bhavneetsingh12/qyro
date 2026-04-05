@@ -33,28 +33,31 @@ export const modelTierEnum = pgEnum("model_tier", ["cheap", "standard", "premium
 // ─── Core tenant/user tables ──────────────────────────────────────────────────
 
 export const tenants = pgTable("tenants", {
-  id:           uuid("id").primaryKey().defaultRandom(),
-  name:         text("name").notNull(),
-  slug:         text("slug").notNull().unique(),
-  plan:         text("plan").notNull().default("starter"),
-  voiceNumber:  text("voice_number"),
-  active:       boolean("active").notNull().default(true),
-  metadata:     jsonb("metadata").default({}),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
-  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+  id:            uuid("id").primaryKey().defaultRandom(),
+  name:          text("name").notNull(),
+  slug:          text("slug").notNull().unique(),
+  plan:          text("plan").notNull().default("starter"),
+  voiceNumber:   text("voice_number"),
+  active:        boolean("active").notNull().default(true),
+  metadata:      jsonb("metadata").default({}),
+  dataFrozenAt:  timestamp("data_frozen_at"),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  updatedAt:     timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
   voiceNumberIdx: index("tenants_voice_number_idx").on(t.voiceNumber),
 }));
 
 export const users = pgTable("users", {
-  id:           uuid("id").primaryKey().defaultRandom(),
-  tenantId:     uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  clerkId:      text("clerk_id").notNull().unique(),
-  email:        text("email").notNull(),
-  name:         text("name"),
-  role:         text("role").notNull().default("sales_rep"),
-  active:       boolean("active").notNull().default(true),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  clerkId:        text("clerk_id").notNull().unique(),
+  email:          text("email").notNull(),
+  name:           text("name"),
+  role:           text("role").notNull().default("sales_rep"),
+  active:         boolean("active").notNull().default(true),
+  tosAcceptedAt:  timestamp("tos_accepted_at"),
+  tosAcceptedIp:  text("tos_accepted_ip"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
   tenantIdx:    index("users_tenant_idx").on(t.tenantId),
 }));
@@ -292,18 +295,45 @@ export const tenantSubscriptions = pgTable("tenant_subscriptions", {
 }));
 
 export const auditLogs = pgTable("audit_logs", {
-  id:             uuid("id").primaryKey().defaultRandom(),
-  tenantId:       uuid("tenant_id").notNull().references(() => tenants.id),
-  userId:         uuid("user_id").references(() => users.id),
-  action:         text("action").notNull(),
-  resourceType:   text("resource_type"),
-  resourceId:     uuid("resource_id"),
-  before:         jsonb("before"),
-  after:          jsonb("after"),
-  ipAddress:      text("ip_address"),
-  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  tenantId:              uuid("tenant_id").notNull().references(() => tenants.id),
+  userId:                uuid("user_id").references(() => users.id),
+  action:                text("action").notNull(),
+  resourceType:          text("resource_type"),
+  resourceId:            uuid("resource_id"),
+  before:                jsonb("before"),
+  after:                 jsonb("after"),
+  ipAddress:             text("ip_address"),
+  endpoint:              text("endpoint"),
+  userAgent:             text("user_agent"),
+  requestCount:          integer("request_count"),
+  responseRecordCount:   integer("response_record_count"),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
   tenantIdx:      index("audit_tenant_idx").on(t.tenantId, t.createdAt),
+}));
+
+export const scrapingAlerts = pgTable("scraping_alerts", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  patternDetected:  text("pattern_detected").notNull(),
+  requestCount:     integer("request_count").notNull().default(0),
+  metadata:         jsonb("metadata").notNull().default({}),
+  resolvedAt:       timestamp("resolved_at"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantIdx:        index("scraping_alerts_tenant_idx").on(t.tenantId, t.createdAt),
+}));
+
+export const rateLimitHits = pgTable("rate_limit_hits", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  tenantId:   uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  endpoint:   text("endpoint").notNull(),
+  limitType:  text("limit_type").notNull(),
+  ipAddress:  text("ip_address"),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantIdx:  index("rate_limit_hits_tenant_idx").on(t.tenantId, t.createdAt),
 }));
 
 export const webhookEvents = pgTable("webhook_events", {

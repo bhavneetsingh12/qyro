@@ -439,6 +439,15 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
           .where(eq(tenantSubscriptions.id, existing.id));
 
         await writeTenantProductAccess(existing.tenantId, productAccess);
+
+        // Freeze tenant data — blocks exports immediately on cancellation.
+        // Grace period: 30 days read-only, no exports.
+        await db
+          .update(tenants)
+          .set({ dataFrozenAt: new Date(), updatedAt: new Date() })
+          .where(eq(tenants.id, existing.tenantId));
+
+        console.log(`[billing] data frozen for tenant ${existing.tenantId} on subscription cancellation`);
       }
     }
 

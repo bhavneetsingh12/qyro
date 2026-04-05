@@ -13,38 +13,41 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
-import { prospectsRaw, prospectsEnriched, messageAttempts } from "@qyro/db";
+import { prospectsRaw, prospectsEnriched, messageAttempts, tenants } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
 import { quotaCheck } from "../middleware/quota";
+import { rateLimit } from "../middleware/rateLimit";
+import { logAudit } from "../lib/auditLog";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
+
+const MAX_PAGE_SIZE = 50;
 
 const router: ExpressRouter = Router();
 
 // ─── GET /api/leads ────────────────────────────────────────────────────────────
 
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), 200);
+    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
       .select({
-        id: prospectsRaw.id,
+        id:           prospectsRaw.id,
         businessName: prospectsRaw.businessName,
-        niche: prospectsRaw.niche,
-        domain: prospectsRaw.domain,
-        phone: prospectsRaw.phone,
-        email: prospectsRaw.email,  // Added email field
-        source: prospectsRaw.source,
+        niche:        prospectsRaw.niche,
+        domain:       prospectsRaw.domain,
+        phone:        prospectsRaw.phone,
+        email:        prospectsRaw.email,
+        source:       prospectsRaw.source,
         consentState: prospectsRaw.consentState,
-        deduped: prospectsRaw.deduped,
-        createdAt: prospectsRaw.createdAt,
-        // Check if enriched data exists
+        deduped:      prospectsRaw.deduped,
+        createdAt:    prospectsRaw.createdAt,
         researchedAt: prospectsEnriched.researchedAt,
         urgencyScore: prospectsEnriched.urgencyScore,
-        fromCache: prospectsEnriched.fromCache,
+        fromCache:    prospectsEnriched.fromCache,
       })
       .from(prospectsRaw)
       .leftJoin(prospectsEnriched, eq(prospectsRaw.id, prospectsEnriched.prospectId))
@@ -53,7 +56,74 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       .limit(limit)
       .offset(offset);
 
+    logAudit({ req, tenantId, userId: req.userId, action: "leads.list", resourceType: "prospect", responseRecordCount: rows.length });
+
     res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/leads/export ────────────────────────────────────────────────────
+// CSV export with watermark, export rate limit, and audit log.
+// Blocked for tenants with frozen data (cancelled subscriptions).
+
+router.get("/export", rateLimit("export"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+
+    // Block exports for data-frozen tenants
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+    if (tenant?.dataFrozenAt) {
+      res.status(403).json({
+        error: "DATA_FROZEN",
+        message: "Exports are disabled. Your subscription has been cancelled. Contact support@qyro.us to regain access.",
+      });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        id:           prospectsRaw.id,
+        businessName: prospectsRaw.businessName,
+        niche:        prospectsRaw.niche,
+        domain:       prospectsRaw.domain,
+        phone:        prospectsRaw.phone,
+        email:        prospectsRaw.email,
+        source:       prospectsRaw.source,
+        consentState: prospectsRaw.consentState,
+        createdAt:    prospectsRaw.createdAt,
+      })
+      .from(prospectsRaw)
+      .where(eq(prospectsRaw.tenantId, tenantId))
+      .orderBy(desc(prospectsRaw.createdAt))
+      .limit(5000); // hard max for exports
+
+    const exportedAt = new Date().toISOString();
+    const watermark = `${tenantId}|${exportedAt}`;
+
+    const header = "id,business_name,niche,domain,phone,email,source,consent_state,created_at,exported_by";
+    const csvRows = rows.map((r) => [
+      r.id,
+      `"${(r.businessName ?? "").replace(/"/g, '""')}"`,
+      `"${(r.niche ?? "").replace(/"/g, '""')}"`,
+      r.domain ?? "",
+      r.phone ?? "",
+      r.email ?? "",
+      r.source,
+      r.consentState,
+      r.createdAt.toISOString(),
+      `"${watermark}"`,
+    ].join(","));
+
+    const csv = [header, ...csvRows].join("\n");
+
+    logAudit({ req, tenantId, userId: req.userId, action: "leads.export", resourceType: "prospect", responseRecordCount: rows.length });
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="qyro-leads-${Date.now()}.csv"`);
+    res.setHeader("X-Export-Warning", "This export is logged and watermarked to your account.");
+    res.send(csv);
   } catch (err) {
     next(err);
   }

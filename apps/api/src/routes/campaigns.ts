@@ -15,7 +15,9 @@ import { Router, type Request, type Response, type NextFunction, type Router as 
 import { db } from "@qyro/db";
 import { outreachSequences, messageAttempts, prospectsRaw } from "@qyro/db";
 import { eq, and, desc } from "drizzle-orm";
+import { logAudit } from "../lib/auditLog";
 
+const MAX_PAGE_SIZE = 50;
 const router: ExpressRouter = Router();
 
 // ─── GET /api/campaigns ────────────────────────────────────────────────────────
@@ -23,16 +25,29 @@ const router: ExpressRouter = Router();
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { tenantId } = req;
-    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), 200);
+    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
-      .select()
+      .select({
+        id:           outreachSequences.id,
+        tenantId:     outreachSequences.tenantId,
+        name:         outreachSequences.name,
+        niche:        outreachSequences.niche,
+        channel:      outreachSequences.channel,
+        promptPackId: outreachSequences.promptPackId,
+        active:       outreachSequences.active,
+        approvedAt:   outreachSequences.approvedAt,
+        createdAt:    outreachSequences.createdAt,
+        // approvedBy is an internal user id — omit from response
+      })
       .from(outreachSequences)
       .where(eq(outreachSequences.tenantId, tenantId))
       .orderBy(desc(outreachSequences.createdAt))
       .limit(limit)
       .offset(offset);
+
+    logAudit({ req, tenantId, userId: req.userId, action: "campaigns.list", resourceType: "campaign", responseRecordCount: rows.length });
 
     res.json({ data: rows, limit, offset });
   } catch (err) {

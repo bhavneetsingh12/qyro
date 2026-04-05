@@ -6,6 +6,10 @@
 //   GET  /api/appointments  — list appointments for tenant (paginated)
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
+import { rateLimit } from "../middleware/rateLimit";
+import { logAudit } from "../lib/auditLog";
+
+const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions } from "@qyro/db";
 import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
@@ -177,23 +181,24 @@ async function getOrCreateProspect(params: {
 
 // ─── GET /api/sessions ─────────────────────────────────────────────────────────
 
-router.get("/sessions", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/sessions", rateLimit("heavy"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), 200);
+    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
       .select({
-        id:           assistantSessions.id,
-        sessionType:  assistantSessions.sessionType,
-        turnCount:    assistantSessions.turnCount,
-        escalated:    assistantSessions.escalated,
-        endedAt:      assistantSessions.endedAt,
-        createdAt:    assistantSessions.createdAt,
-        prospectId:   assistantSessions.prospectId,
+        id:            assistantSessions.id,
+        sessionType:   assistantSessions.sessionType,
+        turnCount:     assistantSessions.turnCount,
+        escalated:     assistantSessions.escalated,
+        endedAt:       assistantSessions.endedAt,
+        createdAt:     assistantSessions.createdAt,
+        prospectId:    assistantSessions.prospectId,
         prospectPhone: prospectsRaw.phone,
         prospectName:  prospectsRaw.businessName,
+        // conversationHistory omitted — contains full chat, use /sessions/:id for detail
       })
       .from(assistantSessions)
       .leftJoin(prospectsRaw, eq(assistantSessions.prospectId, prospectsRaw.id))
@@ -201,6 +206,8 @@ router.get("/sessions", async (req: Request, res: Response, next: NextFunction) 
       .orderBy(desc(assistantSessions.createdAt))
       .limit(limit)
       .offset(offset);
+
+    logAudit({ req, tenantId, userId: req.userId, action: "sessions.list", resourceType: "session", responseRecordCount: rows.length });
 
     res.json({ data: rows, limit, offset });
   } catch (err) {
@@ -213,19 +220,19 @@ router.get("/sessions", async (req: Request, res: Response, next: NextFunction) 
 router.get("/appointments", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), 200);
+    const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
       .select({
-        id:           appointments.id,
-        startAt:      appointments.startAt,
-        endAt:        appointments.endAt,
-        status:       appointments.status,
-        notes:        appointments.notes,
-        createdAt:    appointments.createdAt,
-        prospectId:   appointments.prospectId,
-        prospectName: prospectsRaw.businessName,
+        id:            appointments.id,
+        startAt:       appointments.startAt,
+        endAt:         appointments.endAt,
+        status:        appointments.status,
+        notes:         appointments.notes,
+        createdAt:     appointments.createdAt,
+        prospectId:    appointments.prospectId,
+        prospectName:  prospectsRaw.businessName,
         prospectPhone: prospectsRaw.phone,
       })
       .from(appointments)
@@ -308,7 +315,7 @@ router.post("/v1/assist/reject/:messageId", async (req: Request, res: Response, 
 router.get("/v1/assist/pending", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const rows = await db
@@ -339,10 +346,10 @@ router.get("/v1/assist/pending", async (req: Request, res: Response, next: NextF
 
 // ─── GET /api/v1/assist/calls ────────────────────────────────────────────────
 
-router.get("/v1/assist/calls", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/v1/assist/calls", rateLimit("heavy"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
     const outcome = ((req.query.outcome as string) || "").trim();
 
@@ -352,20 +359,22 @@ router.get("/v1/assist/calls", async (req: Request, res: Response, next: NextFun
 
     const rows = await db
       .select({
-        id: callAttempts.id,
-        prospectId: callAttempts.prospectId,
-        callSid: callAttempts.callSid,
-        duration: callAttempts.duration,
-        outcome: callAttempts.outcome,
-        recordingUrl: callAttempts.recordingUrl,
-        transcriptUrl: callAttempts.transcriptUrl,
-        createdAt: callAttempts.createdAt,
+        id:           callAttempts.id,
+        prospectId:   callAttempts.prospectId,
+        direction:    callAttempts.direction,
+        status:       callAttempts.status,
+        duration:     callAttempts.duration,
+        outcome:      callAttempts.outcome,
+        createdAt:    callAttempts.createdAt,
+        // recordingUrl and transcriptUrl omitted from list — fetch via detail endpoint
       })
       .from(callAttempts)
       .where(whereClause as any)
       .orderBy(desc(callAttempts.createdAt))
       .limit(limit)
       .offset(offset);
+
+    logAudit({ req, tenantId, userId: req.userId, action: "calls.list", resourceType: "call", responseRecordCount: rows.length });
 
     res.json({ data: rows, limit, offset });
   } catch (err) {
@@ -553,7 +562,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 router.get("/v1/assist/outbound-calls/pipeline", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.tenantId;
-    const limit = Math.min(parseInt((req.query.limit as string) || "100", 10), 300);
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
 
     const schemaMode = await getCallAttemptsSchemaMode();

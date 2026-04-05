@@ -5,6 +5,7 @@ import { closeDb } from "@qyro/db";
 
 import { requireClerkAuth, validateRetellRequest, validateSignalWireSignature } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
+import { rateLimit } from "./middleware/rateLimit";
 import leadsRouter from "./routes/leads";
 import campaignsRouter from "./routes/campaigns";
 import assistRouter, { assistPublicRouter } from "./routes/assist";
@@ -114,6 +115,7 @@ app.use(
   "/api/leads",
   requireClerkAuth,
   tenantMiddleware,
+  rateLimit("general"),
   leadsRouter
 );
 
@@ -121,6 +123,7 @@ app.use(
   "/api/campaigns",
   requireClerkAuth,
   tenantMiddleware,
+  rateLimit("general"),
   campaignsRouter
 );
 
@@ -128,6 +131,7 @@ app.use(
   "/api",
   requireClerkAuth,
   tenantMiddleware,
+  rateLimit("general"),
   assistRouter
 );
 
@@ -135,6 +139,7 @@ app.use(
   "/api/v1/tenants",
   requireClerkAuth,
   tenantMiddleware,
+  rateLimit("general"),
   tenantsRouter
 );
 
@@ -148,6 +153,7 @@ app.use(
   "/api",
   requireClerkAuth,
   tenantMiddleware,
+  rateLimit("general"),
   billingRouter
 );
 
