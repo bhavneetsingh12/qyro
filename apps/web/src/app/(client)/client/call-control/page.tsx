@@ -89,6 +89,7 @@ export default function ClientCallControlPage() {
   const [control, setControl] = useState<ControlState>(DEFAULT_CONTROL);
   const [metrics, setMetrics] = useState<MetricsState>(DEFAULT_METRICS);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pausedReasonDraft, setPausedReasonDraft] = useState("");
@@ -98,12 +99,14 @@ export default function ClientCallControlPage() {
   const [enqueueMaxAttempts, setEnqueueMaxAttempts] = useState(3);
   const [enqueueResult, setEnqueueResult] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true);
+    else setLoading(true);
+
     try {
       const token = await getToken();
       if (!token) {
         setError("Authentication required. Please sign in again.");
-        setLoading(false);
         return;
       }
 
@@ -114,7 +117,6 @@ export default function ClientCallControlPage() {
 
       if (!controlRes || !metricsRes) {
         setError("Could not load outbound control data.");
-        setLoading(false);
         return;
       }
 
@@ -127,6 +129,7 @@ export default function ClientCallControlPage() {
       setError("Could not load outbound control data.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [getToken]);
 
@@ -136,7 +139,7 @@ export default function ClientCallControlPage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      load();
+      void load();
     }, 15000);
     return () => clearInterval(timer);
   }, [load]);
@@ -245,12 +248,13 @@ export default function ClientCallControlPage() {
           <p className="text-sm text-stone-400 mt-0.5">Outbound pipeline controls, live counters, and queue safety toggles.</p>
         </div>
         <button
-          onClick={load}
-          disabled={loading}
+          type="button"
+          onClick={() => void load(true)}
+          disabled={loading || refreshing}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E8E6E1] bg-white text-sm text-stone-700 hover:bg-stone-50"
         >
-          <RefreshCw size={14} />
-          Refresh
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
