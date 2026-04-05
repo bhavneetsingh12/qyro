@@ -13,6 +13,7 @@ export default async function ProductsPage() {
   if (!userId) redirect("/sign-in");
 
   let productAccess = { lead: true, assist: true };
+  let showBillingStatus = true;
   try {
     const token = await getToken();
     if (token) {
@@ -26,6 +27,7 @@ export default async function ProductsPage() {
           redirect("/internal/admin");
         }
         productAccess = body.productAccess ?? productAccess;
+        showBillingStatus = body.showBillingStatus !== false;
       }
     }
   } catch {
@@ -112,7 +114,7 @@ export default async function ProductsPage() {
           })}
         </div>
 
-        <BillingActions productAccess={productAccess} />
+        {showBillingStatus && <BillingActions productAccess={productAccess} />}
       </div>
     </main>
   );

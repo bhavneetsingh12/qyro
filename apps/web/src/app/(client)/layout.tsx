@@ -22,8 +22,9 @@ export default async function ClientLayout({
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
         const access = settings.productAccess ?? { lead: true, assist: true };
+        const isMasterAdmin = settings.isMasterAdmin === true;
         canSwitchToLead = access.lead === true && access.assist === true;
-        if (access.assist === false) {
+        if (!isMasterAdmin && access.assist === false) {
           redirect("/products");
         }
       }

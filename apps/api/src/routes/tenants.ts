@@ -54,7 +54,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       where: eq(tenantSubscriptions.tenantId, req.tenantId),
     });
 
-    const productAccess = resolveEffectiveAccessForUser({
+    const resolvedAccess = resolveEffectiveAccessForUser({
       meta,
       subscription,
       userId: req.userId,
@@ -68,6 +68,9 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       clerkId: currentUser?.clerkId ?? "",
       email: currentUser?.email ?? null,
     });
+    const productAccess = isMasterAdmin
+      ? { lead: true, assist: true }
+      : resolvedAccess;
 
     const voiceNumber =
       tenant.voiceNumber
@@ -105,6 +108,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       trial,
       currentUserRole: req.userRole,
       isMasterAdmin,
+      showBillingStatus: !isMasterAdmin,
     });
   } catch (err) {
     next(err);
