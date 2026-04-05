@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   LayoutDashboard,
   Users,
+  UsersRound,
   Megaphone,
   CheckSquare,
   Settings,
@@ -40,6 +41,7 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
   const navItems: NavItem[] = [
     { href: "/internal/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/internal/leads",     label: "Leads",     icon: Users },
+    { href: "/internal/team",      label: "Team",      icon: UsersRound },
     { href: "/internal/campaigns", label: "Campaigns", icon: Megaphone },
     { href: "/internal/approvals", label: "Approvals", icon: CheckSquare, badge: approvalCount },
     { href: "/internal/admin",     label: "Admin",     icon: Shield },
