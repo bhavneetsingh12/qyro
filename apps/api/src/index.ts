@@ -28,8 +28,32 @@ if (process.env.EXTRA_WEB_ORIGIN) {
   corsOrigins.push(process.env.EXTRA_WEB_ORIGIN);
 }
 
+function isAllowedOrigin(origin: string): boolean {
+  const normalized = origin.trim().toLowerCase();
+  if (!normalized) return false;
+
+  if (corsOrigins.some((allowed) => allowed.trim().toLowerCase() === normalized)) {
+    return true;
+  }
+
+  return normalized === "https://qyro.us" || normalized === "https://www.qyro.us";
+}
+
 app.use(cors({
-  origin: corsOrigins,
+  origin: (origin, callback) => {
+    // Non-browser requests (curl, server-to-server) may not send Origin.
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("CORS origin not allowed"));
+  },
   credentials: true,
 }));
 

@@ -99,26 +99,35 @@ export default function ClientCallControlPage() {
   const [enqueueResult, setEnqueueResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const token = await getToken();
-    if (!token) return;
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Authentication required. Please sign in again.");
+        setLoading(false);
+        return;
+      }
 
-    const [controlRes, metricsRes] = await Promise.all([
-      fetchWithToken<{ data: ControlState }>(`${API_URL}/api/v1/assist/outbound-calls/control`, token),
-      fetchWithToken<{ data: MetricsState }>(`${API_URL}/api/v1/assist/outbound-calls/metrics`, token),
-    ]);
+      const [controlRes, metricsRes] = await Promise.all([
+        fetchWithToken<{ data: ControlState }>(`${API_URL}/api/v1/assist/outbound-calls/control`, token),
+        fetchWithToken<{ data: MetricsState }>(`${API_URL}/api/v1/assist/outbound-calls/metrics`, token),
+      ]);
 
-    if (!controlRes || !metricsRes) {
+      if (!controlRes || !metricsRes) {
+        setError("Could not load outbound control data.");
+        setLoading(false);
+        return;
+      }
+
+      setControl(controlRes.data);
+      setPausedReasonDraft(controlRes.data.pausedReason ?? "");
+      setMaxConcurrentDraft(controlRes.data.maxConcurrentCalls ?? 3);
+      setMetrics(metricsRes.data);
+      setError(null);
+    } catch {
       setError("Could not load outbound control data.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setControl(controlRes.data);
-    setPausedReasonDraft(controlRes.data.pausedReason ?? "");
-    setMaxConcurrentDraft(controlRes.data.maxConcurrentCalls ?? 3);
-    setMetrics(metricsRes.data);
-    setLoading(false);
-    setError(null);
   }, [getToken]);
 
   useEffect(() => {
