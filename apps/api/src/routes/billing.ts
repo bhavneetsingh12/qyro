@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, tenantSubscriptions, tenants } from "@qyro/db";
+import { db, tenantSubscriptions, tenants, users } from "@qyro/db";
 
 // Stripe's module shape varies by TS moduleInterop settings; runtime require is safest here.
 const Stripe = require("stripe") as any;
@@ -242,38 +242,47 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
       where: eq(tenantSubscriptions.tenantId, tenantId),
     });
 
+    // Fetch user email to pre-fill on checkout
+    const tenantUser = await db.query.users.findFirst({
+      where: eq(users.id, req.userId),
+    });
+    const userEmail = tenantUser?.email?.includes("@clerk.local") ? undefined : (tenantUser?.email ?? undefined);
+
     const existingCustomerId = existing?.stripeCustomerId;
     let customerId = existingCustomerId;
 
     if (!customerId) {
       const customer = await stripe.customers.create({
         name: tenant.name,
-        metadata: {
-          tenantId,
-        },
+        ...(userEmail && { email: userEmail }),
+        metadata: { tenantId },
       });
       customerId = customer.id;
     }
 
     const baseAppUrl = process.env.APP_BASE_URL ?? "https://qyro.us";
 
+    const productDescriptions: Record<string, string> = {
+      lead: "Automated outbound calling pipeline with AI voice agents. Upload prospects, set campaigns, and let QYRO Lead handle the outreach 24/7.",
+      assist: "AI-powered inbound assistant that answers calls, qualifies leads, books appointments, and hands off to your team — automatically.",
+      bundle: "Full QYRO access: outbound lead generation + inbound AI assistant. Everything you need to run a hands-free voice pipeline.",
+    };
+
     const productLabels: Record<string, string> = {
       lead: "QYRO Lead",
       assist: "QYRO Assist",
-      bundle: "QYRO Bundle",
+      bundle: "QYRO Lead + Assist Bundle",
     };
-    const planLabels: Record<string, string> = {
-      starter: "Starter",
-      growth: "Growth",
-    };
-    const sessionLabel =
-      product && plan
-        ? `${productLabels[product] ?? product} — ${planLabels[plan] ?? plan}`
-        : "QYRO";
+
+    const sessionLabel = product ? (productLabels[product] ?? "QYRO") : "QYRO";
+    const sessionDescription = product ? (productDescriptions[product] ?? "") : "";
 
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
+      ...(userEmail && { customer_email: undefined }), // customer already set; email pre-filled via customer object
+      billing_address_collection: "auto",
+      allow_promotion_codes: true,
       line_items: [
         {
           price: resolvedPriceId,
@@ -284,16 +293,18 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
       cancel_url: cancelUrl ?? `${baseAppUrl}/products?billing=canceled`,
       custom_text: {
         submit: {
-          message: `You're subscribing to ${sessionLabel}. You can manage or cancel your subscription at any time from your account.`,
+          message: `You're subscribing to ${sessionLabel}. Cancel anytime from your account settings.`,
         },
+        ...(sessionDescription && {
+          after_submit: {
+            message: sessionDescription,
+          },
+        }),
       },
-      metadata: {
-        tenantId,
-      },
+      metadata: { tenantId },
       subscription_data: {
-        metadata: {
-          tenantId,
-        },
+        metadata: { tenantId },
+        description: sessionLabel,
       },
     });
 
