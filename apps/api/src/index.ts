@@ -18,9 +18,12 @@ const PORT = Number(process.env.PORT ?? 3001);
 
 // ─── Global middleware ────────────────────────────────────────────────────────
 
-// CORS for development (default web origin localhost:3000).
-// EXTRA_WEB_ORIGIN can be used when testing from an additional local host/port.
-const corsOrigins = ["http://localhost:3000"];
+// CORS — allow localhost in dev; WEB_ORIGIN / EXTRA_WEB_ORIGIN for prod.
+// Set WEB_ORIGIN=https://qyro.us (and www variant) in the production env.
+const corsOrigins: string[] = ["http://localhost:3000"];
+if (process.env.WEB_ORIGIN) {
+  corsOrigins.push(process.env.WEB_ORIGIN);
+}
 if (process.env.EXTRA_WEB_ORIGIN) {
   corsOrigins.push(process.env.EXTRA_WEB_ORIGIN);
 }
