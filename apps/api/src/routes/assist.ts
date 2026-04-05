@@ -557,6 +557,7 @@ router.patch("/v1/assist/outbound-calls/control", async (req: Request, res: Resp
 
     const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
     const body = req.body as {
+      enabled?: boolean;
       paused?: boolean;
       pausedReason?: string;
       maxConcurrentCalls?: number;
@@ -565,6 +566,7 @@ router.patch("/v1/assist/outbound-calls/control", async (req: Request, res: Resp
 
     const updatedMeta: Record<string, unknown> = {
       ...meta,
+      ...(body.enabled !== undefined && { outbound_voice_enabled: Boolean(body.enabled) }),
       ...(body.paused !== undefined && { outbound_voice_paused: Boolean(body.paused) }),
       ...(body.pausedReason !== undefined && { outbound_voice_paused_reason: String(body.pausedReason).slice(0, 180) }),
       ...(body.maxConcurrentCalls !== undefined && {

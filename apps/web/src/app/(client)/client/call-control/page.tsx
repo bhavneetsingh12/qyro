@@ -133,6 +133,7 @@ export default function ClientCallControlPage() {
   }, [load]);
 
   async function patchControl(payload: {
+    enabled?: boolean;
     paused?: boolean;
     pausedReason?: string;
     maxConcurrentCalls?: number;
@@ -356,6 +357,20 @@ export default function ClientCallControlPage() {
           </div>
 
           <div className="mt-5 flex gap-2 flex-wrap">
+            <button
+              onClick={() => patchControl({ enabled: true })}
+              disabled={!control.canManage || saving || control.globalPaused || control.enabled}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              Enable Outbound
+            </button>
+            <button
+              onClick={() => patchControl({ enabled: false, paused: true, pausedReason: pausedReasonDraft || "disabled by user" })}
+              disabled={!control.canManage || saving || !control.enabled}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-stone-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              Disable Outbound
+            </button>
             <button
               onClick={() => patchControl({
                 paused: true,
