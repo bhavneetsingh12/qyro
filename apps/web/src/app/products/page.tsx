@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { Lock } from "lucide-react";
+import { Lock, Users, PhoneCall } from "lucide-react";
 import BillingActions from "@/components/billing/BillingActions";
+import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -32,54 +33,69 @@ export default async function ProductsPage() {
       href: "/lead",
       key: "lead" as const,
       label: "QYRO Lead",
-      description: "Internal lead sourcing, research, campaign drafting, and approvals.",
+      description: "Automated lead sourcing, AI research, campaign drafting, and approvals.",
+      icon: Users,
+      iconBg: "bg-amber-500",
     },
     {
       href: "/assist",
       key: "assist" as const,
       label: "QYRO Assist",
-      description: "Client assistant workflows: conversations, bookings, calls, approvals, and widget setup.",
+      description: "AI voice agent for inbound & outbound calls, bookings, and client conversations.",
+      icon: PhoneCall,
+      iconBg: "bg-stone-900",
     },
   ];
 
   return (
-    <main className="min-h-screen bg-[#F7F6F2] flex items-center justify-center px-4">
+    <main className="min-h-screen bg-[#F7F6F2] flex flex-col items-center justify-center px-4 py-16">
       <div className="w-full max-w-3xl">
-        <h1 className="text-3xl md:text-4xl font-semibold text-stone-900 text-center">Choose Product</h1>
-        <p className="text-stone-600 text-center mt-2">
-          QYRO Lead and QYRO Assist are separate product surfaces under the same company account.
-        </p>
+        {/* Brand */}
+        <div className="text-center mb-10">
+          <div className="flex justify-center mb-3">
+            <QyroBrandLockup surface="core" align="center" />
+          </div>
+          <h1 className="text-2xl font-bold text-stone-900">Choose your product</h1>
+          <p className="text-sm text-stone-500 mt-1 max-w-sm mx-auto">
+            QYRO Lead and QYRO Assist are separate surfaces under the same account.
+          </p>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-          {products.map(({ href, key, label, description }) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {products.map(({ href, key, label, description, icon: Icon, iconBg }) => {
             const enabled = productAccess[key];
             if (enabled) {
               return (
                 <Link
                   key={key}
                   href={href}
-                  className="block rounded-2xl border border-stone-200 bg-white p-6 hover:shadow-sm transition-shadow"
+                  className="group block rounded-2xl border border-stone-200 bg-white p-7 hover:shadow-md hover:border-stone-300 transition-all"
                 >
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Product</p>
-                  <h2 className="text-xl font-semibold text-stone-900 mt-1">{label}</h2>
-                  <p className="text-sm text-stone-600 mt-2">{description}</p>
+                  <div className={`h-10 w-10 rounded-xl ${iconBg} flex items-center justify-center mb-4 shadow-sm`}>
+                    <Icon size={18} className="text-white" strokeWidth={2} />
+                  </div>
+                  <h2 className="text-lg font-bold text-stone-900 group-hover:text-stone-700 transition-colors">{label}</h2>
+                  <p className="text-sm text-stone-500 mt-1.5 leading-relaxed">{description}</p>
+                  <p className="text-xs font-semibold text-amber-600 mt-4">Open →</p>
                 </Link>
               );
             }
             return (
               <div
                 key={key}
-                className="block rounded-2xl border border-stone-200 bg-stone-50 p-6 opacity-60 cursor-not-allowed"
+                className="block rounded-2xl border border-stone-200 bg-stone-50 p-7 opacity-60 cursor-not-allowed"
               >
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Product</p>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 bg-stone-200 px-2 py-0.5 rounded-full">
+                <div className="flex items-start justify-between mb-4">
+                  <div className={`h-10 w-10 rounded-xl ${iconBg} flex items-center justify-center shadow-sm opacity-40`}>
+                    <Icon size={18} className="text-white" strokeWidth={2} />
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-stone-500 bg-stone-200 px-2 py-1 rounded-full">
                     <Lock size={10} strokeWidth={2} />
-                    Not available
+                    Locked
                   </span>
                 </div>
-                <h2 className="text-xl font-semibold text-stone-400 mt-1">{label}</h2>
-                <p className="text-sm text-stone-400 mt-2">{description}</p>
+                <h2 className="text-lg font-bold text-stone-400">{label}</h2>
+                <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">{description}</p>
               </div>
             );
           })}
