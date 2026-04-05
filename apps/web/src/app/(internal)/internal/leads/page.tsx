@@ -2,7 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { LeadsRefresher } from "./LeadsRefresher";
-import { runResearchAction, runResearchBatchAction } from "./actions";
+import { runResearchAction, runResearchBatchAction, runOutreachBatchAction, runOutboundBatchAction } from "./actions";
 import PendingSubmitButton from "./PendingSubmitButton";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -22,6 +22,13 @@ type Lead = {
   researchedAt: string | null;
   urgencyScore: number | null;
   fromCache: boolean | null;
+};
+
+type Campaign = {
+  id: string;
+  name: string;
+  channel: string;
+  active: boolean;
 };
 
 function formatDate(iso: string) {
@@ -60,6 +67,7 @@ export default async function LeadsPage({
   const bypassAuth = process.env.DEV_BYPASS_AUTH === "true";
 
   let leads: Lead[] = [];
+  let activeOutreachCampaigns: Campaign[] = [];
   let fetchError = false;
 
   if (token || bypassAuth) {
@@ -79,6 +87,16 @@ export default async function LeadsPage({
         leads = data.data ?? [];
       } else {
         fetchError = true;
+      }
+
+      const campaignsRes = await fetch(`${API_URL}/api/campaigns?limit=100`, {
+        headers,
+        cache: "no-store",
+      });
+      if (campaignsRes.ok) {
+        const campaignsData = await campaignsRes.json();
+        const allCampaigns: Campaign[] = campaignsData.data ?? [];
+        activeOutreachCampaigns = allCampaigns.filter((c) => c.active && (c.channel === "email" || c.channel === "sms"));
       }
     } catch {
       fetchError = true;
@@ -276,11 +294,46 @@ export default async function LeadsPage({
           </div>
               <div className="px-4 py-3 border-t border-[#F0EEE9] bg-[#FCFBF8] flex items-center justify-between">
                 <span className="text-xs text-stone-500">Selected leads</span>
-                <PendingSubmitButton
-                  idleLabel="Research Selected"
-                  pendingLabel="Queuing selected..."
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-60"
-                />
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <PendingSubmitButton
+                    idleLabel="Research Selected"
+                    pendingLabel="Queuing selected..."
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-60"
+                  />
+
+                  <button
+                    type="submit"
+                    formAction={runOutboundBatchAction}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                  >
+                    Queue Calls Selected
+                  </button>
+
+                  {activeOutreachCampaigns.length > 0 ? (
+                    <>
+                      <select
+                        name="sequenceData"
+                        defaultValue={`${activeOutreachCampaigns[0].id}|${activeOutreachCampaigns[0].channel}`}
+                        className="text-xs text-stone-700 bg-white border border-[#E8E6E1] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      >
+                        {activeOutreachCampaigns.map((campaign) => (
+                          <option key={campaign.id} value={`${campaign.id}|${campaign.channel}`}>
+                            {campaign.name} ({campaign.channel})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        formAction={runOutreachBatchAction}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
+                      >
+                        Queue Outreach Selected
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-stone-400">No active email/sms campaigns</span>
+                  )}
+                </div>
               </div>
             </form>
           </div>
