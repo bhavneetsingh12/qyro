@@ -6,9 +6,9 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "worker:research": "tsx --env-file-if-exists=../../.env.local src/workers/researchWorker.ts",
-    "worker:outreach": "tsx --env-file-if-exists=../../.env.local src/workers/outreachWorker.ts",
-    "worker:outbound-call": "tsx --env-file-if-exists=../../.env.local src/workers/outboundCallWorker.ts"
+    "worker:research": "tsx src/workers/researchWorker.ts",
+    "worker:outreach": "tsx src/workers/outreachWorker.ts",
+    "worker:outbound-call": "tsx src/workers/outboundCallWorker.ts"
   },
   "exports": {
     ".": {
