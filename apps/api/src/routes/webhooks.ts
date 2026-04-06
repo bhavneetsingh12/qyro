@@ -1,5 +1,5 @@
 // Inbound webhook routes (Stripe, Clerk, Cal.com, Twilio, internal ops)
-// Internal ops webhooks are protected by INTERNAL_WEBHOOK_SECRET.
+// Internal ops webhooks are protected by WEBHOOK_SECRET (with legacy fallback support).
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
@@ -50,12 +50,12 @@ function intentCounterKeys(tenantId: string, day: string) {
 }
 
 function ensureInternalSecret(req: Request, res: Response): boolean {
-	const expected = process.env.INTERNAL_WEBHOOK_SECRET;
+	const expected = process.env.WEBHOOK_SECRET ?? process.env.INTERNAL_WEBHOOK_SECRET;
 	if (!expected) {
-		res.status(500).json({ error: "CONFIG_ERROR", message: "INTERNAL_WEBHOOK_SECRET not configured" });
+		res.status(500).json({ error: "CONFIG_ERROR", message: "WEBHOOK_SECRET not configured" });
 		return false;
 	}
-	const provided = req.header("x-internal-webhook-secret");
+	const provided = req.header("x-webhook-secret") ?? req.header("x-internal-webhook-secret");
 	if (!provided || provided !== expected) {
 		res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid internal webhook secret" });
 		return false;

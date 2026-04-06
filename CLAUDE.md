@@ -18,7 +18,7 @@ Sold independently with separate landing pages and pricing.
 
 ## Owner
 Bhavneet Singh — Zentryx LLC, Hillsboro Oregon
-Stack: Next.js 14 + Node/TS + Postgres + Redis + n8n + OpenAI
+Stack: Next.js 14 + Node/TS + Postgres + Redis + Railway Cron + OpenAI
 
 ## Tenant types
 
@@ -186,6 +186,18 @@ Operational notes:
 
 ```
 - Outbound queueing is blocked unless /api/v1/assist/outbound-calls/control has enabled=true
+- n8n is no longer required for scheduled lead pipeline triggers.
+- Railway cron services replace n8n schedule webhooks:
+  - nightly-ingest: 22:00 PT daily
+  - morning-digest: 07:00 PT daily
+- Cron start commands:
+  - node apps/crons/dist/nightly-ingest.js
+  - node apps/crons/dist/morning-digest.js
+- Cron schedule timing is configured in Railway dashboard.
+- Required env vars for both cron services:
+  - API_URL (Railway internal URL of API service)
+  - WEBHOOK_SECRET
+- Do not delete legacy n8n config until Railway cron runs are verified in production.
 - Local dev can silently break if macOS AppleDouble files (._*) leak into apps/web/.next
 - If Next chunks 404 locally, clean apps/web/.next and restart the web dev server from repo root
 

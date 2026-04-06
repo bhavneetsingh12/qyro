@@ -111,7 +111,7 @@ Purpose: running log of all changes made in this workspace session series so fol
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)
 
-### pending - feat: consent pre-check gate before research and outreach job enqueue
+### 22eed78 - feat: consent pre-check gate before research and outreach job enqueue
 - Request summary:
   - Add a consent eligibility gate so lead discovery only enqueues research for compliant prospects.
   - Add tenant outreach toggle and a skipped-leads filter with reasons in the dashboard.
@@ -138,6 +138,30 @@ Purpose: running log of all changes made in this workspace session series so fol
 - Validation run:
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)
+
+### pending - feat: Railway cron scripts to replace n8n for nightly ingest and morning digest
+- Request summary:
+  - Replace scheduled n8n trigger calls with Railway cron scripts while keeping n8n config in place during rollout.
+- Files changed:
+  - apps/crons/package.json
+  - apps/crons/tsconfig.json
+  - apps/crons/nightly-ingest.ts
+  - apps/crons/morning-digest.ts
+  - apps/api/src/routes/webhooks.ts
+  - turbo.json
+  - CLAUDE.md
+  - pnpm-lock.yaml
+- Key behavior changes:
+  - Added a new `@qyro/crons` workspace package with TypeScript build output to `apps/crons/dist`.
+  - Added `nightly-ingest` and `morning-digest` cron trigger scripts that POST to API webhook routes with `x-webhook-secret`.
+  - Updated webhook secret validation to use `WEBHOOK_SECRET` + `x-webhook-secret` with compatibility fallback to legacy internal secret/header.
+  - Added cron dist path in turbo build outputs for Railway artifact discovery.
+  - Documented Railway cron replacement plan, schedules, start commands, and required env vars in CLAUDE.md.
+  - Left n8n configuration untouched per rollout safety requirement.
+- Validation run:
+  - get_errors on touched files: no errors
+  - pnpm -s -r typecheck: pass (no output)
+  - pnpm --filter @qyro/crons build: pass
 
 ## Ongoing Update Rule
 - For each new user command, append a new entry with:
