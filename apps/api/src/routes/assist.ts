@@ -1043,11 +1043,61 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       })
       .returning({ id: messageAttempts.id });
 
+    // Auto-send path: if tenant has auto_send_missed_call enabled, send SMS via SignalWire now
+    let finalStatus: "pending_approval" | "sent" | "failed" = "pending_approval";
+    if (tenant.autoSendMissedCall) {
+      const fromNumber = tenant.voiceNumber ?? (tenant.metadata as Record<string, unknown>)?.voiceNumber as string | undefined;
+      const projectId = process.env.SIGNALWIRE_PROJECT_ID;
+      const apiToken  = process.env.SIGNALWIRE_API_TOKEN;
+      const spaceUrl  = (process.env.SIGNALWIRE_SPACE_URL ?? "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+      if (fromNumber && projectId && apiToken && spaceUrl) {
+        try {
+          const form = new URLSearchParams();
+          form.set("To",   phone);
+          form.set("From", fromNumber);
+          form.set("Body", text);
+
+          const swRes = await fetch(
+            `https://${spaceUrl}/api/laml/2010-04-01/Accounts/${encodeURIComponent(projectId)}/Messages.json`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: form.toString(),
+            },
+          );
+
+          let sendStatus: "sent" | "failed";
+          if (swRes.ok) {
+            sendStatus = "sent";
+          } else {
+            const errBody = await swRes.text();
+            console.error(`[missed-call] SignalWire SMS failed ${swRes.status}: ${errBody.slice(0, 200)}`);
+            sendStatus = "failed";
+          }
+          finalStatus = sendStatus;
+        } catch (sendErr) {
+          console.error("[missed-call] SignalWire SMS send error:", sendErr);
+          finalStatus = "failed";
+        }
+
+        await db
+          .update(messageAttempts)
+          .set({ status: finalStatus })
+          .where(eq(messageAttempts.id, msg.id));
+      } else {
+        console.warn("[missed-call] auto_send_missed_call is true but voice number or SignalWire env vars are missing — leaving pending_approval");
+      }
+    }
+
     res.json({
       data: {
         sessionId: session.id,
         messageId: msg.id,
-        status: "pending_approval",
+        status: finalStatus,
       },
     });
   } catch (err) {

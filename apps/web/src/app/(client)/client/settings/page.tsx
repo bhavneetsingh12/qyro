@@ -7,32 +7,34 @@ import { Save, CheckCircle } from "lucide-react";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
 type SettingsForm = {
-  name:             string;
-  approvedServices: string;
-  bookingLink:      string;
-  emailFromName:    string;
-  calendarProvider: string;
-  providersList:    string;
-  autoRespond:      boolean;
-  businessHours:    string;
-  voiceNumber:      string;
-  connectionMethod: string;
+  name:               string;
+  approvedServices:   string;
+  bookingLink:        string;
+  emailFromName:      string;
+  calendarProvider:   string;
+  providersList:      string;
+  autoRespond:        boolean;
+  autoSendMissedCall: boolean;
+  businessHours:      string;
+  voiceNumber:        string;
+  connectionMethod:   string;
 };
 
 export default function ClientSettingsPage() {
   const { getToken } = useAuth();
 
   const [form, setForm] = useState<SettingsForm>({
-    name:             "",
-    approvedServices: "",
-    bookingLink:      "",
-    emailFromName:    "",
-    calendarProvider: "cal_com",
-    providersList:    "",
-    autoRespond:      false,
-    businessHours:    "",
-    voiceNumber:      "",
-    connectionMethod: "forwarding",
+    name:               "",
+    approvedServices:   "",
+    bookingLink:        "",
+    emailFromName:      "",
+    calendarProvider:   "cal_com",
+    providersList:      "",
+    autoRespond:        false,
+    autoSendMissedCall: false,
+    businessHours:      "",
+    voiceNumber:        "",
+    connectionMethod:   "forwarding",
   });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -50,16 +52,17 @@ export default function ClientSettingsPage() {
         if (res.ok) {
           const data = await res.json();
           setForm({
-            name:             data.name             ?? "",
-            approvedServices: data.approvedServices ?? "",
-            bookingLink:      data.bookingLink      ?? "",
-            emailFromName:    data.emailFromName    ?? "",
-            calendarProvider: data.calendarProvider ?? "cal_com",
-            providersList:    data.providersList    ?? "",
-            autoRespond:      !!data.autoRespond,
-            businessHours:    data.businessHours    ?? "",
-            voiceNumber:      data.voiceNumber      ?? "",
-            connectionMethod: data.connectionMethod ?? "forwarding",
+            name:               data.name             ?? "",
+            approvedServices:   data.approvedServices ?? "",
+            bookingLink:        data.bookingLink      ?? "",
+            emailFromName:      data.emailFromName    ?? "",
+            calendarProvider:   data.calendarProvider ?? "cal_com",
+            providersList:      data.providersList    ?? "",
+            autoRespond:        !!data.autoRespond,
+            autoSendMissedCall: !!data.autoSendMissedCall,
+            businessHours:      data.businessHours    ?? "",
+            voiceNumber:        data.voiceNumber      ?? "",
+            connectionMethod:   data.connectionMethod ?? "forwarding",
           });
         }
       } catch {
@@ -241,6 +244,38 @@ export default function ClientSettingsPage() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Missed Call Behavior */}
+          <div className="bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] p-6 space-y-4">
+            <p className="text-sm font-semibold text-stone-800">Missed Call Behavior</p>
+
+            <div className="flex items-start gap-3 rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5">
+              <input
+                id="autoSendMissedCall"
+                type="checkbox"
+                checked={form.autoSendMissedCall}
+                onChange={(e) => setForm({ ...form, autoSendMissedCall: e.target.checked })}
+                className="mt-0.5"
+              />
+              <div>
+                <label htmlFor="autoSendMissedCall" className="text-sm font-medium text-stone-700">
+                  Auto-send missed call SMS
+                </label>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  When enabled, the follow-up SMS is sent instantly when a call is missed.
+                </p>
+                {form.autoSendMissedCall && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                    Warning: message will send instantly without approval review.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] p-6 space-y-5">
+            <p className="text-sm font-semibold text-stone-800">Notifications</p>
 
             <FormField
               label="Email from name"

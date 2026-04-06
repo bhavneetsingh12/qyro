@@ -95,6 +95,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
         : typeof meta.widgetAllowedOrigins === "string"
           ? meta.widgetAllowedOrigins
           : "",
+      autoSendMissedCall: Boolean(tenant.autoSendMissedCall ?? false),
       voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
       retellAgentId: (meta.retell_agent_id as string) ?? "",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
@@ -128,6 +129,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       calendarProvider,
       providersList,
       autoRespond,
+      autoSendMissedCall,
       businessHours,
       voiceNumber,
       connectionMethod,
@@ -146,6 +148,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       calendarProvider?: "cal_com" | "google_calendar";
       providersList?: string;
       autoRespond?: boolean;
+      autoSendMissedCall?: boolean;
       businessHours?: string;
       voiceNumber?: string;
       connectionMethod?: "forwarding" | "webhook";
@@ -210,12 +213,36 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
         ...(voiceNumber !== undefined && {
           voiceNumber: normalizePhone(voiceNumber) || null,
         }),
+        ...(autoSendMissedCall !== undefined && {
+          autoSendMissedCall: Boolean(autoSendMissedCall),
+        }),
         metadata:  updatedMeta,
         updatedAt: new Date(),
       })
       .where(eq(tenants.id, req.tenantId));
 
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/v1/tenants/settings/missed-call-auto-send ────────────────────
+
+router.patch("/settings/missed-call-auto-send", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { enabled } = req.body as { enabled?: boolean };
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "enabled (boolean) is required" });
+      return;
+    }
+
+    await db
+      .update(tenants)
+      .set({ autoSendMissedCall: enabled, updatedAt: new Date() })
+      .where(eq(tenants.id, req.tenantId));
+
+    res.json({ ok: true, autoSendMissedCall: enabled });
   } catch (err) {
     next(err);
   }
