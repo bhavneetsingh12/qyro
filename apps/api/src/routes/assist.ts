@@ -8,6 +8,7 @@
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { rateLimit } from "../middleware/rateLimit";
 import { logAudit } from "../lib/auditLog";
+import { triggerEscalationNotifications } from "../lib/escalation";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
@@ -953,6 +954,22 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
+    // Escalation path: fire-and-forget notifications when agent detects escalation
+    if (result.data.escalate) {
+      const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+      triggerEscalationNotifications({
+        tenantId,
+        sessionId: result.data.sessionId,
+        prospectName: contact.name ?? prospect.businessName ?? "Website Visitor",
+        prospectPhone: contact.phone ?? prospect.phone ?? null,
+        escalationContactPhone: (tenant.escalationContactPhone ?? (meta.escalationContactPhone as string | undefined) ?? null),
+        escalationContactEmail: (tenant.escalationContactEmail ?? (meta.escalationContactEmail as string | undefined) ?? null),
+        fromNumber: tenant.voiceNumber ?? (meta.voiceNumber as string | undefined) ?? null,
+        escalationReason: result.data.escalationReason,
+        appBaseUrl: process.env.APP_BASE_URL,
+      });
+    }
+
     const channel = req.body?.channel === "email" ? "email" : "chat";
 
     const [msg] = await db
@@ -1100,6 +1117,38 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
         status: finalStatus,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/escalations ──────────────────────────────────────────
+// Returns recent escalated sessions for the client portal dashboard.
+
+router.get("/escalations", rateLimit("general"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit  = Math.min(parseInt((req.query.limit  as string) || "25", 10), 50);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+
+    const rows = await db
+      .select({
+        id:               assistantSessions.id,
+        sessionType:      assistantSessions.sessionType,
+        escalationReason: assistantSessions.escalationReason,
+        createdAt:        assistantSessions.createdAt,
+        prospectId:       assistantSessions.prospectId,
+        prospectPhone:    prospectsRaw.phone,
+        prospectName:     prospectsRaw.businessName,
+      })
+      .from(assistantSessions)
+      .leftJoin(prospectsRaw, eq(assistantSessions.prospectId, prospectsRaw.id))
+      .where(and(eq(assistantSessions.tenantId, tenantId), eq(assistantSessions.escalated, true)))
+      .orderBy(desc(assistantSessions.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, limit, offset });
   } catch (err) {
     next(err);
   }

@@ -96,6 +96,8 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
           ? meta.widgetAllowedOrigins
           : "",
       autoSendMissedCall: Boolean(tenant.autoSendMissedCall ?? false),
+      escalationContactPhone: tenant.escalationContactPhone ?? (meta.escalationContactPhone as string | undefined) ?? "",
+      escalationContactEmail: tenant.escalationContactEmail ?? (meta.escalationContactEmail as string | undefined) ?? "",
       voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
       retellAgentId: (meta.retell_agent_id as string) ?? "",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
@@ -130,6 +132,8 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       providersList,
       autoRespond,
       autoSendMissedCall,
+      escalationContactPhone,
+      escalationContactEmail,
       businessHours,
       voiceNumber,
       connectionMethod,
@@ -149,6 +153,8 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       providersList?: string;
       autoRespond?: boolean;
       autoSendMissedCall?: boolean;
+      escalationContactPhone?: string;
+      escalationContactEmail?: string;
       businessHours?: string;
       voiceNumber?: string;
       connectionMethod?: "forwarding" | "webhook";
@@ -215,6 +221,12 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
         }),
         ...(autoSendMissedCall !== undefined && {
           autoSendMissedCall: Boolean(autoSendMissedCall),
+        }),
+        ...(escalationContactPhone !== undefined && {
+          escalationContactPhone: escalationContactPhone.trim() || null,
+        }),
+        ...(escalationContactEmail !== undefined && {
+          escalationContactEmail: escalationContactEmail.trim() || null,
         }),
         metadata:  updatedMeta,
         updatedAt: new Date(),

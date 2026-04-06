@@ -33,6 +33,7 @@ export type ClientAssistantOutput = {
   reply: string;
   intent: "question" | "booking_intent" | "escalate" | "unsubscribe";
   escalate: boolean;
+  escalationReason?: string;
   bookingId?: string;
   sessionId: string;
 };
@@ -250,6 +251,7 @@ export async function runClientAssistant(
   let reply = "";
   let bookingId: string | undefined;
   let escalate = intentResult.data.escalate;
+  let escalationReason: string | undefined = escalate ? intentResult.data.reason : undefined;
 
   if (intentResult.data.intent === "booking_intent") {
     try {
@@ -260,6 +262,7 @@ export async function runClientAssistant(
 
       if (slots.length === 0) {
         escalate = true;
+        escalationReason = "no_available_slots";
         reply = "I could not find an available slot right now. I can have a team member follow up to schedule you.";
       } else {
         const chosenSlot = slots[0];
@@ -277,6 +280,7 @@ export async function runClientAssistant(
       }
     } catch (err) {
       escalate = true;
+      escalationReason = "booking_error";
       reply = "I ran into an issue while scheduling. A team member will follow up to complete your booking.";
       console.error("[clientAssistant] booking flow failed:", err);
     }
@@ -307,6 +311,7 @@ export async function runClientAssistant(
 
   if (qaResult.data.verdict === "block") {
     escalate = true;
+    escalationReason = `qa_block: ${JSON.stringify(qaResult.data.flags ?? [])}`;
     reply = "I am escalating this to a team member to make sure you get the right answer.";
   }
 
@@ -315,6 +320,7 @@ export async function runClientAssistant(
     .set({
       turnCount: turnCountAfter,
       escalated: session.escalated || escalate,
+      ...(escalate && escalationReason ? { escalationReason } : {}),
       compactionCount: session.compactionCount + (didCompact ? 1 : 0),
     })
     .where(eq(assistantSessions.id, session.id));
@@ -325,6 +331,7 @@ export async function runClientAssistant(
       reply,
       intent: intentResult.data.intent,
       escalate,
+      escalationReason,
       bookingId,
       sessionId: session.id,
     },

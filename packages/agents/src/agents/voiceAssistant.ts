@@ -9,6 +9,7 @@ export type VoiceGreetingOutput = {
 export type VoiceTurnOutput = {
   reply: string;
   escalate: boolean;
+  escalationReason?: string;
   bookingId?: string;
   sessionId: string;
   intent: "question" | "booking_intent" | "escalate" | "unsubscribe";
@@ -86,6 +87,7 @@ export async function processTurn(input: VoiceAssistantInput): Promise<AgentResu
     data: {
       reply: toSpeakable(result.data.reply),
       escalate: result.data.escalate,
+      escalationReason: result.data.escalationReason,
       bookingId: result.data.bookingId,
       sessionId: result.data.sessionId,
       intent: result.data.intent,

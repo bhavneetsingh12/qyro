@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import Link from "next/link";
 import { MessageSquare, CalendarCheck, PhoneMissed, Zap, AlertCircle } from "lucide-react";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -14,6 +15,14 @@ type Appointment = {
   id: string;
   startAt: string;
   status: string;
+};
+
+type Escalation = {
+  id: string;
+  createdAt: string;
+  escalationReason: string | null;
+  prospectName: string | null;
+  prospectPhone: string | null;
 };
 
 async function apiFetch<T>(path: string, token: string | null): Promise<{ data: T | null; error: boolean }> {
@@ -37,18 +46,29 @@ function formatTime(iso: string) {
   });
 }
 
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default async function ClientDashboardPage() {
   const { getToken } = await auth();
   const token = await getToken();
 
-  const [sessionsResult, appointmentsResult] = await Promise.all([
+  const [sessionsResult, appointmentsResult, escalationsResult] = await Promise.all([
     apiFetch<{ data: Session[] }>("/api/sessions?limit=200", token),
     apiFetch<{ data: Appointment[] }>("/api/appointments?limit=200", token),
+    apiFetch<{ data: Escalation[] }>("/api/v1/assist/escalations?limit=20", token),
   ]);
 
-  const fetchError = sessionsResult.error && appointmentsResult.error;
+  const fetchError = sessionsResult.error && appointmentsResult.error && escalationsResult.error;
   const sessions: Session[] = (sessionsResult.data as { data: Session[] } | null)?.data ?? [];
   const appointments: Appointment[] = (appointmentsResult.data as { data: Appointment[] } | null)?.data ?? [];
+  const escalations: Escalation[] = (escalationsResult.data as { data: Escalation[] } | null)?.data ?? [];
 
   const today = new Date().toDateString();
 
@@ -171,6 +191,42 @@ export default async function ClientDashboardPage() {
                 <p className="text-xs text-stone-400 shrink-0">{formatTime(s.createdAt)}</p>
               </li>
             ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Escalations */}
+      <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#F0EEE9] flex items-center justify-between">
+          <p className="text-sm font-medium text-stone-800">Escalations</p>
+          <span className="text-xs text-stone-500">Recent handoffs</span>
+        </div>
+
+        {escalations.length === 0 ? (
+          <div className="px-5 py-8 text-center">
+            <p className="text-sm text-stone-400">No escalations yet.</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-[#F0EEE9]">
+            {escalations.map((item) => {
+              const customer = item.prospectName || item.prospectPhone || "Unknown customer";
+              const reason = item.escalationReason || "escalation requested";
+              return (
+                <li key={item.id} className="px-5 py-3 grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-4 items-center">
+                  <p className="text-xs text-stone-500">{formatDateTime(item.createdAt)}</p>
+                  <p className="text-sm text-stone-800 font-medium truncate">{customer}</p>
+                  <p className="text-xs text-stone-600 truncate">{reason}</p>
+                  <div className="md:text-right">
+                    <Link
+                      href={`/client/conversations?sessionId=${encodeURIComponent(item.id)}`}
+                      className="text-xs text-amber-700 hover:text-amber-800 font-medium"
+                    >
+                      Open session
+                    </Link>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

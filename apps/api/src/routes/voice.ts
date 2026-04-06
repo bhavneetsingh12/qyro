@@ -6,12 +6,18 @@ import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssist
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
 import { outboundCallQueue } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
+import { triggerEscalationNotifications } from "../lib/escalation";
 
 const router: ExpressRouter = Router();
 router.use(express.urlencoded({ extended: true }));
 
 function twimlSay(text: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${text}</Say></Response>`;
+}
+
+function twimlDial(to: string, sayFirst?: string): string {
+  const say = sayFirst ? `<Say>${sayFirst}</Say>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Dial>${to}</Dial></Response>`;
 }
 
 function twimlGatherAndSay(text: string): string {
@@ -345,6 +351,50 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
     }
 
     const reply = turn.data.reply;
+
+    // ── Escalation path ───────────────────────────────────────────────────────
+    if (turn.data.escalate) {
+      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, session.tenantId) });
+      const meta = (tenant?.metadata as Record<string, unknown>) ?? {};
+
+      const escalationPhone =
+        tenant?.escalationContactPhone ??
+        (meta.escalationContactPhone as string | undefined) ??
+        null;
+      const escalationEmail =
+        tenant?.escalationContactEmail ??
+        (meta.escalationContactEmail as string | undefined) ??
+        null;
+
+      // Fetch prospect for notification context
+      const prospectRow = session.prospectId
+        ? await db.query.prospectsRaw.findFirst({ where: eq(prospectsRaw.id, session.prospectId) })
+        : null;
+
+      triggerEscalationNotifications({
+        tenantId: session.tenantId,
+        sessionId: session.id,
+        prospectName: prospectRow?.businessName ?? "Caller",
+        prospectPhone: prospectRow?.phone ?? null,
+        escalationContactPhone: escalationPhone,
+        escalationContactEmail: escalationEmail,
+        fromNumber: tenant?.voiceNumber ?? (meta.voiceNumber as string | undefined) ?? null,
+        escalationReason: turn.data.escalationReason,
+        appBaseUrl: process.env.APP_BASE_URL,
+      });
+
+      await db
+        .update(assistantSessions)
+        .set({ escalated: true, conversationHistory: [...history, { role: "user", content: speech }, { role: "assistant", content: reply }] })
+        .where(eq(assistantSessions.id, session.id));
+
+      if (escalationPhone) {
+        res.type("text/xml").send(twimlDial(escalationPhone, reply));
+      } else {
+        res.type("text/xml").send(twimlSay(reply));
+      }
+      return;
+    }
 
     // Persist this turn to conversation history
     const updatedHistory: HistoryEntry[] = [

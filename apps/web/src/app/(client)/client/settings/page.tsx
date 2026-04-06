@@ -15,6 +15,8 @@ type SettingsForm = {
   providersList:      string;
   autoRespond:        boolean;
   autoSendMissedCall: boolean;
+  escalationContactPhone: string;
+  escalationContactEmail: string;
   businessHours:      string;
   voiceNumber:        string;
   connectionMethod:   string;
@@ -32,6 +34,8 @@ export default function ClientSettingsPage() {
     providersList:      "",
     autoRespond:        false,
     autoSendMissedCall: false,
+    escalationContactPhone: "",
+    escalationContactEmail: "",
     businessHours:      "",
     voiceNumber:        "",
     connectionMethod:   "forwarding",
@@ -60,6 +64,8 @@ export default function ClientSettingsPage() {
             providersList:      data.providersList    ?? "",
             autoRespond:        !!data.autoRespond,
             autoSendMissedCall: !!data.autoSendMissedCall,
+            escalationContactPhone: data.escalationContactPhone ?? "",
+            escalationContactEmail: data.escalationContactEmail ?? "",
             businessHours:      data.businessHours    ?? "",
             voiceNumber:        data.voiceNumber      ?? "",
             connectionMethod:   data.connectionMethod ?? "forwarding",
@@ -286,6 +292,31 @@ export default function ClientSettingsPage() {
                 value={form.emailFromName}
                 onChange={(e) => setForm({ ...form, emailFromName: e.target.value })}
                 placeholder="Acme Plumbing Assistant"
+              />
+            </FormField>
+
+            <FormField
+              label="Escalation contact phone"
+              hint="When the assistant escalates, QYRO sends an immediate SMS alert and voice calls can transfer to this number. Use E.164 format."
+            >
+              <input
+                className="input"
+                value={form.escalationContactPhone}
+                onChange={(e) => setForm({ ...form, escalationContactPhone: e.target.value })}
+                placeholder="+15035551234"
+              />
+            </FormField>
+
+            <FormField
+              label="Escalation alert email"
+              hint="Optional backup alert destination for escalations."
+            >
+              <input
+                className="input"
+                type="email"
+                value={form.escalationContactEmail}
+                onChange={(e) => setForm({ ...form, escalationContactEmail: e.target.value })}
+                placeholder="owner@yourbusiness.com"
               />
             </FormField>
           </div>
