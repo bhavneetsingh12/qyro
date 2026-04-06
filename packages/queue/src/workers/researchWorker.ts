@@ -74,24 +74,43 @@ export { createResearchWorker };
 
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
+const REQUIRED_ENV_RESEARCH = ["DATABASE_URL", "REDIS_URL"];
+
 if (require.main === module) {
-  const worker = createResearchWorker();
-  console.log(`[researchWorker] listening on queue: ${QUEUE_NAMES.RESEARCH}`);
+  async function start() {
+    const missing = REQUIRED_ENV_RESEARCH.filter((k) => !process.env[k]);
+    if (missing.length) {
+      console.error("❌ MISSING ENV VARS:", missing.join(", "));
+      process.exit(1);
+    }
 
-  // Minimal HTTP server so Railway healthcheck passes (BullMQ workers have no web server)
-  const http = require("http") as typeof import("http");
-  const healthPort = Number(process.env.PORT ?? 3004);
-  http.createServer((_req: import("http").IncomingMessage, res: import("http").ServerResponse) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", worker: "research" }));
-  }).listen(healthPort, () => {
-    console.log(`[researchWorker] health server on port ${healthPort}`);
-  });
+    const worker = createResearchWorker();
+    console.log(`[researchWorker] listening on queue: ${QUEUE_NAMES.RESEARCH}`);
 
-  async function shutdown() {
-    await worker.close();
-    process.exit(0);
+    const http = require("http") as typeof import("http");
+    const PORT = Number(process.env.PORT ?? 3004);
+    http.createServer((_req: import("http").IncomingMessage, res: import("http").ServerResponse) => {
+      const healthy = worker !== null;
+      res.writeHead(healthy ? 200 : 503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: healthy ? "ok" : "degraded", worker: "research", uptime: process.uptime() }));
+    }).listen(PORT, () => {
+      console.log(`[researchWorker] health server on port ${PORT}`);
+    });
+
+    worker.on("completed", (job) => {
+      console.log(`✅ Job ${job.id} completed`);
+    });
+
+    async function shutdown() {
+      await worker.close();
+      process.exit(0);
+    }
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
   }
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT",  shutdown);
+
+  start().catch((err) => {
+    console.error("❌ STARTUP FAILED:", err);
+    process.exit(1);
+  });
 }

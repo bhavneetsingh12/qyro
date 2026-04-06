@@ -75,21 +75,42 @@ export { createReplyTriageWorker };
 
 // ─── Entry point ───────────────────────────────────────────────────────────────
 
+const REQUIRED_ENV_REPLY_TRIAGE = ["DATABASE_URL", "REDIS_URL"];
+
 if (require.main === module) {
-  const worker = createReplyTriageWorker();
-  console.log(`[replyTriageWorker] listening on queue: ${QUEUE_NAMES.REPLY}`);
+  async function start() {
+    const missing = REQUIRED_ENV_REPLY_TRIAGE.filter((k) => !process.env[k]);
+    if (missing.length) {
+      console.error("❌ MISSING ENV VARS:", missing.join(", "));
+      process.exit(1);
+    }
 
-  async function shutdown() {
-    await worker.close();
-    process.exit(0);
+    const worker = createReplyTriageWorker();
+    console.log(`[replyTriageWorker] listening on queue: ${QUEUE_NAMES.REPLY}`);
+
+    worker.on("completed", (job) => {
+      console.log(`✅ Job ${job.id} completed`);
+    });
+
+    async function shutdown() {
+      await worker.close();
+      process.exit(0);
+    }
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+
+    const PORT = process.env.PORT || 3005;
+    http.createServer((_req, res) => {
+      const healthy = worker !== null;
+      res.writeHead(healthy ? 200 : 503);
+      res.end(JSON.stringify({ status: healthy ? "ok" : "degraded", worker: "reply-triage", uptime: process.uptime() }));
+    }).listen(PORT, () => {
+      console.log("[replyTriageWorker] health server on port", PORT);
+    });
   }
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT",  shutdown);
 
-  http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: "ok", worker: "reply-triage" }));
-  }).listen(process.env.PORT || 3005, () => {
-    console.log("[replyTriageWorker] health server on port", process.env.PORT || 3005);
+  start().catch((err) => {
+    console.error("❌ STARTUP FAILED:", err);
+    process.exit(1);
   });
 }

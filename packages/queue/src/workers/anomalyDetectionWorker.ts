@@ -7,19 +7,18 @@
 //   sequential_pagination — many paginated reads with incrementing offsets within 5 min
 
 import http from "http";
-import { Worker, type Job } from "bullmq";
+import { Worker, Queue, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { sql, gte, eq, desc, count } from "drizzle-orm";
 import * as schema from "@qyro/db/schema";
 
-if (!process.env.REDIS_URL) throw new Error("REDIS_URL is required");
-if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");
+const REQUIRED_ENV_ANOMALY = ["DATABASE_URL", "REDIS_URL"];
 
-const redis = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const db = drizzle(pool, { schema });
+let redis: IORedis;
+let pool: Pool;
+let db: ReturnType<typeof drizzle>;
 
 const QUEUE_NAME = "anomaly_detection";
 
@@ -146,23 +145,14 @@ async function runDetection(_job: Job): Promise<void> {
   console.log("[anomalyDetection] detection pass complete");
 }
 
-export const anomalyDetectionWorker = new Worker(QUEUE_NAME, runDetection, {
-  connection: redis,
-  concurrency: 1,
-});
-
-anomalyDetectionWorker.on("failed", (job, err) => {
-  console.error(`[anomalyDetection] job ${job?.id} failed:`, err.message);
-});
+let anomalyDetectionWorker: Worker;
 
 // ─── Scheduler bootstrap ─────────────────────────────────────────────────────
 // Call scheduleAnomalyDetection() once at worker startup to register the
 // repeating job (every 15 minutes). Safe to call multiple times — BullMQ
 // upserts by repeat key.
 
-import { Queue } from "bullmq";
-
-export async function scheduleAnomalyDetection(): Promise<void> {
+async function scheduleAnomalyDetection(): Promise<void> {
   const queue = new Queue(QUEUE_NAME, { connection: redis });
   await queue.upsertJobScheduler(
     "anomaly-detection-15m",
@@ -174,10 +164,37 @@ export async function scheduleAnomalyDetection(): Promise<void> {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-if (require.main === module) {
+async function start() {
+  const missing = REQUIRED_ENV_ANOMALY.filter((k) => !process.env[k]);
+  if (missing.length) {
+    console.error("❌ MISSING ENV VARS:", missing.join(", "));
+    process.exit(1);
+  }
+
+  redis = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
+  pool = new Pool({ connectionString: process.env.DATABASE_URL! });
+  db = drizzle(pool, { schema });
+
+  anomalyDetectionWorker = new Worker(QUEUE_NAME, runDetection, {
+    connection: redis,
+    concurrency: 1,
+  });
+
+  anomalyDetectionWorker.on("completed", (job) => {
+    console.log(`✅ Job ${job.id} completed`);
+  });
+
+  anomalyDetectionWorker.on("failed", (job, err) => {
+    console.error(`[anomalyDetection] job ${job?.id} failed:`, err.message);
+  });
+
+  anomalyDetectionWorker.on("error", (err) => {
+    console.error("[anomalyDetection] worker error:", err);
+  });
+
   console.log("[anomalyDetection] worker started");
 
-  scheduleAnomalyDetection().catch((err) => {
+  await scheduleAnomalyDetection().catch((err) => {
     console.error("[anomalyDetection] scheduler registration failed:", err);
   });
 
@@ -186,12 +203,19 @@ if (require.main === module) {
     process.exit(0);
   }
   process.on("SIGTERM", shutdown);
-  process.on("SIGINT",  shutdown);
+  process.on("SIGINT", shutdown);
 
-  http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: "ok", worker: "anomaly-detection" }));
-  }).listen(process.env.PORT || 3007, () => {
-    console.log("[anomalyDetection] health server on port", process.env.PORT || 3007);
+  const PORT = process.env.PORT || 3007;
+  http.createServer((_req, res) => {
+    const healthy = anomalyDetectionWorker !== null;
+    res.writeHead(healthy ? 200 : 503);
+    res.end(JSON.stringify({ status: healthy ? "ok" : "degraded", worker: "anomaly-detection", uptime: process.uptime() }));
+  }).listen(PORT, () => {
+    console.log("[anomalyDetection] health server on port", PORT);
   });
 }
+
+start().catch((err) => {
+  console.error("❌ STARTUP FAILED:", err);
+  process.exit(1);
+});
