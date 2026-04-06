@@ -2,7 +2,7 @@
 // Internal ops webhooks are protected by WEBHOOK_SECRET (with legacy fallback support).
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
-import { db, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
+import { db, tenants, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
 import { outreachQueue, redis } from "@qyro/queue";
@@ -231,9 +231,14 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 	try {
 		if (!ensureInternalSecret(req, res)) return;
 
-		const { runs } = req.body as { runs?: MorningDigestRun[] };
+		let { runs } = req.body as { runs?: MorningDigestRun[] };
 		if (!Array.isArray(runs) || runs.length === 0) {
-			res.status(400).json({ error: "INVALID_INPUT", message: "runs[] is required" });
+			// Auto-discover all active tenants when no runs array is provided
+			const allTenants = await db.select({ id: tenants.id }).from(tenants);
+			runs = allTenants.map((t) => ({ tenantId: t.id, lookbackHours: 12 }));
+		}
+		if (runs.length === 0) {
+			res.json({ data: { runs: [], totals: {} } });
 			return;
 		}
 
