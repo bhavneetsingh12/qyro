@@ -79,15 +79,28 @@ async function run() {
   await client.end();
 }
 
+import * as http from "http";
+
 run()
   .then(() => {
-    // Keep alive briefly so Railway healthcheck can register the service
-    // as healthy before it exits. migrate-db should be a one-shot job.
-    console.log("[migrate] waiting 5s before exit so Railway can register health...");
-    return new Promise<void>((resolve) => setTimeout(resolve, 5000));
+    // Migrations are done. Spin up a health HTTP server so Railway registers
+    // this one-shot service as healthy, then exit after 60 seconds.
+    const port = Number(process.env.PORT ?? 3005);
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", migrations: "complete" }));
+    });
+
+    server.listen(port, () => {
+      console.log(`[migrate] health server on port ${port} — will exit in 60s`);
+    });
+
+    setTimeout(() => {
+      console.log("[migrate] shutting down after grace period");
+      server.close(() => process.exit(0));
+    }, 60_000);
   })
-  .then(() => process.exit(0))
   .catch((err) => {
-    console.error("Migration runner error:", err);
+    console.error("[migrate] FAILED:", err);
     process.exit(1);
   });
