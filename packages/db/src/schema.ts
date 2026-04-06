@@ -4,7 +4,7 @@
 
 import {
   pgTable, uuid, text, integer, boolean, jsonb,
-  timestamp, pgEnum, index, uniqueIndex
+  timestamp, pgEnum, index, uniqueIndex, date
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -183,6 +183,25 @@ export const callAttempts = pgTable("call_attempts", {
   transcriptUrl:  text("transcript_url"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
+
+export const dailySummaries = pgTable("daily_summaries", {
+  id:                     uuid("id").primaryKey().defaultRandom(),
+  tenantId:               uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  date:                   date("date").notNull(),
+  newProspectsCount:      integer("new_prospects_count").notNull().default(0),
+  pendingApprovalCount:   integer("pending_approval_count").notNull().default(0),
+  approvedCount:          integer("approved_count").notNull().default(0),
+  blockedCount:           integer("blocked_count").notNull().default(0),
+  callsHandledCount:      integer("calls_handled_count").notNull().default(0),
+  appointmentsBookedCount: integer("appointments_booked_count").notNull().default(0),
+  escalationsCount:       integer("escalations_count").notNull().default(0),
+  questionsCount:         integer("questions_count").notNull().default(0),
+  avgUrgencyScore:        integer("avg_urgency_score"),
+  createdAt:              timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantDateIdx: uniqueIndex("daily_summaries_tenant_date_idx").on(t.tenantId, t.date),
+  tenantIdx: index("daily_summaries_tenant_idx").on(t.tenantId, t.date),
+}));
 
 // ─── Consent + DNC ────────────────────────────────────────────────────────────
 

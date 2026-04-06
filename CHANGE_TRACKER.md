@@ -61,7 +61,7 @@ Purpose: running log of all changes made in this workspace session series so fol
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)
 
-### Pending hash - feat: async webhook processing via BullMQ, idempotency on Retell handlers
+### d5c09ae - feat: async webhook processing via BullMQ, idempotency on Retell handlers
 - Request summary:
   - Prevent provider timeout by moving status/event webhook processing off request thread.
   - Keep synchronous TwiML for live call endpoints with a 4 second fallback guard.
@@ -80,6 +80,33 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Added webhook worker (concurrency 5) with BullMQ retries and audit log failure writes.
   - Added Redis idempotency cache for Retell processing using call_id + event_type style keys with 24h TTL.
   - Added webhook worker start command documentation for Railway and PM2 entry for local process management.
+- Validation run:
+  - get_errors on touched files: no errors
+  - pnpm -s -r typecheck: pass (no output)
+
+### pending - feat: daily digest storage, intent aggregation, analytics dashboard
+- Request summary:
+  - Persist daily digest metrics in DB, aggregate intent counts, and expose a dashboard analytics view.
+- Files changed:
+  - packages/db/migrations/0011_daily_summaries.sql
+  - packages/db/src/schema.ts
+  - apps/api/src/routes/webhooks.ts
+  - packages/agents/src/agents/clientAssistant.ts
+  - apps/api/src/routes/assist.ts
+  - apps/web/src/app/(client)/client/dashboard/analytics/page.tsx
+  - apps/web/src/app/dashboard/analytics/page.tsx
+  - apps/web/src/components/sidebar/ClientSidebar.tsx
+  - apps/web/package.json
+  - pnpm-lock.yaml
+- Key behavior changes:
+  - Added `daily_summaries` table (tenant/day aggregates for leads, calls, booked, escalations, intents, and avg urgency).
+  - `POST /api/v1/webhooks/morning-digest` now computes metrics and upserts into `daily_summaries`.
+  - Morning digest now includes daily intent counters from Redis, then clears those keys after persistence.
+  - Client assistant now increments Redis intent counters by detected intent for daily aggregation.
+  - Added authenticated analytics API endpoint (`GET /api/v1/assist/analytics?days=30`) returning day-series data and totals.
+  - Added client analytics page with 30-day trend charts and KPI cards.
+  - Added sidebar navigation link to Analytics and route alias at `/dashboard/analytics`.
+  - Added `recharts` dependency to web app for chart rendering.
 - Validation run:
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)

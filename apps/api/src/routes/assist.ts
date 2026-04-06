@@ -12,8 +12,8 @@ import { triggerEscalationNotifications } from "../lib/escalation";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions } from "@qyro/db";
-import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
+import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries } from "@qyro/db";
+import { eq, and, desc, sql, inArray, or, gte } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
 import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
@@ -1198,6 +1198,63 @@ router.get("/escalations", rateLimit("general"), async (req: Request, res: Respo
       .offset(offset);
 
     res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/analytics ───────────────────────────────────────────
+// Returns the last N days of daily summaries for analytics dashboard charts.
+
+router.get("/analytics", rateLimit("general"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const days = Math.max(1, Math.min(parseInt((req.query.days as string) || "30", 10), 90));
+    const cutoff = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const rows = await db
+      .select({
+        date: dailySummaries.date,
+        newProspectsCount: dailySummaries.newProspectsCount,
+        pendingApprovalCount: dailySummaries.pendingApprovalCount,
+        approvedCount: dailySummaries.approvedCount,
+        blockedCount: dailySummaries.blockedCount,
+        callsHandledCount: dailySummaries.callsHandledCount,
+        appointmentsBookedCount: dailySummaries.appointmentsBookedCount,
+        escalationsCount: dailySummaries.escalationsCount,
+        questionsCount: dailySummaries.questionsCount,
+        avgUrgencyScore: dailySummaries.avgUrgencyScore,
+      })
+      .from(dailySummaries)
+      .where(and(eq(dailySummaries.tenantId, tenantId), gte(dailySummaries.date, cutoff)))
+      .orderBy(dailySummaries.date);
+
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.callsHandled += Number(row.callsHandledCount ?? 0);
+        acc.appointmentsBooked += Number(row.appointmentsBookedCount ?? 0);
+        acc.escalations += Number(row.escalationsCount ?? 0);
+        acc.urgencySum += Number(row.avgUrgencyScore ?? 0);
+        if (row.avgUrgencyScore !== null && row.avgUrgencyScore !== undefined) {
+          acc.urgencyDays += 1;
+        }
+        return acc;
+      },
+      { callsHandled: 0, appointmentsBooked: 0, escalations: 0, urgencySum: 0, urgencyDays: 0 },
+    );
+
+    res.json({
+      data: {
+        days,
+        rows,
+        totals: {
+          callsHandled: totals.callsHandled,
+          appointmentsBooked: totals.appointmentsBooked,
+          escalations: totals.escalations,
+          avgUrgencyScore: totals.urgencyDays > 0 ? Math.round(totals.urgencySum / totals.urgencyDays) : null,
+        },
+      },
+    });
   } catch (err) {
     next(err);
   }

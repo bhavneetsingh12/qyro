@@ -2,10 +2,10 @@
 // Internal ops webhooks are protected by INTERNAL_WEBHOOK_SECRET.
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
-import { db, prospectsRaw, prospectsEnriched, messageAttempts } from "@qyro/db";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { db, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
-import { outreachQueue } from "@qyro/queue";
+import { outreachQueue, redis } from "@qyro/queue";
 
 const router: ExpressRouter = Router();
 
@@ -35,6 +35,19 @@ type MorningDigestRun = {
 	tenantId: string;
 	lookbackHours?: number;
 };
+
+function utcDayString(date = new Date()): string {
+	return date.toISOString().slice(0, 10);
+}
+
+function intentCounterKeys(tenantId: string, day: string) {
+	const prefix = `daily_summary:intent:${tenantId}:${day}`;
+	return {
+		questions: `${prefix}:questions_count`,
+		bookings: `${prefix}:appointments_booked_count`,
+		escalations: `${prefix}:escalations_count`,
+	};
+}
 
 function ensureInternalSecret(req: Request, res: Response): boolean {
 	const expected = process.env.INTERNAL_WEBHOOK_SECRET;
@@ -229,12 +242,20 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 		let totalPendingApproval = 0;
 		let totalApproved = 0;
 		let totalBlocked = 0;
+		let totalCallsHandled = 0;
+		let totalAppointmentsBooked = 0;
+		let totalEscalations = 0;
+		let totalQuestions = 0;
+		let totalUrgencyWeighted = 0;
+		let totalUrgencyContributors = 0;
+		const digestDate = utcDayString();
 
 		for (const run of runs) {
 			const lookbackHours = Math.max(1, Math.min(72, run.lookbackHours ?? 12));
 			const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+			const intentKeys = intentCounterKeys(run.tenantId, digestDate);
 
-			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows] = await Promise.all([
+			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows, callsRows, urgencyRows, intentValues] = await Promise.all([
 				db
 					.select({ id: prospectsRaw.id })
 					.from(prospectsRaw)
@@ -273,6 +294,23 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 						eq(messageAttempts.tenantId, run.tenantId),
 						eq(messageAttempts.status, "pending_approval"),
 					)),
+				db
+					.select({ id: callAttempts.id })
+					.from(callAttempts)
+					.where(and(
+						eq(callAttempts.tenantId, run.tenantId),
+						gte(callAttempts.createdAt, since),
+					)),
+				db
+					.select({
+						urgency: prospectsEnriched.urgencyScore,
+					})
+					.from(prospectsEnriched)
+					.where(and(
+						eq(prospectsEnriched.tenantId, run.tenantId),
+						gte(prospectsEnriched.researchedAt, since),
+					)),
+				redis.mget(intentKeys.questions, intentKeys.bookings, intentKeys.escalations),
 			]);
 
 			const newProspects = newProspectsRows.length;
@@ -280,20 +318,79 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const approved = approvedRows.length;
 			const blocked = blockedRows.length;
 			const pendingApprovalTotal = pendingTotalRows.length;
+			const callsHandled = callsRows.length;
+
+			const urgencyValues = urgencyRows
+				.map((row) => Number(row.urgency ?? 0))
+				.filter((value) => Number.isFinite(value) && value > 0);
+			const avgUrgencyScore = urgencyValues.length > 0
+				? Math.round(urgencyValues.reduce((sum, value) => sum + value, 0) / urgencyValues.length)
+				: null;
+
+			const questionsCount = Number.parseInt(String(intentValues[0] ?? "0"), 10) || 0;
+			const appointmentsBookedCount = Number.parseInt(String(intentValues[1] ?? "0"), 10) || 0;
+			const escalationsCount = Number.parseInt(String(intentValues[2] ?? "0"), 10) || 0;
+
+			await redis.del(intentKeys.questions, intentKeys.bookings, intentKeys.escalations);
+
+			await db
+				.insert(dailySummaries)
+				.values({
+					tenantId: run.tenantId,
+					date: digestDate,
+					newProspectsCount: newProspects,
+					pendingApprovalCount: pendingApproval,
+					approvedCount: approved,
+					blockedCount: blocked,
+					callsHandledCount: callsHandled,
+					appointmentsBookedCount,
+					escalationsCount,
+					questionsCount,
+					avgUrgencyScore,
+				})
+				.onConflictDoUpdate({
+					target: [dailySummaries.tenantId, dailySummaries.date],
+					set: {
+						newProspectsCount: newProspects,
+						pendingApprovalCount: pendingApproval,
+						approvedCount: approved,
+						blockedCount: blocked,
+						callsHandledCount: callsHandled,
+						appointmentsBookedCount,
+						escalationsCount,
+						questionsCount,
+						avgUrgencyScore,
+						createdAt: sql`now()`,
+					},
+				});
 
 			totalNewProspects += newProspects;
 			totalPendingApproval += pendingApproval;
 			totalApproved += approved;
 			totalBlocked += blocked;
+			totalCallsHandled += callsHandled;
+			totalAppointmentsBooked += appointmentsBookedCount;
+			totalEscalations += escalationsCount;
+			totalQuestions += questionsCount;
+			if (avgUrgencyScore !== null) {
+				totalUrgencyWeighted += avgUrgencyScore;
+				totalUrgencyContributors += 1;
+			}
 
 			perRun.push({
 				tenantId: run.tenantId,
+				date: digestDate,
 				lookbackHours,
 				since: since.toISOString(),
 				newProspects,
 				pendingApproval,
 				approved,
 				blocked,
+				callsHandled,
+				appointmentsBookedCount,
+				escalationsCount,
+				questionsCount,
+				avgUrgencyScore,
 				pendingApprovalTotal,
 			});
 		}
@@ -306,6 +403,13 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 					pendingApproval: totalPendingApproval,
 					approved: totalApproved,
 					blocked: totalBlocked,
+					callsHandled: totalCallsHandled,
+					appointmentsBooked: totalAppointmentsBooked,
+					escalations: totalEscalations,
+					questions: totalQuestions,
+					avgUrgencyScore: totalUrgencyContributors > 0
+						? Math.round(totalUrgencyWeighted / totalUrgencyContributors)
+						: null,
 				},
 			},
 		});

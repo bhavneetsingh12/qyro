@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "@qyro/db";
+import { redis } from "@qyro/queue";
 import { assistantSessions, promptVersions, tenants } from "@qyro/db";
 import { and, desc, eq } from "drizzle-orm";
 import { runCompletion, runStructuredCompletion, type AgentResult } from "../runner";
@@ -43,6 +44,30 @@ type IntentResult = {
   escalate: boolean;
   reason: string;
 };
+
+function utcDayString(date = new Date()): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function intentCounterKey(tenantId: string, metric: "questions_count" | "appointments_booked_count" | "escalations_count"): string {
+  return `daily_summary:intent:${tenantId}:${utcDayString()}:${metric}`;
+}
+
+function incrementIntentAggregate(tenantId: string, intent: IntentResult["intent"]): void {
+  const metric = intent === "question"
+    ? "questions_count"
+    : intent === "booking_intent"
+      ? "appointments_booked_count"
+      : intent === "escalate"
+        ? "escalations_count"
+        : null;
+
+  if (!metric) return;
+
+  void redis.incr(intentCounterKey(tenantId, metric)).catch((err) => {
+    console.error("[clientAssistant] failed to increment intent aggregate:", err);
+  });
+}
 
 function toStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String).map((v) => v.trim()).filter(Boolean);
@@ -247,6 +272,8 @@ export async function runClientAssistant(
     runId: input.runId,
   });
   if (!intentResult.ok) return intentResult;
+
+  incrementIntentAggregate(input.tenantId, intentResult.data.intent);
 
   let reply = "";
   let bookingId: string | undefined;
