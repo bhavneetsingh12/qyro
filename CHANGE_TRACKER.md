@@ -21,7 +21,7 @@ Purpose: running log of all changes made in this workspace session series so fol
 ### a640cfc - feat: missed call SMS auto-send toggle per tenant
 - Added per-tenant missed call SMS auto-send capability and related controls.
 
-### Pending commit - feat: call recording storage, transcript capture, and playback UI
+### 58187f2 - feat: call recording storage, transcript capture, and playback UI
 - Request summary:
   - Persist call recordings and full transcripts from SignalWire and Retell.
   - Add call history UI with expandable turn-by-turn transcript and recording playback/export.
