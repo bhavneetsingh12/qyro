@@ -24,6 +24,13 @@ type NightlyRun = {
 	outreach?: NightlyOutreachConfig;
 };
 
+function priorityFromUrgency(urgencyScore: number | null | undefined): 1 | 2 | 3 {
+	const score = Number(urgencyScore ?? 0);
+	if (score >= 8) return 1;
+	if (score >= 5) return 2;
+	return 3;
+}
+
 type MorningDigestRun = {
 	tenantId: string;
 	lookbackHours?: number;
@@ -70,15 +77,23 @@ async function queueOutreachDrafts(params: {
 			gte(prospectsRaw.createdAt, startedAt),
 		));
 
-	let candidateIds = recentProspects
+	let candidateProspects = recentProspects
 		.filter((row) => minUrgency === undefined || (row.urgencyScore ?? 0) >= minUrgency)
-		.map((row) => row.prospectId);
+		.map((row) => ({ prospectId: row.prospectId, urgencyScore: row.urgencyScore }));
 
-	candidateIds = Array.from(new Set(candidateIds)).slice(0, maxDrafts);
+  const deduped = new Map<string, number | null>();
+  for (const row of candidateProspects) {
+    if (!deduped.has(row.prospectId)) deduped.set(row.prospectId, row.urgencyScore ?? null);
+  }
+  candidateProspects = Array.from(deduped.entries())
+    .map(([prospectId, urgencyScore]) => ({ prospectId, urgencyScore }))
+    .slice(0, maxDrafts);
 
-	if (candidateIds.length === 0) {
+	if (candidateProspects.length === 0) {
 		return { queued: 0, considered: 0 };
 	}
+
+	const candidateIds = candidateProspects.map((row) => row.prospectId);
 
 	// Avoid duplicate drafts for same sequence + prospect.
 	const existing = await db
@@ -92,17 +107,20 @@ async function queueOutreachDrafts(params: {
 		));
 
 	const existingIds = new Set(existing.map((row) => row.prospectId));
-	const toQueue = candidateIds.filter((id) => !existingIds.has(id));
+	const toQueue = candidateProspects.filter((row) => !existingIds.has(row.prospectId));
 
 	if (toQueue.length > 0) {
 		await outreachQueue.addBulk(
-			toQueue.map((prospectId) => ({
+			toQueue.map((row) => ({
 				name: "outreach",
 				data: {
 					tenantId,
-					prospectId,
+					prospectId: row.prospectId,
 					sequenceId: outreach.sequenceId,
 					channel,
+				},
+				opts: {
+					priority: priorityFromUrgency(row.urgencyScore),
 				},
 			})),
 		);

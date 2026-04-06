@@ -14,7 +14,7 @@
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
 import { prospectsRaw, prospectsEnriched, messageAttempts, tenants } from "@qyro/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
 import { quotaCheck } from "../middleware/quota";
 import { rateLimit } from "../middleware/rateLimit";
@@ -22,6 +22,13 @@ import { logAudit } from "../lib/auditLog";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
 
 const MAX_PAGE_SIZE = 50;
+
+function priorityFromUrgency(urgencyScore: number | null | undefined): 1 | 2 | 3 {
+  const score = Number(urgencyScore ?? 0);
+  if (score >= 8) return 1;
+  if (score >= 5) return 2;
+  return 3;
+}
 
 const router: ExpressRouter = Router();
 
@@ -32,8 +39,9 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
     const tenantId = req.tenantId;
     const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
+    const sort = ((req.query.sort as string) || "urgency").trim().toLowerCase();
 
-    const rows = await db
+    const rowsQuery = db
       .select({
         id:           prospectsRaw.id,
         businessName: prospectsRaw.businessName,
@@ -51,10 +59,17 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
       })
       .from(prospectsRaw)
       .leftJoin(prospectsEnriched, eq(prospectsRaw.id, prospectsEnriched.prospectId))
-      .where(eq(prospectsRaw.tenantId, tenantId))
-      .orderBy(desc(prospectsRaw.createdAt))
-      .limit(limit)
-      .offset(offset);
+      .where(eq(prospectsRaw.tenantId, tenantId));
+
+    const rows = sort === "recent"
+      ? await rowsQuery
+          .orderBy(desc(prospectsRaw.createdAt))
+          .limit(limit)
+          .offset(offset)
+      : await rowsQuery
+          .orderBy(sql`${prospectsEnriched.urgencyScore} desc nulls last`, desc(prospectsRaw.createdAt))
+          .limit(limit)
+          .offset(offset);
 
     logAudit({ req, tenantId, userId: req.userId, action: "leads.list", resourceType: "prospect", responseRecordCount: rows.length });
 
@@ -356,14 +371,22 @@ router.post(
         return;
       }
 
+      const enriched = await db.query.prospectsEnriched.findFirst({
+        where: and(eq(prospectsEnriched.tenantId, tenantId), eq(prospectsEnriched.prospectId, id)),
+      });
+
+      const priority = priorityFromUrgency(enriched?.urgencyScore);
+
       const job = await outreachQueue.add("outreach", {
         tenantId,
         prospectId: id,
         sequenceId,
         channel,
+      }, {
+        priority,
       });
 
-      res.status(202).json({ jobId: job.id, status: "queued" });
+      res.status(202).json({ jobId: job.id, status: "queued", priority });
     } catch (err) {
       next(err);
     }

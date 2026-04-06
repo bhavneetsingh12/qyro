@@ -42,6 +42,25 @@ Purpose: running log of all changes made in this workspace session series so fol
   - get_errors on touched API/DB/web files: no errors
   - pnpm -s -r typecheck: pass (no output)
 
+### Pending hash - feat: prospect urgency score drives outreach queue priority and leads UI
+- Request summary:
+  - Use urgency score to prioritize outreach jobs in BullMQ.
+  - Show urgency badges in leads UI and default sort by urgency.
+- Files changed:
+  - apps/api/src/routes/leads.ts
+  - apps/api/src/routes/webhooks.ts
+  - packages/queue/src/queues.ts
+  - apps/web/src/app/(internal)/internal/leads/page.tsx
+- Key behavior changes:
+  - Added urgency -> priority mapping (8-10 => 1, 5-7 => 2, 1-4 => 3).
+  - Applied priority on manual outreach enqueue route and nightly leadDiscovery->outreach bulk enqueue path.
+  - Set outreach queue default priority to medium (2), while allowing per-job override.
+  - Leads list now defaults to urgency sort and includes sort selector (urgency/recent).
+  - Urgency badges now render as Urgent (red), Medium (amber), Low (gray).
+- Validation run:
+  - get_errors on touched files: no errors
+  - pnpm -s -r typecheck: pass (no output)
+
 ## Ongoing Update Rule
 - For each new user command, append a new entry with:
   - timestamp/date

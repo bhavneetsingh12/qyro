@@ -57,9 +57,10 @@ function SourceBadge({ source }: { source: string }) {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: { page?: string };
+  searchParams: { page?: string; sort?: string };
 }) {
   const page = Math.max(0, parseInt(searchParams.page ?? "0", 10));
+  const sort = searchParams.sort === "recent" ? "recent" : "urgency";
   const offset = page * PAGE_SIZE;
 
   const { getToken } = await auth();
@@ -76,7 +77,7 @@ export default async function LeadsPage({
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch(
-        `${API_URL}/api/leads?limit=${PAGE_SIZE}&offset=${offset}`,
+        `${API_URL}/api/leads?limit=${PAGE_SIZE}&offset=${offset}&sort=${encodeURIComponent(sort)}`,
         {
           headers,
           cache: "no-store",
@@ -114,7 +115,29 @@ export default async function LeadsPage({
             {page === 0 ? "Most recent prospects" : `Page ${page + 1}`}
           </p>
         </div>
-        <LeadsRefresher />
+        <div className="flex items-center gap-3">
+          <form action="" method="GET" className="flex items-end gap-2">
+            <input type="hidden" name="page" value="0" />
+            <div>
+              <label className="text-xs text-stone-500 block mb-1">Sort</label>
+              <select
+                name="sort"
+                defaultValue={sort}
+                className="input text-sm"
+              >
+                <option value="urgency">Sort by urgency</option>
+                <option value="recent">Most recent</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="text-xs font-medium px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
+            >
+              Apply
+            </button>
+          </form>
+          <LeadsRefresher />
+        </div>
       </div>
 
       <div className="mt-6 bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] overflow-hidden">
@@ -246,7 +269,13 @@ export default async function LeadsPage({
                     </td>
                     <td className="px-4 py-3 text-stone-300 tabular-nums">
                       {lead.urgencyScore ? (
-                        <span className="text-amber-600 font-medium">{lead.urgencyScore}/10</span>
+                        lead.urgencyScore >= 8 ? (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700">Urgent ({lead.urgencyScore}/10)</span>
+                        ) : lead.urgencyScore >= 5 ? (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Medium ({lead.urgencyScore}/10)</span>
+                        ) : (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-600">Low ({lead.urgencyScore}/10)</span>
+                        )
                       ) : (
                         <span className="text-stone-300">—</span>
                       )}
@@ -339,7 +368,7 @@ export default async function LeadsPage({
       {(page > 0 || hasMore) && (
         <div className="mt-4 flex items-center justify-between">
           <Link
-            href={page > 0 ? `/internal/leads?page=${page - 1}` : "#"}
+            href={page > 0 ? `/internal/leads?page=${page - 1}&sort=${encodeURIComponent(sort)}` : "#"}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               page > 0
                 ? "text-stone-700 hover:bg-white hover:border hover:border-[#E8E6E1]"
@@ -353,7 +382,7 @@ export default async function LeadsPage({
           <span className="text-xs text-stone-400">Page {page + 1}</span>
 
           <Link
-            href={hasMore ? `/internal/leads?page=${page + 1}` : "#"}
+            href={hasMore ? `/internal/leads?page=${page + 1}&sort=${encodeURIComponent(sort)}` : "#"}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               hasMore
                 ? "text-stone-700 hover:bg-white hover:border hover:border-[#E8E6E1]"

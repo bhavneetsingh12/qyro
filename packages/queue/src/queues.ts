@@ -64,6 +64,7 @@ export const outreachQueue = new Queue<OutreachJobData>(QUEUE_NAMES.OUTREACH, {
   defaultJobOptions: {
     attempts:    2,
     backoff:     { type: "fixed", delay: 10_000 },
+    priority:    2,
     removeOnComplete: { count: 100 },
     removeOnFail:     { count: 500 },
   },
