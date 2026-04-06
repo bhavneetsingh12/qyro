@@ -5,7 +5,6 @@
     "buildCommand": "pnpm install && pnpm turbo build --filter=@qyro/api"
   },
   "deploy": {
-    "startCommand": "node apps/api/dist/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
