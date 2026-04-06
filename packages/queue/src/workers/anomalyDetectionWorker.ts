@@ -9,16 +9,12 @@
 import http from "http";
 import { Worker, Queue, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
-import { sql, gte, eq, desc, count } from "drizzle-orm";
-import * as schema from "@qyro/db/schema";
+import { sql, gte, count } from "drizzle-orm";
+import { db, rateLimitHits, auditLogs, scrapingAlerts } from "@qyro/db";
 
 const REQUIRED_ENV_ANOMALY = ["DATABASE_URL", "REDIS_URL"];
 
 let redis: IORedis;
-let pool: Pool;
-let db: ReturnType<typeof drizzle>;
 
 const QUEUE_NAME = "anomaly_detection";
 
@@ -29,12 +25,12 @@ async function detectHighApiVolume(): Promise<void> {
 
   const rows = await db
     .select({
-      tenantId: schema.rateLimitHits.tenantId,
-      hitCount: count(schema.rateLimitHits.id),
+      tenantId: rateLimitHits.tenantId,
+      hitCount: count(rateLimitHits.id),
     })
-    .from(schema.rateLimitHits)
-    .where(gte(schema.rateLimitHits.createdAt, since))
-    .groupBy(schema.rateLimitHits.tenantId);
+    .from(rateLimitHits)
+    .where(gte(rateLimitHits.createdAt, since))
+    .groupBy(rateLimitHits.tenantId);
 
   for (const row of rows) {
     if (Number(row.hitCount) > 500) {
@@ -51,14 +47,14 @@ async function detectHighExportVolume(): Promise<void> {
 
   const rows = await db
     .select({
-      tenantId: schema.auditLogs.tenantId,
-      exportCount: count(schema.auditLogs.id),
+      tenantId: auditLogs.tenantId,
+      exportCount: count(auditLogs.id),
     })
-    .from(schema.auditLogs)
+    .from(auditLogs)
     .where(
-      sql`${schema.auditLogs.action} LIKE 'leads.export%' AND ${schema.auditLogs.createdAt} >= ${since}`
+      sql`${auditLogs.action} LIKE 'leads.export%' AND ${auditLogs.createdAt} >= ${since}`
     )
-    .groupBy(schema.auditLogs.tenantId);
+    .groupBy(auditLogs.tenantId);
 
   for (const row of rows) {
     if (Number(row.exportCount) > 10) {
@@ -79,14 +75,14 @@ async function detectSequentialPagination(): Promise<void> {
 
   const rows = await db
     .select({
-      tenantId: schema.auditLogs.tenantId,
-      readCount: count(schema.auditLogs.id),
+      tenantId: auditLogs.tenantId,
+      readCount: count(auditLogs.id),
     })
-    .from(schema.auditLogs)
+    .from(auditLogs)
     .where(
-      sql`${schema.auditLogs.action} = ANY(${listActions}) AND ${schema.auditLogs.createdAt} >= ${since}`
+      sql`${auditLogs.action} = ANY(${listActions}) AND ${auditLogs.createdAt} >= ${since}`
     )
-    .groupBy(schema.auditLogs.tenantId);
+    .groupBy(auditLogs.tenantId);
 
   for (const row of rows) {
     if (Number(row.readCount) > 20) {
@@ -107,15 +103,15 @@ async function insertAlert(
   // Deduplicate: skip if a same-pattern alert was logged in the last hour
   const since = new Date(Date.now() - 60 * 60 * 1000);
   const existing = await db.query.scrapingAlerts.findFirst({
-    where: sql`${schema.scrapingAlerts.tenantId} = ${tenantId}
-      AND ${schema.scrapingAlerts.patternDetected} = ${pattern}
-      AND ${schema.scrapingAlerts.resolvedAt} IS NULL
-      AND ${schema.scrapingAlerts.createdAt} >= ${since}`,
+    where: sql`${scrapingAlerts.tenantId} = ${tenantId}
+      AND ${scrapingAlerts.patternDetected} = ${pattern}
+      AND ${scrapingAlerts.resolvedAt} IS NULL
+      AND ${scrapingAlerts.createdAt} >= ${since}`,
   });
 
   if (existing) return;
 
-  await db.insert(schema.scrapingAlerts).values({
+  await db.insert(scrapingAlerts).values({
     tenantId,
     patternDetected: pattern,
     requestCount,
@@ -172,8 +168,6 @@ async function start() {
   }
 
   redis = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
-  pool = new Pool({ connectionString: process.env.DATABASE_URL! });
-  db = drizzle(pool, { schema });
 
   anomalyDetectionWorker = new Worker(QUEUE_NAME, runDetection, {
     connection: redis,
