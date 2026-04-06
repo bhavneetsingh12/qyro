@@ -81,6 +81,7 @@ export const prospectsRaw = pgTable("prospects_raw", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   source:         text("source").notNull(),           // "apollo" | "places_api" | "inbound_form"
+  sourceType:     text("source_type").notNull().default("business"), // "business" | "individual"
   sourceId:       text("source_id"),                  // external ID from source
   businessName:   text("business_name").notNull(),
   domain:         text("domain"),
@@ -89,6 +90,8 @@ export const prospectsRaw = pgTable("prospects_raw", {
   address:        text("address"),
   niche:          text("niche"),
   consentState:   text("consent_state").notNull().default("unknown"),
+  researchSkipped: boolean("research_skipped").notNull().default(false),
+  researchSkipReason: text("research_skip_reason"),
   deduped:        boolean("deduped").notNull().default(false),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({

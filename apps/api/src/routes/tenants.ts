@@ -101,6 +101,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
       retellAgentId: (meta.retell_agent_id as string) ?? "",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
+      outreachEnabled:       meta.outreach_enabled !== false,
       hasApolloApiKey:       !!apolloApiKey,
       hasHunterApiKey:       !!hunterApiKey,
       apolloApiKeyMasked:    apolloApiKey ? maskApiKey(apolloApiKey) : "",
@@ -141,6 +142,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       voiceRuntime,
       retellAgentId,
       enrichmentProvider,
+      outreachEnabled,
       apolloApiKey,
       hunterApiKey,
       enrichmentMonthlyLimit,
@@ -162,6 +164,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       voiceRuntime?: "signalwire" | "retell";
       retellAgentId?: string;
       enrichmentProvider?: "mock" | "apollo" | "hunter";
+      outreachEnabled?: boolean;
       apolloApiKey?: string;
       hunterApiKey?: string;
       enrichmentMonthlyLimit?: number;
@@ -205,6 +208,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(voiceRuntime !== undefined && { voice_runtime: voiceRuntime === "retell" ? "retell" : "signalwire" }),
       ...(retellAgentId !== undefined && { retell_agent_id: retellAgentId.trim() }),
       ...(enrichmentProvider !== undefined && { enrichmentProvider }),
+      ...(outreachEnabled !== undefined && { outreach_enabled: Boolean(outreachEnabled) }),
       ...(apolloApiKey !== undefined && apolloApiKey.trim().length > 0 && { apolloApiKey: apolloApiKey.trim() }),
       ...(hunterApiKey !== undefined && hunterApiKey.trim().length > 0 && { hunterApiKey: hunterApiKey.trim() }),
       ...(enrichmentMonthlyLimit !== undefined && {

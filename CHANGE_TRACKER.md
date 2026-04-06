@@ -84,7 +84,7 @@ Purpose: running log of all changes made in this workspace session series so fol
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)
 
-### pending - feat: daily digest storage, intent aggregation, analytics dashboard
+### b24f7aa - feat: daily digest storage, intent aggregation, analytics dashboard
 - Request summary:
   - Persist daily digest metrics in DB, aggregate intent counts, and expose a dashboard analytics view.
 - Files changed:
@@ -107,6 +107,34 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Added client analytics page with 30-day trend charts and KPI cards.
   - Added sidebar navigation link to Analytics and route alias at `/dashboard/analytics`.
   - Added `recharts` dependency to web app for chart rendering.
+- Validation run:
+  - get_errors on touched files: no errors
+  - pnpm -s -r typecheck: pass (no output)
+
+### pending - feat: consent pre-check gate before research and outreach job enqueue
+- Request summary:
+  - Add a consent eligibility gate so lead discovery only enqueues research for compliant prospects.
+  - Add tenant outreach toggle and a skipped-leads filter with reasons in the dashboard.
+- Files changed:
+  - packages/db/src/schema.ts
+  - packages/db/migrations/0012_consent_gate_research_skip.sql
+  - packages/agents/src/agents/leadDiscovery.ts
+  - apps/api/src/routes/leads.ts
+  - apps/api/src/routes/tenants.ts
+  - apps/web/src/app/(internal)/internal/settings/page.tsx
+  - apps/web/src/app/(internal)/internal/leads/page.tsx
+  - infra/seed.ts
+- Key behavior changes:
+  - Added `prospects_raw.source_type`, `prospects_raw.research_skipped`, and `prospects_raw.research_skip_reason` fields.
+  - Added lead discovery pre-check gate before research enqueue:
+    - block if DNC match exists for phone/email/domain
+    - block if tenant metadata `outreach_enabled` is false
+    - block if source is not from approved public business datasets
+    - block if prospect source_type is `individual`
+  - Eligible prospects are enqueued to research; skipped prospects are marked on `prospects_raw` and logged to `audit_logs` with skip reason.
+  - Added internal tenant setting `outreachEnabled` (maps to metadata `outreach_enabled`, default true).
+  - Added leads API/UI "Skipped" filter and per-row skip reason visibility.
+  - Internal tenant seed now includes `outreach_enabled: true`.
 - Validation run:
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)

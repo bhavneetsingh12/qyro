@@ -16,7 +16,10 @@ type Lead = {
   phone: string | null;
   email: string | null;  // Added email field
   source: string;
+  sourceType: string;
   consentState: string;
+  researchSkipped: boolean;
+  researchSkipReason: string | null;
   deduped: boolean;
   createdAt: string;
   researchedAt: string | null;
@@ -57,10 +60,11 @@ function SourceBadge({ source }: { source: string }) {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: { page?: string; sort?: string };
+  searchParams: { page?: string; sort?: string; filter?: string };
 }) {
   const page = Math.max(0, parseInt(searchParams.page ?? "0", 10));
   const sort = searchParams.sort === "recent" ? "recent" : "urgency";
+  const filter = searchParams.filter === "skipped" ? "skipped" : "all";
   const offset = page * PAGE_SIZE;
 
   const { getToken } = await auth();
@@ -77,7 +81,7 @@ export default async function LeadsPage({
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch(
-        `${API_URL}/api/leads?limit=${PAGE_SIZE}&offset=${offset}&sort=${encodeURIComponent(sort)}`,
+        `${API_URL}/api/leads?limit=${PAGE_SIZE}&offset=${offset}&sort=${encodeURIComponent(sort)}&filter=${encodeURIComponent(filter)}`,
         {
           headers,
           cache: "no-store",
@@ -127,6 +131,17 @@ export default async function LeadsPage({
               >
                 <option value="urgency">Sort by urgency</option>
                 <option value="recent">Most recent</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-stone-500 block mb-1">Filter</label>
+              <select
+                name="filter"
+                defaultValue={filter}
+                className="input text-sm"
+              >
+                <option value="all">All leads</option>
+                <option value="skipped">Skipped</option>
               </select>
             </div>
             <button
@@ -286,6 +301,13 @@ export default async function LeadsPage({
                           <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
                             Researched
                           </span>
+                        ) : lead.researchSkipped ? (
+                          <span
+                            className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700"
+                            title={lead.researchSkipReason ?? undefined}
+                          >
+                            Skipped: {lead.researchSkipReason ?? "ineligible"}
+                          </span>
                         ) : (
                           <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-400">
                             Queued
@@ -368,7 +390,7 @@ export default async function LeadsPage({
       {(page > 0 || hasMore) && (
         <div className="mt-4 flex items-center justify-between">
           <Link
-            href={page > 0 ? `/internal/leads?page=${page - 1}&sort=${encodeURIComponent(sort)}` : "#"}
+            href={page > 0 ? `/internal/leads?page=${page - 1}&sort=${encodeURIComponent(sort)}&filter=${encodeURIComponent(filter)}` : "#"}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               page > 0
                 ? "text-stone-700 hover:bg-white hover:border hover:border-[#E8E6E1]"
@@ -382,7 +404,7 @@ export default async function LeadsPage({
           <span className="text-xs text-stone-400">Page {page + 1}</span>
 
           <Link
-            href={hasMore ? `/internal/leads?page=${page + 1}&sort=${encodeURIComponent(sort)}` : "#"}
+            href={hasMore ? `/internal/leads?page=${page + 1}&sort=${encodeURIComponent(sort)}&filter=${encodeURIComponent(filter)}` : "#"}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               hasMore
                 ? "text-stone-700 hover:bg-white hover:border hover:border-[#E8E6E1]"

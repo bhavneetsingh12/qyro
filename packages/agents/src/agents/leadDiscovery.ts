@@ -5,7 +5,7 @@
 // Sources:  Google Places API (primary), Google Places API (enrichment)
 // Model:    cheap (gpt-4o-mini) — used only to parse niche/location into API query params
 
-import { db, adminDb, prospectsRaw } from "@qyro/db";
+import { db, prospectsRaw, tenants, doNotContact, auditLogs } from "@qyro/db";
 import { eq, and, or, isNotNull } from "drizzle-orm";
 import { researchQueue, publishRealtimeEvent } from "@qyro/queue";
 import { runStructuredCompletion, type AgentResult } from "../runner";
@@ -376,6 +376,7 @@ function normalizeEmail(raw: string): string {
 type RawLeadInsert = {
   tenantId:     string;
   source:       string;
+  sourceType:   "business" | "individual";
   sourceId:     string | null;
   businessName: string;
   domain:       string | null;
@@ -385,7 +386,16 @@ type RawLeadInsert = {
   niche:        string;
 };
 
-async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
+type InsertedLead = {
+  id: string;
+  domain: string | null;
+  phone: string | null;
+  email: string | null;
+  source: string;
+  sourceType: string;
+};
+
+async function insertRawLeads(leads: RawLeadInsert[]): Promise<InsertedLead[]> {
   if (leads.length === 0) return [];
 
   const inserted = await db
@@ -394,6 +404,7 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
       leads.map((l) => ({
         tenantId:     l.tenantId,
         source:       l.source,
+        sourceType:   l.sourceType,
         sourceId:     l.sourceId,
         businessName: l.businessName,
         domain:       l.domain,
@@ -402,6 +413,8 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
         address:      l.address,
         niche:        l.niche,
         consentState: "unknown" as const,  // NEVER anything else on ingestion
+        researchSkipped: false,
+        researchSkipReason: null,
         deduped:      true,                // marked deduped after our check
       }))
     )
@@ -409,8 +422,11 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
       id: prospectsRaw.id,
       tenantId: prospectsRaw.tenantId,
       businessName: prospectsRaw.businessName,
+      domain: prospectsRaw.domain,
       phone: prospectsRaw.phone,
+      email: prospectsRaw.email,
       source: prospectsRaw.source,
+      sourceType: prospectsRaw.sourceType,
       createdAt: prospectsRaw.createdAt,
     });
 
@@ -430,7 +446,51 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
     ),
   );
 
-  return inserted.map((r) => r.id);
+  return inserted.map((r) => ({
+    id: r.id,
+    domain: r.domain,
+    phone: r.phone,
+    email: r.email,
+    source: r.source,
+    sourceType: r.sourceType,
+  }));
+}
+
+type TenantMeta = {
+  outreach_enabled?: boolean;
+};
+
+const ALLOWED_OUTREACH_SOURCES = new Set(["apollo", "google", "places", "places_api"]);
+
+async function isDNC(tenantId: string, phone: string | null, email: string | null, domain: string | null): Promise<boolean> {
+  const checks = [];
+  if (phone) checks.push(eq(doNotContact.phone, phone));
+  if (email) checks.push(eq(doNotContact.email, email));
+  if (domain) checks.push(eq(doNotContact.domain, domain));
+  if (checks.length === 0) return false;
+
+  const row = await db.query.doNotContact.findFirst({
+    where: and(eq(doNotContact.tenantId, tenantId), or(...checks)),
+  });
+
+  return Boolean(row);
+}
+
+async function getOutreachSkipReason(
+  prospect: InsertedLead,
+  tenantMeta: TenantMeta,
+  tenantId: string,
+): Promise<string | null> {
+  const dnc = await isDNC(tenantId, prospect.phone, prospect.email, prospect.domain);
+  if (dnc) return "dnc_listed";
+
+  if (tenantMeta.outreach_enabled === false) return "tenant_outreach_disabled";
+
+  if (!ALLOWED_OUTREACH_SOURCES.has(prospect.source)) return "source_not_public_dataset";
+
+  if (prospect.sourceType === "individual") return "source_type_individual";
+
+  return null;
 }
 
 // ─── Main agent function ──────────────────────────────────────────────────────
@@ -541,6 +601,7 @@ export async function runLeadDiscovery(
       tenantId,
       source:       c.source,
       sourceId:     c.sourceId,
+      sourceType:   "business",
       businessName: c.businessName,
       domain:       domainKey,
       phone:        c.phone,
@@ -551,17 +612,56 @@ export async function runLeadDiscovery(
   }
 
   // 6. Persist new raw leads
-  const insertedIds = await insertRawLeads(newLeads);
+  const insertedLeads = await insertRawLeads(newLeads);
 
-  // 7. Enqueue Research jobs for each new lead
-  const researchJobs = insertedIds.map((prospectId, i) => ({
-    name: "research",
-    data: {
-      tenantId,
-      prospectId,
-      domain: newLeads[i]!.domain ?? "",
-    },
-  }));
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(tenants.id, tenantId),
+    columns: { metadata: true },
+  });
+  const tenantMeta = (tenant?.metadata as TenantMeta | null) ?? {};
+
+  // 7. Consent pre-check gate before research enqueue
+  const researchJobs = [] as Array<{ name: "research"; data: { tenantId: string; prospectId: string; domain: string } }>;
+  const skippedUpdates = [] as Array<{ prospectId: string; reason: string }>;
+
+  for (const prospect of insertedLeads) {
+    const skipReason = await getOutreachSkipReason(prospect, tenantMeta, tenantId);
+    if (skipReason) {
+      skippedUpdates.push({ prospectId: prospect.id, reason: skipReason });
+      continue;
+    }
+
+    researchJobs.push({
+      name: "research",
+      data: {
+        tenantId,
+        prospectId: prospect.id,
+        domain: prospect.domain ?? "",
+      },
+    });
+  }
+
+  if (skippedUpdates.length > 0) {
+    await Promise.allSettled(
+      skippedUpdates.map(async (skip) => {
+        await db
+          .update(prospectsRaw)
+          .set({ researchSkipped: true, researchSkipReason: skip.reason })
+          .where(and(eq(prospectsRaw.tenantId, tenantId), eq(prospectsRaw.id, skip.prospectId)));
+
+        await db.insert(auditLogs).values({
+          tenantId,
+          action: "lead_discovery.research_skipped",
+          resourceType: "prospect",
+          resourceId: skip.prospectId,
+          after: {
+            reason: skip.reason,
+            source: insertedLeads.find((lead) => lead.id === skip.prospectId)?.source ?? null,
+          },
+        });
+      }),
+    );
+  }
 
   if (researchJobs.length > 0) {
     await researchQueue.addBulk(researchJobs);
@@ -574,7 +674,7 @@ export async function runLeadDiscovery(
   return {
     ok: true,
     data: {
-      leadsQueued:       insertedIds.length,
+      leadsQueued:       researchJobs.length,
       duplicatesSkipped,
       sourceBreakdown:   { google: googleCount, places: placesCount },
     },

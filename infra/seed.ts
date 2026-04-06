@@ -41,6 +41,7 @@ const INTERNAL_TENANT = {
     tenant_type:  "internal",
     owner:        "bhavneet@zentryxllc.com",
     product:      "qyro_lead",
+    outreach_enabled: true,
     phase:        1,
     note:         "Bhavneet's internal QYRO Lead tenant. Single-tenant Phase 1.",
   },

@@ -40,6 +40,12 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
     const limit  = Math.min(parseInt((req.query.limit  as string) || "50",  10), MAX_PAGE_SIZE);
     const offset = parseInt((req.query.offset as string) || "0", 10);
     const sort = ((req.query.sort as string) || "urgency").trim().toLowerCase();
+    const filter = ((req.query.filter as string) || "all").trim().toLowerCase();
+
+    const whereConditions = [eq(prospectsRaw.tenantId, tenantId)];
+    if (filter === "skipped") {
+      whereConditions.push(eq(prospectsRaw.researchSkipped, true));
+    }
 
     const rowsQuery = db
       .select({
@@ -50,7 +56,10 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
         phone:        prospectsRaw.phone,
         email:        prospectsRaw.email,
         source:       prospectsRaw.source,
+        sourceType:   prospectsRaw.sourceType,
         consentState: prospectsRaw.consentState,
+        researchSkipped: prospectsRaw.researchSkipped,
+        researchSkipReason: prospectsRaw.researchSkipReason,
         deduped:      prospectsRaw.deduped,
         createdAt:    prospectsRaw.createdAt,
         researchedAt: prospectsEnriched.researchedAt,
@@ -59,7 +68,7 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
       })
       .from(prospectsRaw)
       .leftJoin(prospectsEnriched, eq(prospectsRaw.id, prospectsEnriched.prospectId))
-      .where(eq(prospectsRaw.tenantId, tenantId));
+      .where(and(...whereConditions));
 
     const rows = sort === "recent"
       ? await rowsQuery
@@ -73,7 +82,7 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
 
     logAudit({ req, tenantId, userId: req.userId, action: "leads.list", resourceType: "prospect", responseRecordCount: rows.length });
 
-    res.json({ data: rows, limit, offset });
+    res.json({ data: rows, limit, offset, filter });
   } catch (err) {
     next(err);
   }
@@ -289,6 +298,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       .values({
         tenantId,
         source:       "inbound_form",
+        sourceType:   "individual",
         businessName: businessName.trim(),
         domain:       domain?.trim()   || null,
         phone:        phone?.trim()    || null,

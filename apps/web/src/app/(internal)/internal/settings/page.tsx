@@ -10,6 +10,7 @@ type EnrichmentProvider = "mock" | "apollo" | "hunter";
 
 type TenantSettingsResponse = {
   enrichmentProvider?: EnrichmentProvider;
+  outreachEnabled?: boolean;
   apolloApiKeyMasked?: string;
   hunterApiKeyMasked?: string;
   hasApolloApiKey?: boolean;
@@ -20,6 +21,7 @@ type TenantSettingsResponse = {
 
 type SettingsForm = {
   enrichmentProvider: EnrichmentProvider;
+  outreachEnabled: boolean;
   apolloApiKey: string;
   hunterApiKey: string;
   apolloApiKeyMasked: string;
@@ -35,6 +37,7 @@ export default function InternalSettingsPage() {
 
   const [form, setForm] = useState<SettingsForm>({
     enrichmentProvider: "mock",
+    outreachEnabled: true,
     apolloApiKey: "",
     hunterApiKey: "",
     apolloApiKeyMasked: "",
@@ -64,6 +67,7 @@ export default function InternalSettingsPage() {
           const data = (await res.json()) as TenantSettingsResponse;
           setForm({
             enrichmentProvider: (data.enrichmentProvider ?? "mock") as EnrichmentProvider,
+            outreachEnabled: data.outreachEnabled !== false,
             apolloApiKey: "",
             hunterApiKey: "",
             apolloApiKeyMasked: data.apolloApiKeyMasked ?? "",
@@ -93,6 +97,7 @@ export default function InternalSettingsPage() {
       const token = await getToken();
       const payload: Record<string, unknown> = {
         enrichmentProvider: form.enrichmentProvider,
+        outreachEnabled: form.outreachEnabled,
         enrichmentMonthlyLimit: form.enrichmentMonthlyLimit,
       };
 
@@ -123,6 +128,7 @@ export default function InternalSettingsPage() {
           ...prev,
           apolloApiKey: "",
           hunterApiKey: "",
+            outreachEnabled: data.outreachEnabled !== false,
           apolloApiKeyMasked: data.apolloApiKeyMasked ?? "",
           hunterApiKeyMasked: data.hunterApiKeyMasked ?? "",
           hasApolloApiKey: Boolean(data.hasApolloApiKey),
@@ -170,6 +176,22 @@ export default function InternalSettingsPage() {
               </select>
               <p className="text-xs text-stone-400">
                 Switch providers without backend changes.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-stone-700">Outreach enabled</label>
+              <label className="inline-flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={form.outreachEnabled}
+                  onChange={(e) => setForm({ ...form, outreachEnabled: e.target.checked })}
+                  className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+                />
+                Enable research and outreach job queueing for new discovered prospects
+              </label>
+              <p className="text-xs text-stone-400">
+                If disabled, newly discovered prospects are stored but marked as skipped before research.
               </p>
             </div>
 
