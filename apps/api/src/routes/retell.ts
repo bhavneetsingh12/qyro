@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response, type Router as 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, callAttempts, doNotContact, prospectsRaw, tenants, webhookEvents } from "@qyro/db";
-import { outboundCallQueue, publishRealtimeEvent } from "@qyro/queue";
+import { outboundCallQueue, webhookQueue } from "@qyro/queue";
 
 const router: ExpressRouter = Router();
 
@@ -190,91 +190,15 @@ async function finishRetellWebhookEvent(rowId: string, error?: string) {
 router.post("/call-events", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const payload = getNestedObject(req.body);
-    const callAttemptId = resolveCallAttemptId(payload);
-    if (!callAttemptId) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "callAttemptId is required" });
-      return;
-    }
-
-    const attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) });
-    if (!attempt) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Call attempt not found" });
-      return;
-    }
-
-    const event = await beginRetellWebhookEvent({
-      req,
-      payload,
-      kind: "call-events",
-      tenantId: attempt.tenantId,
-    });
-    if (event.duplicate) {
-      res.json({ ok: true, duplicate: true });
-      return;
-    }
-
-    const statusRaw = getString(payload, ["status", "event", "call_status"]);
-    const status = mapRetellStatus(statusRaw || attempt.status || "failed");
-    const durationRaw = getString(payload, ["duration", "duration_seconds", "call_duration"]);
-    const parsedDuration = Number.parseInt(durationRaw, 10);
-    const duration = Number.isFinite(parsedDuration) ? parsedDuration : undefined;
-    const retellCallId = resolveRetellCallId(payload);
-    const recordingUrl = getString(payload, ["recording_url", "recordingUrl", "recording"])
-      || getString(getNestedObject(payload.call), ["recording_url", "recordingUrl", "recording"])
-      || undefined;
-    const transcriptUrl = getString(payload, ["transcript_url", "transcriptUrl"])
-      || getString(getNestedObject(payload.call), ["transcript_url", "transcriptUrl"])
-      || undefined;
-
-    const retryable = ["no_answer", "busy", "failed"].includes(status);
-    const attemptsUsed = attempt.attemptCount ?? 0;
-    const maxAttempts = attempt.maxAttempts ?? 4;
-    const shouldRetry = attempt.direction === "outbound" && retryable && attemptsUsed < maxAttempts;
-    const retryAt = shouldRetry ? getNextRetryDate(attemptsUsed) : null;
-
-    await db
-      .update(callAttempts)
-      .set({
-        status: shouldRetry ? "retry_scheduled" : status,
-        outcome: status,
-        duration,
-        ...(duration !== undefined ? { durationSeconds: duration } : {}),
-        callSid: retellCallId || attempt.callSid,
-        ...(recordingUrl ? { recordingUrl } : {}),
-        ...(transcriptUrl ? { transcriptUrl } : {}),
-        nextAttemptAt: retryAt,
-      })
-      .where(eq(callAttempts.id, attempt.id));
-
-    const realtimeStatus = shouldRetry ? "retry_scheduled" : status;
-    void publishRealtimeEvent({
-      type: "call_status_change",
-      tenantId: attempt.tenantId,
-      payload: {
-        callAttemptId: attempt.id,
-        status: toRealtimeCallStatus(realtimeStatus),
-        rawStatus: realtimeStatus,
-        retellCallId,
+    await webhookQueue.add("webhook", {
+      kind: "retell_call_events",
+      body: payload,
+      headers: {
+        "x-retell-request-id": String(req.headers["x-retell-request-id"] ?? ""),
       },
-    }).catch((err) => {
-      console.error("[retell/call-events] realtime publish failed:", err);
     });
 
-    if (shouldRetry && retryAt) {
-      const delayMs = Math.max(0, retryAt.getTime() - Date.now());
-      await outboundCallQueue.add(
-        "outbound-call",
-        { tenantId: attempt.tenantId, callAttemptId: attempt.id },
-        {
-          delay: delayMs,
-          jobId: `outbound-call:${attempt.id}:${attemptsUsed + 1}`,
-        },
-      );
-    }
-
-    await finishRetellWebhookEvent(event.rowId);
-
-    res.json({ ok: true });
+    res.status(200).end();
   } catch (err) {
     next(err);
   }
@@ -283,85 +207,15 @@ router.post("/call-events", async (req: Request, res: Response, next: NextFuncti
 router.post("/transcript-events", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const payload = getNestedObject(req.body);
-    const sessionId = resolveSessionId(payload);
-    const callAttemptId = resolveCallAttemptId(payload);
-
-    const session = sessionId
-      ? await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) })
-      : null;
-
-    let attempt = callAttemptId
-      ? await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) })
-      : null;
-
-    if (!attempt) {
-      const callId = resolveRetellCallId(payload);
-      if (callId) {
-        attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.callSid, callId) });
-      }
-    }
-
-    if (!session && !attempt) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "sessionId or callAttemptId is required" });
-      return;
-    }
-
-    const event = await beginRetellWebhookEvent({
-      req,
-      payload,
-      kind: "transcript-events",
-      tenantId: session?.tenantId ?? attempt?.tenantId,
+    await webhookQueue.add("webhook", {
+      kind: "retell_transcript_events",
+      body: payload,
+      headers: {
+        "x-retell-request-id": String(req.headers["x-retell-request-id"] ?? ""),
+      },
     });
-    if (event.duplicate) {
-      res.json({ ok: true, duplicate: true });
-      return;
-    }
 
-    const turns = parseTranscriptTurns(payload);
-    if (turns.length === 0) {
-      res.json({ ok: true, skipped: "empty_transcript" });
-      return;
-    }
-
-    const transcriptText = transcriptTextFromTurns(turns);
-
-    if (session) {
-      const currentHistory = Array.isArray(session.conversationHistory)
-        ? (session.conversationHistory as Array<{ role: "user" | "assistant"; content: string }>).filter((m) => m && typeof m.content === "string")
-        : [];
-
-      const updatedHistory = [...currentHistory, ...turns.map((turn) => ({ role: turn.role, content: turn.content }))];
-
-      await db
-        .update(assistantSessions)
-        .set({
-          conversationHistory: updatedHistory,
-          turnCount: updatedHistory.length,
-        })
-        .where(eq(assistantSessions.id, session.id));
-    }
-
-    if (attempt) {
-      const mergedTurns = Array.isArray(attempt.transcriptJson)
-        ? ([...attempt.transcriptJson, ...turns] as unknown[])
-        : (turns as unknown[]);
-
-      const mergedText = [String(attempt.transcriptText ?? "").trim(), transcriptText]
-        .filter(Boolean)
-        .join("\n");
-
-      await db
-        .update(callAttempts)
-        .set({
-          transcriptText: mergedText,
-          transcriptJson: mergedTurns,
-        })
-        .where(eq(callAttempts.id, attempt.id));
-    }
-
-    await finishRetellWebhookEvent(event.rowId);
-
-    res.json({ ok: true });
+    res.status(200).end();
   } catch (err) {
     next(err);
   }

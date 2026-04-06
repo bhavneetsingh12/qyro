@@ -4,7 +4,7 @@ import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, t
 import { and, desc, eq, or } from "drizzle-orm";
 import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
-import { outboundCallQueue, publishRealtimeEvent } from "@qyro/queue";
+import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { triggerEscalationNotifications } from "../lib/escalation";
 
@@ -26,6 +26,10 @@ function twimlGatherAndSay(text: string): string {
 
 function twimlGatherAndSayWithAction(actionUrl: string, text: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${actionUrl}" method="POST" speechTimeout="auto"><Say>${text}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
+}
+
+function twimlEmpty(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
 }
 
 function normalizePhone(value?: string): string {
@@ -159,6 +163,19 @@ async function findProspectByPhone(tenantId: string, fromPhone: string) {
 }
 
 router.post("/incoming", async (req: Request, res: Response, next: NextFunction) => {
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    if (!res.headersSent) {
+      res.type("text/xml").send(twimlSay("Please hold while we connect you"));
+    }
+  }, 4000);
+
+  const sendTwiml = (xml: string) => {
+    if (timedOut || res.headersSent) return;
+    res.type("text/xml").send(xml);
+  };
+
   try {
     const toPhone = String(req.body.To ?? "");
     const fromPhone = String(req.body.From ?? "");
@@ -166,7 +183,7 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
 
     const tenant = await findTenantByVoiceNumber(toPhone);
     if (!tenant) {
-      res.type("text/xml").send(twimlSay("We could not route your call. Please try again later."));
+      sendTwiml(twimlSay("We could not route your call. Please try again later."));
       return;
     }
 
@@ -176,7 +193,7 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     });
     const tenantAccess = resolveTenantBaseAccess(meta, subscription);
     if (!tenantAccess.assist) {
-      res.type("text/xml").send(twimlSay("Voice assistant access is not enabled for this account."));
+      sendTwiml(twimlSay("Voice assistant access is not enabled for this account."));
       return;
     }
 
@@ -207,7 +224,7 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
           tenantId: tenant.id,
           sessionType: "voice_inbound",
         });
-        res.type("text/xml").send(twimlRetellRedirect(agentId));
+        sendTwiml(twimlRetellRedirect(agentId));
         return;
       }
       console.warn(`[voice/incoming] voice_runtime=retell but no agent ID configured for tenant ${tenant.id} — falling back to Twilio`);
@@ -240,9 +257,11 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
 
     const say = reply;
     const action = `/api/v1/voice/turn?sessionId=${encodeURIComponent(session.id)}`;
-    res.type("text/xml").send(twimlGatherAndSayWithAction(action, say));
+    sendTwiml(twimlGatherAndSayWithAction(action, say));
   } catch (err) {
     next(err);
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
@@ -289,6 +308,19 @@ router.post("/outbound/twiml", async (req: Request, res: Response, next: NextFun
 });
 
 router.post("/turn", async (req: Request, res: Response, next: NextFunction) => {
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    if (!res.headersSent) {
+      res.type("text/xml").send(twimlSay("Please hold while we connect you"));
+    }
+  }, 4000);
+
+  const sendTwiml = (xml: string) => {
+    if (timedOut || res.headersSent) return;
+    res.type("text/xml").send(xml);
+  };
+
   try {
     const callSid = String(req.body.CallSid ?? "");
     const speech = String(req.body.SpeechResult ?? req.body.Body ?? "").trim();
@@ -296,7 +328,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
     const callAttemptId = String(req.query.callAttemptId ?? req.body.callAttemptId ?? "").trim();
 
     if (!speech) {
-      res.type("text/xml").send(twimlGatherAndSay("I did not catch that. Could you repeat your request?"));
+      sendTwiml(twimlGatherAndSay("I did not catch that. Could you repeat your request?"));
       return;
     }
 
@@ -348,7 +380,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
         }
       }
 
-      res.type("text/xml").send(twimlSay("Understood. We will not call you again. Goodbye."));
+      sendTwiml(twimlSay("Understood. We will not call you again. Goodbye."));
       return;
     }
 
@@ -357,7 +389,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
       : null;
 
     if (!session) {
-      res.type("text/xml").send(twimlSay("Your session was not found. Please call again so we can help."));
+      sendTwiml(twimlSay("Your session was not found. Please call again so we can help."));
       return;
     }
 
@@ -393,7 +425,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
       const transferReply = transfer.ok
         ? transfer.data.reply
         : "I am connecting you with a team member now.";
-      res.type("text/xml").send(twimlSay(transferReply));
+      sendTwiml(twimlSay(transferReply));
       return;
     }
 
@@ -436,9 +468,9 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
         .where(eq(assistantSessions.id, session.id));
 
       if (escalationPhone) {
-        res.type("text/xml").send(twimlDial(escalationPhone, reply));
+        sendTwiml(twimlDial(escalationPhone, reply));
       } else {
-        res.type("text/xml").send(twimlSay(reply));
+        sendTwiml(twimlSay(reply));
       }
       return;
     }
@@ -454,33 +486,17 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
       .set({ conversationHistory: updatedHistory })
       .where(eq(assistantSessions.id, session.id));
 
-    res.type("text/xml").send(twimlGatherAndSay(reply));
+    sendTwiml(twimlGatherAndSay(reply));
   } catch (err) {
     next(err);
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
 router.post("/status", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const callSid = String(req.body.CallSid ?? "");
-    const callStatus = String(req.body.CallStatus ?? "");
-    const durationRaw = String(req.body.CallDuration ?? "0");
-    const duration = Number.parseInt(durationRaw, 10) || 0;
-    const recordingUrl = firstNonEmpty(
-      req.body.RecordingUrl,
-      req.body.RecordingURL,
-      req.body.RecordingUrl0,
-    );
-    const transcriptUrl = firstNonEmpty(
-      req.body.TranscriptionUrl,
-      req.body.TranscriptUrl,
-      req.body.TranscriptionURL,
-    );
-    const directTranscript = firstNonEmpty(
-      req.body.TranscriptionText,
-      req.body.TranscriptText,
-      req.body.RecordingTranscript,
-    );
+    const callSid = String(req.body.CallSid ?? "").trim();
     const queryCallAttemptId = String(req.query.callAttemptId ?? "").trim();
 
     if (!callSid && !queryCallAttemptId) {
@@ -488,77 +504,16 @@ router.post("/status", async (req: Request, res: Response, next: NextFunction) =
       return;
     }
 
-    if (process.env.NODE_ENV === "production" && !callSid) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "CallSid is required in production" });
-      return;
-    }
-
-    const attempt = await db.query.callAttempts.findFirst({
-      where: callSid && queryCallAttemptId
-        ? and(eq(callAttempts.callSid, callSid), eq(callAttempts.id, queryCallAttemptId))
-        : callSid
-          ? eq(callAttempts.callSid, callSid)
-          : eq(callAttempts.id, queryCallAttemptId),
+    await webhookQueue.add("webhook", {
+      kind: "voice_status",
+      body: req.body as Record<string, unknown>,
+      query: req.query as Record<string, unknown>,
+      headers: {
+        "x-signalwire-signature": String(req.headers["x-signalwire-signature"] ?? ""),
+      },
     });
 
-    if (attempt) {
-      const pipelineStatus = mapTwilioStatusToPipeline(callStatus);
-      const retryable = ["no_answer", "busy", "failed"].includes(pipelineStatus);
-      const attemptsUsed = attempt.attemptCount ?? 0;
-      const maxAttempts = attempt.maxAttempts ?? 4;
-      const shouldRetry = attempt.direction === "outbound" && retryable && attemptsUsed < maxAttempts;
-      const retryAt = shouldRetry ? getNextRetryDate(attemptsUsed) : null;
-
-      const fetchedTranscript = !directTranscript && transcriptUrl
-        ? await fetchSignalWireTranscriptText(transcriptUrl)
-        : null;
-      const transcriptText = directTranscript ?? fetchedTranscript;
-      const transcriptJson = transcriptText
-        ? [{ role: "assistant", content: transcriptText, source: "signalwire" }]
-        : [];
-
-      await db
-        .update(callAttempts)
-        .set({
-          duration,
-          durationSeconds: duration,
-          ...(recordingUrl ? { recordingUrl } : {}),
-          ...(transcriptUrl ? { transcriptUrl } : {}),
-          ...(transcriptText ? { transcriptText, transcriptJson } : {}),
-          outcome: pipelineStatus || callStatus || attempt.outcome,
-          status: shouldRetry ? "retry_scheduled" : (pipelineStatus || attempt.status),
-          nextAttemptAt: retryAt,
-        })
-        .where(eq(callAttempts.id, attempt.id));
-
-      const realtimeStatus = shouldRetry ? "retry_scheduled" : (pipelineStatus || attempt.status);
-      void publishRealtimeEvent({
-        type: "call_status_change",
-        tenantId: attempt.tenantId,
-        payload: {
-          callAttemptId: attempt.id,
-          status: toRealtimeCallStatus(realtimeStatus),
-          rawStatus: realtimeStatus,
-          callSid,
-        },
-      }).catch((err) => {
-        console.error("[voice/status] realtime publish failed:", err);
-      });
-
-      if (shouldRetry && retryAt) {
-        const delayMs = Math.max(0, retryAt.getTime() - Date.now());
-        await outboundCallQueue.add(
-          "outbound-call",
-          { tenantId: attempt.tenantId, callAttemptId: attempt.id },
-          {
-            delay: delayMs,
-            jobId: `outbound-call:${attempt.id}:${attemptsUsed + 1}`,
-          },
-        );
-      }
-    }
-
-    res.json({ ok: true });
+    res.type("text/xml").send(twimlEmpty());
   } catch (err) {
     next(err);
   }

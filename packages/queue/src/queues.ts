@@ -19,6 +19,7 @@ export const QUEUE_NAMES = {
   OUTREACH:   "outreach",
   REPLY:      "reply",
   OUTBOUND_CALL: "outbound_call",
+  WEBHOOK: "webhook",
 } as const;
 
 // ─── Job payload types ────────────────────────────────────────────────────────
@@ -45,6 +46,14 @@ export type ReplyJobData = {
 export type OutboundCallJobData = {
   tenantId: string;
   callAttemptId: string;
+};
+
+export type WebhookJobData = {
+  kind: "voice_status" | "retell_call_events" | "retell_transcript_events";
+  body: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  tenantId?: string;
 };
 
 // ─── Queue instances ──────────────────────────────────────────────────────────
@@ -86,5 +95,15 @@ export const outboundCallQueue = new Queue<OutboundCallJobData>(QUEUE_NAMES.OUTB
     attempts: 1,
     removeOnComplete: { count: 200 },
     removeOnFail: { count: 500 },
+  },
+});
+
+export const webhookQueue = new Queue<WebhookJobData>(QUEUE_NAMES.WEBHOOK, {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 4,
+    backoff: { type: "exponential", delay: 1_000 },
+    removeOnComplete: { count: 300 },
+    removeOnFail: { count: 1000 },
   },
 });

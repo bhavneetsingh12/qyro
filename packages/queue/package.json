@@ -8,7 +8,8 @@
     "build": "tsc",
     "worker:research": "tsx src/workers/researchWorker.ts",
     "worker:outreach": "tsx src/workers/outreachWorker.ts",
-    "worker:outbound-call": "tsx src/workers/outboundCallWorker.ts"
+    "worker:outbound-call": "tsx src/workers/outboundCallWorker.ts",
+    "worker:webhook": "tsx src/workers/webhookWorker.ts"
   },
   "exports": {
     ".": {

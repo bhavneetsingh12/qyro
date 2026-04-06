@@ -101,8 +101,18 @@ pnpm dev
 # 7. Start workers (separate terminals, or use PM2)
 pnpm --filter @qyro/queue worker:research
 pnpm --filter @qyro/queue worker:outreach
+pnpm --filter @qyro/queue worker:webhook
 # or: pm2 start infra/pm2/ecosystem.config.cjs
 ```
+
+### Railway worker start commands
+
+Create separate Railway services for each worker process with these start commands:
+
+- `pnpm --filter @qyro/queue worker:research`
+- `pnpm --filter @qyro/queue worker:outreach`
+- `pnpm --filter @qyro/queue worker:outbound-call`
+- `pnpm --filter @qyro/queue worker:webhook`
 
 ---
 

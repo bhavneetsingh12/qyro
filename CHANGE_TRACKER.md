@@ -42,7 +42,7 @@ Purpose: running log of all changes made in this workspace session series so fol
   - get_errors on touched API/DB/web files: no errors
   - pnpm -s -r typecheck: pass (no output)
 
-### Pending hash - feat: prospect urgency score drives outreach queue priority and leads UI
+### 61037ab - feat: prospect urgency score drives outreach queue priority and leads UI
 - Request summary:
   - Use urgency score to prioritize outreach jobs in BullMQ.
   - Show urgency badges in leads UI and default sort by urgency.
@@ -57,6 +57,29 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Set outreach queue default priority to medium (2), while allowing per-job override.
   - Leads list now defaults to urgency sort and includes sort selector (urgency/recent).
   - Urgency badges now render as Urgent (red), Medium (amber), Low (gray).
+- Validation run:
+  - get_errors on touched files: no errors
+  - pnpm -s -r typecheck: pass (no output)
+
+### Pending hash - feat: async webhook processing via BullMQ, idempotency on Retell handlers
+- Request summary:
+  - Prevent provider timeout by moving status/event webhook processing off request thread.
+  - Keep synchronous TwiML for live call endpoints with a 4 second fallback guard.
+- Files changed:
+  - apps/api/src/routes/voice.ts
+  - apps/api/src/routes/retell.ts
+  - packages/queue/src/queues.ts
+  - packages/queue/src/workers/webhookWorker.ts
+  - packages/queue/package.json
+  - infra/pm2/ecosystem.config.cjs
+  - docs/ENVIRONMENTS.md
+- Key behavior changes:
+  - Added `webhook` BullMQ queue and `worker:webhook` worker script.
+  - `POST /api/v1/voice/status`, `POST /api/v1/retell/call-events`, and `POST /api/v1/retell/transcript-events` now enqueue payloads and return immediate 200 acknowledgements.
+  - `POST /api/v1/voice/incoming` and `POST /api/v1/voice/turn` stay synchronous but now return fallback TwiML (`Please hold while we connect you`) if processing exceeds 4 seconds.
+  - Added webhook worker (concurrency 5) with BullMQ retries and audit log failure writes.
+  - Added Redis idempotency cache for Retell processing using call_id + event_type style keys with 24h TTL.
+  - Added webhook worker start command documentation for Railway and PM2 entry for local process management.
 - Validation run:
   - get_errors on touched files: no errors
   - pnpm -s -r typecheck: pass (no output)

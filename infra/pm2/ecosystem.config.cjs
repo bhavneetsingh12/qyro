@@ -60,5 +60,19 @@ module.exports = {
         NODE_ENV: "development",
       },
     },
+    {
+      name: "qyro-webhook-worker",
+      cwd: repoRoot,
+      script: "pnpm",
+      args: "--filter @qyro/queue worker:webhook",
+      interpreter: "none",
+      autorestart: true,
+      restart_delay: 5000,
+      max_restarts: 20,
+      time: true,
+      env: {
+        NODE_ENV: "development",
+      },
+    },
   ],
 };
