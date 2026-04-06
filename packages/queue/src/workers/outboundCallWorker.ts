@@ -2,6 +2,7 @@ import { Worker, type Job } from "bullmq";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db, callAttempts, prospectsRaw, tenants, doNotContact } from "@qyro/db";
 import { redis, QUEUE_NAMES, outboundCallQueue, type OutboundCallJobData } from "../queues";
+import { publishRealtimeEvent } from "../realtime";
 
 const RETRY_MINUTES = [15, 120, 1440, 4320];
 const CAPACITY_RETRY_MS = 60 * 1000;
@@ -45,6 +46,28 @@ function getMaxConcurrentCalls(meta: Record<string, unknown>): number {
   const raw = Number(meta.outbound_voice_max_concurrent_calls ?? 3);
   if (!Number.isFinite(raw)) return 3;
   return Math.max(1, Math.min(Math.trunc(raw), 25));
+}
+
+function toRealtimeCallStatus(status: string): "queued" | "dialing" | "connected" | "completed" | "failed" {
+  if (status === "answered") return "connected";
+  if (status === "dialing") return "dialing";
+  if (status === "completed") return "completed";
+  if (status === "queued" || status === "retry_scheduled") return "queued";
+  return "failed";
+}
+
+function emitCallStatusChange(tenantId: string, callAttemptId: string, status: string): void {
+  void publishRealtimeEvent({
+    type: "call_status_change",
+    tenantId,
+    payload: {
+      callAttemptId,
+      status: toRealtimeCallStatus(status),
+      rawStatus: status,
+    },
+  }).catch((err) => {
+    console.error("[outboundCallWorker] realtime publish failed:", err);
+  });
 }
 
 async function isDnd(tenantId: string, phone?: string | null, email?: string | null, domain?: string | null): Promise<boolean> {
@@ -188,6 +211,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         outcome: "prospect_not_found",
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
     return;
   }
 
@@ -201,6 +225,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         dndAt: new Date(),
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
     return;
   }
 
@@ -222,6 +247,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         complianceBlockedReason: "outbound_voice_disabled",
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
     return;
   }
 
@@ -236,6 +262,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "retry_scheduled");
 
     await outboundCallQueue.add(
       "outbound-call",
@@ -272,6 +299,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "retry_scheduled");
 
     await outboundCallQueue.add(
       "outbound-call",
@@ -295,6 +323,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         outcome: "missing_phone",
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
     return;
   }
 
@@ -310,6 +339,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
       nextAttemptAt: null,
     })
     .where(eq(callAttempts.id, attempt.id));
+  emitCallStatusChange(tenantId, attempt.id, "dialing");
 
   const isOnDndBeforeDial = await isDnd(tenantId, prospect.phone, prospect.email, prospect.domain);
   if (isOnDndBeforeDial) {
@@ -322,6 +352,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         nextAttemptAt: null,
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
     return;
   }
 
@@ -350,6 +381,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
           outcome: retell.status ?? "ringing",
         })
         .where(eq(callAttempts.id, attempt.id));
+      emitCallStatusChange(tenantId, attempt.id, "ringing");
     } else {
       const sw = await dialSignalWire({ to, from, callAttemptId: attempt.id });
 
@@ -361,6 +393,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
           outcome: sw.status ?? "ringing",
         })
         .where(eq(callAttempts.id, attempt.id));
+      emitCallStatusChange(tenantId, attempt.id, "ringing");
     }
   } catch (err) {
     const retryAt = nextAttemptCount < (attempt.maxAttempts ?? 4)
@@ -375,6 +408,7 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, retryAt ? "retry_scheduled" : "failed");
 
     if (retryAt) {
       const delayMs = Math.max(0, retryAt.getTime() - Date.now());

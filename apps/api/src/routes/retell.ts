@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response, type Router as 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, callAttempts, doNotContact, prospectsRaw, tenants, webhookEvents } from "@qyro/db";
-import { outboundCallQueue } from "@qyro/queue";
+import { outboundCallQueue, publishRealtimeEvent } from "@qyro/queue";
 
 const router: ExpressRouter = Router();
 
@@ -38,6 +38,14 @@ function mapRetellStatus(raw: string): CallLifecycle {
   if (status === "busy") return "busy";
   if (["canceled", "cancelled"].includes(status)) return "canceled";
   if (["failed", "error"].includes(status)) return "failed";
+  return "failed";
+}
+
+function toRealtimeCallStatus(status: string): "queued" | "dialing" | "connected" | "completed" | "failed" {
+  if (status === "answered") return "connected";
+  if (status === "dialing" || status === "ringing") return "dialing";
+  if (status === "completed") return "completed";
+  if (status === "queued" || status === "retry_scheduled") return "queued";
   return "failed";
 }
 
@@ -180,6 +188,20 @@ router.post("/call-events", async (req: Request, res: Response, next: NextFuncti
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));
+
+    const realtimeStatus = shouldRetry ? "retry_scheduled" : status;
+    void publishRealtimeEvent({
+      type: "call_status_change",
+      tenantId: attempt.tenantId,
+      payload: {
+        callAttemptId: attempt.id,
+        status: toRealtimeCallStatus(realtimeStatus),
+        rawStatus: realtimeStatus,
+        retellCallId,
+      },
+    }).catch((err) => {
+      console.error("[retell/call-events] realtime publish failed:", err);
+    });
 
     if (shouldRetry && retryAt) {
       const delayMs = Math.max(0, retryAt.getTime() - Date.now());
@@ -581,6 +603,18 @@ router.post("/tools/log-call-outcome", async (req: Request, res: Response, next:
         transcriptUrl: getString(body, ["transcriptUrl", "transcript_url"]) || attempt.transcriptUrl,
       })
       .where(eq(callAttempts.id, attempt.id));
+
+    void publishRealtimeEvent({
+      type: "call_status_change",
+      tenantId: attempt.tenantId,
+      payload: {
+        callAttemptId: attempt.id,
+        status: toRealtimeCallStatus(status),
+        rawStatus: status,
+      },
+    }).catch((err) => {
+      console.error("[retell/log-call-outcome] realtime publish failed:", err);
+    });
 
     res.json({ data: { ok: true } });
   } catch (err) {

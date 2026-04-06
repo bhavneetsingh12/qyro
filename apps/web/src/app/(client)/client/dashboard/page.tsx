@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { MessageSquare, CalendarCheck, PhoneMissed, Zap, AlertCircle } from "lucide-react";
+import LiveDashboardClient from "@/components/realtime/LiveDashboardClient";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -129,9 +130,12 @@ export default async function ClientDashboardPage() {
 
   return (
     <div className="p-8 max-w-5xl">
-      <div>
-        <h1 className="text-xl font-semibold text-stone-900">Dashboard</h1>
-        <p className="text-sm text-stone-400 mt-0.5">QYRO Assist — client overview</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-stone-900">Dashboard</h1>
+          <p className="text-sm text-stone-400 mt-0.5">QYRO Assist — client overview</p>
+        </div>
+        <LiveDashboardClient showToasts />
       </div>
 
       {fetchError && (

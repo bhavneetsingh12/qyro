@@ -4,7 +4,7 @@ import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, t
 import { and, desc, eq, or } from "drizzle-orm";
 import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
-import { outboundCallQueue } from "@qyro/queue";
+import { outboundCallQueue, publishRealtimeEvent } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { triggerEscalationNotifications } from "../lib/escalation";
 
@@ -66,6 +66,14 @@ function mapTwilioStatusToPipeline(status: string): string {
   if (normalized === "failed") return "failed";
   if (normalized === "canceled") return "canceled";
   return normalized || "unknown";
+}
+
+function toRealtimeCallStatus(status: string): "queued" | "dialing" | "connected" | "completed" | "failed" {
+  if (status === "answered") return "connected";
+  if (status === "dialing" || status === "ringing") return "dialing";
+  if (status === "completed") return "completed";
+  if (status === "queued" || status === "retry_scheduled") return "queued";
+  return "failed";
 }
 
 function getNextRetryDate(attemptCount: number): Date | null {
@@ -456,6 +464,20 @@ router.post("/status", async (req: Request, res: Response, next: NextFunction) =
           nextAttemptAt: retryAt,
         })
         .where(eq(callAttempts.id, attempt.id));
+
+      const realtimeStatus = shouldRetry ? "retry_scheduled" : (pipelineStatus || attempt.status);
+      void publishRealtimeEvent({
+        type: "call_status_change",
+        tenantId: attempt.tenantId,
+        payload: {
+          callAttemptId: attempt.id,
+          status: toRealtimeCallStatus(realtimeStatus),
+          rawStatus: realtimeStatus,
+          callSid,
+        },
+      }).catch((err) => {
+        console.error("[voice/status] realtime publish failed:", err);
+      });
 
       if (shouldRetry && retryAt) {
         const delayMs = Math.max(0, retryAt.getTime() - Date.now());

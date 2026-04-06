@@ -7,7 +7,7 @@
 
 import { db, adminDb, prospectsRaw } from "@qyro/db";
 import { eq, and, or, isNotNull } from "drizzle-orm";
-import { researchQueue } from "@qyro/queue";
+import { researchQueue, publishRealtimeEvent } from "@qyro/queue";
 import { runStructuredCompletion, type AgentResult } from "../runner";
 import { enrichEmail } from "./emailEnrichment";
 import { type AgentName } from "../budget";
@@ -405,7 +405,30 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<string[]> {
         deduped:      true,                // marked deduped after our check
       }))
     )
-    .returning({ id: prospectsRaw.id });
+    .returning({
+      id: prospectsRaw.id,
+      tenantId: prospectsRaw.tenantId,
+      businessName: prospectsRaw.businessName,
+      phone: prospectsRaw.phone,
+      source: prospectsRaw.source,
+      createdAt: prospectsRaw.createdAt,
+    });
+
+  await Promise.allSettled(
+    inserted.map((row) =>
+      publishRealtimeEvent({
+        type: "new_lead",
+        tenantId: row.tenantId,
+        payload: {
+          prospectId: row.id,
+          businessName: row.businessName,
+          phone: row.phone,
+          source: row.source,
+          createdAt: row.createdAt.toISOString(),
+        },
+      }),
+    ),
+  );
 
   return inserted.map((r) => r.id);
 }

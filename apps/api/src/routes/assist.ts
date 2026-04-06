@@ -15,7 +15,7 @@ import { db } from "@qyro/db";
 import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions } from "@qyro/db";
 import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
-import { outboundCallQueue, redis } from "@qyro/queue";
+import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
@@ -518,6 +518,18 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 
       callAttemptIds.push(attemptId);
 
+      void publishRealtimeEvent({
+        type: "call_status_change",
+        tenantId,
+        payload: {
+          callAttemptId: attemptId,
+          prospectId,
+          status: "queued",
+        },
+      }).catch((err) => {
+        console.error("[assist/outbound-calls/enqueue] realtime publish failed:", err);
+      });
+
       if (!legacyMode) {
         await outboundCallQueue.add(
           "outbound-call",
@@ -984,6 +996,20 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       })
       .returning({ id: messageAttempts.id });
 
+    void publishRealtimeEvent({
+      type: "new_pending_approval",
+      tenantId,
+      payload: {
+        messageId: msg.id,
+        channel,
+        prospectId: prospect.id,
+        customer: contact.name ?? prospect.businessName ?? "Website Visitor",
+        sessionId: result.data.sessionId,
+      },
+    }).catch((err) => {
+      console.error("[assist/chat] realtime publish failed:", err);
+    });
+
     res.json({
       data: {
         ...result.data,
@@ -1108,6 +1134,22 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       } else {
         console.warn("[missed-call] auto_send_missed_call is true but voice number or SignalWire env vars are missing — leaving pending_approval");
       }
+    }
+
+    if (finalStatus === "pending_approval") {
+      void publishRealtimeEvent({
+        type: "new_pending_approval",
+        tenantId,
+        payload: {
+          messageId: msg.id,
+          channel: "sms",
+          prospectId: prospect.id,
+          customer: name,
+          sessionId: session.id,
+        },
+      }).catch((err) => {
+        console.error("[assist/missed-call] realtime publish failed:", err);
+      });
     }
 
     res.json({

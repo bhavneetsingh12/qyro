@@ -13,6 +13,7 @@ import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 import voiceRouter from "./routes/voice";
 import retellRouter from "./routes/retell";
+import eventsRouter from "./routes/events";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
 import adminRouter from "./routes/admin";
 
@@ -116,6 +117,7 @@ app.use("/api/leads",     requireClerkAuth, tenantMiddleware, rateLimit("general
 app.use("/api/campaigns", requireClerkAuth, tenantMiddleware, rateLimit("general"), campaignsRouter);
 app.use("/api",           requireClerkAuth, tenantMiddleware, rateLimit("general"), assistRouter);
 app.use("/api/v1/tenants",requireClerkAuth, tenantMiddleware, rateLimit("general"), tenantsRouter);
+app.use("/api/v1/events", requireClerkAuth, tenantMiddleware, eventsRouter);
 app.use("/api",           requireClerkAuth, adminRouter);
 app.use("/api",           requireClerkAuth, tenantMiddleware, rateLimit("general"), billingRouter);
 

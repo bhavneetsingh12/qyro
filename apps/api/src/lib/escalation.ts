@@ -3,6 +3,7 @@
 
 import { db } from "@qyro/db";
 import { auditLogs } from "@qyro/db";
+import { publishRealtimeEvent } from "@qyro/queue";
 
 export interface EscalationParams {
   tenantId: string;
@@ -118,6 +119,16 @@ export function triggerEscalationNotifications(params: EscalationParams): void {
   Promise.allSettled([
     sendSmsAlert(params),
     sendEmailAlert(params),
+    publishRealtimeEvent({
+      type: "escalation",
+      tenantId: params.tenantId,
+      payload: {
+        sessionId: params.sessionId,
+        customer: params.prospectName || params.prospectPhone || "Unknown customer",
+        prospectPhone: params.prospectPhone,
+        reason: params.escalationReason ?? "escalation requested",
+      },
+    }),
     db.insert(auditLogs).values({
       tenantId: params.tenantId,
       action: "escalation.triggered",
