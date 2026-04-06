@@ -82,6 +82,45 @@ function getNextRetryDate(attemptCount: number): Date | null {
   return new Date(Date.now() + mins * 60 * 1000);
 }
 
+function firstNonEmpty(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text.length > 0) return text;
+  }
+  return null;
+}
+
+async function fetchSignalWireTranscriptText(url: string): Promise<string | null> {
+  const projectId = process.env.SIGNALWIRE_PROJECT_ID;
+  const apiToken = process.env.SIGNALWIRE_API_TOKEN;
+
+  try {
+    const authHeader = (projectId && apiToken)
+      ? { Authorization: `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}` }
+      : {};
+
+    const res = await fetch(url, {
+      headers: {
+        ...authHeader,
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const json = await res.json() as Record<string, unknown>;
+      const direct = firstNonEmpty(json.transcript, json.text, json.body);
+      return direct;
+    }
+
+    const text = (await res.text()).trim();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 async function findTenantByVoiceNumber(toPhone: string) {
   const target = normalizePhone(toPhone);
 
@@ -427,6 +466,21 @@ router.post("/status", async (req: Request, res: Response, next: NextFunction) =
     const callStatus = String(req.body.CallStatus ?? "");
     const durationRaw = String(req.body.CallDuration ?? "0");
     const duration = Number.parseInt(durationRaw, 10) || 0;
+    const recordingUrl = firstNonEmpty(
+      req.body.RecordingUrl,
+      req.body.RecordingURL,
+      req.body.RecordingUrl0,
+    );
+    const transcriptUrl = firstNonEmpty(
+      req.body.TranscriptionUrl,
+      req.body.TranscriptUrl,
+      req.body.TranscriptionURL,
+    );
+    const directTranscript = firstNonEmpty(
+      req.body.TranscriptionText,
+      req.body.TranscriptText,
+      req.body.RecordingTranscript,
+    );
     const queryCallAttemptId = String(req.query.callAttemptId ?? "").trim();
 
     if (!callSid && !queryCallAttemptId) {
@@ -455,10 +509,22 @@ router.post("/status", async (req: Request, res: Response, next: NextFunction) =
       const shouldRetry = attempt.direction === "outbound" && retryable && attemptsUsed < maxAttempts;
       const retryAt = shouldRetry ? getNextRetryDate(attemptsUsed) : null;
 
+      const fetchedTranscript = !directTranscript && transcriptUrl
+        ? await fetchSignalWireTranscriptText(transcriptUrl)
+        : null;
+      const transcriptText = directTranscript ?? fetchedTranscript;
+      const transcriptJson = transcriptText
+        ? [{ role: "assistant", content: transcriptText, source: "signalwire" }]
+        : [];
+
       await db
         .update(callAttempts)
         .set({
           duration,
+          durationSeconds: duration,
+          ...(recordingUrl ? { recordingUrl } : {}),
+          ...(transcriptUrl ? { transcriptUrl } : {}),
+          ...(transcriptText ? { transcriptText, transcriptJson } : {}),
           outcome: pipelineStatus || callStatus || attempt.outcome,
           status: shouldRetry ? "retry_scheduled" : (pipelineStatus || attempt.status),
           nextAttemptAt: retryAt,

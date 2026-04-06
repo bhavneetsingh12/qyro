@@ -362,14 +362,21 @@ router.get("/v1/assist/calls", rateLimit("heavy"), async (req: Request, res: Res
       .select({
         id:           callAttempts.id,
         prospectId:   callAttempts.prospectId,
+        prospectName: prospectsRaw.businessName,
         direction:    callAttempts.direction,
         status:       callAttempts.status,
         duration:     callAttempts.duration,
+        durationSeconds: callAttempts.durationSeconds,
         outcome:      callAttempts.outcome,
+        recordingUrl: callAttempts.recordingUrl,
+        transcriptText: callAttempts.transcriptText,
+        transcriptJson: callAttempts.transcriptJson,
+        transcriptUrl: callAttempts.transcriptUrl,
+        callSid:      callAttempts.callSid,
         createdAt:    callAttempts.createdAt,
-        // recordingUrl and transcriptUrl omitted from list — fetch via detail endpoint
       })
       .from(callAttempts)
+      .leftJoin(prospectsRaw, eq(callAttempts.prospectId, prospectsRaw.id))
       .where(whereClause as any)
       .orderBy(desc(callAttempts.createdAt))
       .limit(limit)

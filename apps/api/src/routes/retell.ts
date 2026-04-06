@@ -55,6 +55,54 @@ function getNextRetryDate(attemptCount: number): Date | null {
   return new Date(Date.now() + mins * 60 * 1000);
 }
 
+type TranscriptTurn = {
+  role: "user" | "assistant";
+  content: string;
+  ts?: string;
+};
+
+function parseTranscriptTurns(payload: RetellPayload): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [];
+
+  const candidateArrays = [
+    payload.transcript,
+    payload.utterances,
+    payload.messages,
+    getNestedObject(payload.call).transcript,
+    getNestedObject(payload.call).utterances,
+    getNestedObject(payload.conversation).turns,
+  ];
+
+  for (const candidate of candidateArrays) {
+    if (!Array.isArray(candidate)) continue;
+    for (const item of candidate) {
+      const row = getNestedObject(item);
+      const rawRole = getString(row, ["role", "speaker", "source"]).toLowerCase();
+      const role: "user" | "assistant" = (rawRole.includes("agent") || rawRole.includes("assistant"))
+        ? "assistant"
+        : "user";
+      const content = getString(row, ["text", "transcript", "content", "utterance"]);
+      if (!content) continue;
+      const ts = getString(row, ["timestamp", "time", "ts"]) || undefined;
+      turns.push({ role, content, ts });
+    }
+  }
+
+  if (turns.length > 0) return turns;
+
+  const fallbackText = getString(payload, ["transcript", "text", "utterance"]);
+  if (!fallbackText) return [];
+  const speakerRaw = getString(payload, ["speaker", "role", "source"]).toLowerCase();
+  const role: "user" | "assistant" = (speakerRaw.includes("agent") || speakerRaw.includes("assistant"))
+    ? "assistant"
+    : "user";
+  return [{ role, content: fallbackText }];
+}
+
+function transcriptTextFromTurns(turns: TranscriptTurn[]): string {
+  return turns.map((turn) => `${turn.role}: ${turn.content}`).join("\n");
+}
+
 function resolveCallAttemptId(payload: RetellPayload): string {
   const metadata = getNestedObject(payload.metadata);
   const call = getNestedObject(payload.call);
@@ -171,6 +219,12 @@ router.post("/call-events", async (req: Request, res: Response, next: NextFuncti
     const parsedDuration = Number.parseInt(durationRaw, 10);
     const duration = Number.isFinite(parsedDuration) ? parsedDuration : undefined;
     const retellCallId = resolveRetellCallId(payload);
+    const recordingUrl = getString(payload, ["recording_url", "recordingUrl", "recording"])
+      || getString(getNestedObject(payload.call), ["recording_url", "recordingUrl", "recording"])
+      || undefined;
+    const transcriptUrl = getString(payload, ["transcript_url", "transcriptUrl"])
+      || getString(getNestedObject(payload.call), ["transcript_url", "transcriptUrl"])
+      || undefined;
 
     const retryable = ["no_answer", "busy", "failed"].includes(status);
     const attemptsUsed = attempt.attemptCount ?? 0;
@@ -184,7 +238,10 @@ router.post("/call-events", async (req: Request, res: Response, next: NextFuncti
         status: shouldRetry ? "retry_scheduled" : status,
         outcome: status,
         duration,
+        ...(duration !== undefined ? { durationSeconds: duration } : {}),
         callSid: retellCallId || attempt.callSid,
+        ...(recordingUrl ? { recordingUrl } : {}),
+        ...(transcriptUrl ? { transcriptUrl } : {}),
         nextAttemptAt: retryAt,
       })
       .where(eq(callAttempts.id, attempt.id));
@@ -227,15 +284,25 @@ router.post("/transcript-events", async (req: Request, res: Response, next: Next
   try {
     const payload = getNestedObject(req.body);
     const sessionId = resolveSessionId(payload);
+    const callAttemptId = resolveCallAttemptId(payload);
 
-    if (!sessionId) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "sessionId is required" });
-      return;
+    const session = sessionId
+      ? await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) })
+      : null;
+
+    let attempt = callAttemptId
+      ? await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) })
+      : null;
+
+    if (!attempt) {
+      const callId = resolveRetellCallId(payload);
+      if (callId) {
+        attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.callSid, callId) });
+      }
     }
 
-    const session = await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) });
-    if (!session) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Session not found" });
+    if (!session && !attempt) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "sessionId or callAttemptId is required" });
       return;
     }
 
@@ -243,37 +310,54 @@ router.post("/transcript-events", async (req: Request, res: Response, next: Next
       req,
       payload,
       kind: "transcript-events",
-      tenantId: session.tenantId,
+      tenantId: session?.tenantId ?? attempt?.tenantId,
     });
     if (event.duplicate) {
       res.json({ ok: true, duplicate: true });
       return;
     }
 
-    const transcript = getString(payload, ["transcript", "text", "utterance"]);
-    const speakerRaw = getString(payload, ["speaker", "role", "source"]).toLowerCase();
-    const role = speakerRaw.includes("agent") || speakerRaw.includes("assistant")
-      ? "assistant"
-      : "user";
-
-    if (!transcript) {
+    const turns = parseTranscriptTurns(payload);
+    if (turns.length === 0) {
       res.json({ ok: true, skipped: "empty_transcript" });
       return;
     }
 
-    const currentHistory = Array.isArray(session.conversationHistory)
-      ? (session.conversationHistory as Array<{ role: "user" | "assistant"; content: string }>).filter((m) => m && typeof m.content === "string")
-      : [];
+    const transcriptText = transcriptTextFromTurns(turns);
 
-    const updatedHistory = [...currentHistory, { role, content: transcript }];
+    if (session) {
+      const currentHistory = Array.isArray(session.conversationHistory)
+        ? (session.conversationHistory as Array<{ role: "user" | "assistant"; content: string }>).filter((m) => m && typeof m.content === "string")
+        : [];
 
-    await db
-      .update(assistantSessions)
-      .set({
-        conversationHistory: updatedHistory,
-        turnCount: updatedHistory.length,
-      })
-      .where(eq(assistantSessions.id, session.id));
+      const updatedHistory = [...currentHistory, ...turns.map((turn) => ({ role: turn.role, content: turn.content }))];
+
+      await db
+        .update(assistantSessions)
+        .set({
+          conversationHistory: updatedHistory,
+          turnCount: updatedHistory.length,
+        })
+        .where(eq(assistantSessions.id, session.id));
+    }
+
+    if (attempt) {
+      const mergedTurns = Array.isArray(attempt.transcriptJson)
+        ? ([...attempt.transcriptJson, ...turns] as unknown[])
+        : (turns as unknown[]);
+
+      const mergedText = [String(attempt.transcriptText ?? "").trim(), transcriptText]
+        .filter(Boolean)
+        .join("\n");
+
+      await db
+        .update(callAttempts)
+        .set({
+          transcriptText: mergedText,
+          transcriptJson: mergedTurns,
+        })
+        .where(eq(callAttempts.id, attempt.id));
+    }
 
     await finishRetellWebhookEvent(event.rowId);
 

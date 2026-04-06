@@ -175,8 +175,11 @@ export const callAttempts = pgTable("call_attempts", {
   scheduledBy:    uuid("scheduled_by").references(() => users.id),
   callSid:        text("call_sid"),
   duration:       integer("duration"),               // seconds
+  durationSeconds: integer("duration_seconds"),      // normalized duration for recordings/transcripts
   outcome:        text("outcome"),
   recordingUrl:   text("recording_url"),             // object storage path
+  transcriptText: text("transcript_text"),
+  transcriptJson: jsonb("transcript_json").default([]),
   transcriptUrl:  text("transcript_url"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
