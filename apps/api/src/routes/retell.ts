@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response, type Router as 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, callAttempts, doNotContact, prospectsRaw, tenants, webhookEvents } from "@qyro/db";
-import { outboundCallQueue, webhookQueue } from "@qyro/queue";
+import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/queue";
 
 const router: ExpressRouter = Router();
 

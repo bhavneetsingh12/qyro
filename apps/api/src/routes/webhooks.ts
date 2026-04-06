@@ -50,7 +50,7 @@ function intentCounterKeys(tenantId: string, day: string) {
 }
 
 function ensureInternalSecret(req: Request, res: Response): boolean {
-	const expected = process.env.WEBHOOK_SECRET ?? process.env.INTERNAL_WEBHOOK_SECRET;
+	const expected = process.env.WEBHOOK_SECRET;
 	if (!expected) {
 		res.status(500).json({ error: "CONFIG_ERROR", message: "WEBHOOK_SECRET not configured" });
 		return false;

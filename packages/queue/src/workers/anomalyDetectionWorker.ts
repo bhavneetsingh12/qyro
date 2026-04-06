@@ -6,6 +6,7 @@
 //   high_export_volume   — >10 exports in the last 24 hours (via audit_logs)
 //   sequential_pagination — many paginated reads with incrementing offsets within 5 min
 
+import http from "http";
 import { Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -169,4 +170,28 @@ export async function scheduleAnomalyDetection(): Promise<void> {
     { name: "anomaly-detection", data: {} },
   );
   console.log("[anomalyDetection] scheduler registered (every 15 min)");
+}
+
+// ─── Entry point ─────────────────────────────────────────────────────────────
+
+if (require.main === module) {
+  console.log("[anomalyDetection] worker started");
+
+  scheduleAnomalyDetection().catch((err) => {
+    console.error("[anomalyDetection] scheduler registration failed:", err);
+  });
+
+  async function shutdown() {
+    await anomalyDetectionWorker.close();
+    process.exit(0);
+  }
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT",  shutdown);
+
+  http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: "ok", worker: "anomaly-detection" }));
+  }).listen(process.env.PORT || 3007, () => {
+    console.log("[anomalyDetection] health server on port", process.env.PORT || 3007);
+  });
 }

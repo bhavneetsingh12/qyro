@@ -2,6 +2,7 @@
 // Processes jobs from the "reply" queue.
 // Calls runReplyTriage() per job. Writes permanent failures to dead_letter_queue.
 
+import http from "http";
 import { Worker, type Job } from "bullmq";
 import { redis, QUEUE_NAMES, type ReplyJobData } from "../queues";
 import { runReplyTriage } from "@qyro/agents";
@@ -84,4 +85,11 @@ if (require.main === module) {
   }
   process.on("SIGTERM", shutdown);
   process.on("SIGINT",  shutdown);
+
+  http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end(JSON.stringify({ status: "ok", worker: "reply-triage" }));
+  }).listen(process.env.PORT || 3005, () => {
+    console.log("[replyTriageWorker] health server on port", process.env.PORT || 3005);
+  });
 }

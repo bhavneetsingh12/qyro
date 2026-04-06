@@ -104,9 +104,7 @@ async function fetchSignalWireTranscriptText(url: string): Promise<string | null
       : {};
 
     const res = await fetch(url, {
-      headers: {
-        ...authHeader,
-      },
+      headers: { ...authHeader } as Record<string, string>,
     });
 
     if (!res.ok) return null;
