@@ -70,7 +70,12 @@ app.use(cors({
   credentials: true,
 }));
 
-// Parse JSON bodies — capture rawBody for HMAC signature verification
+// Parse URL-encoded bodies (SignalWire / Twilio cXML webhooks send this content type).
+// Must be registered BEFORE express.json() so that voice webhook requests are parsed
+// before validateSignalWireSignature reads req.body for HMAC computation.
+app.use(express.urlencoded({ extended: false }));
+
+// Parse JSON bodies — capture rawBody for Retell HMAC-SHA256 signature verification.
 app.use(express.json({
   verify: (req, _res, buf) => {
     (req as unknown as Record<string, unknown>).rawBody = buf;
