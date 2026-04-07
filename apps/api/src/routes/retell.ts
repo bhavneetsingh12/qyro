@@ -550,7 +550,7 @@ router.post("/tools/log-call-outcome", async (req: Request, res: Response, next:
         status: toRealtimeCallStatus(status),
         rawStatus: status,
       },
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       console.error("[retell/log-call-outcome] realtime publish failed:", err);
     });
 

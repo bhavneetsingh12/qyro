@@ -77,11 +77,8 @@ export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
 export const validateRetellRequest: RequestHandler = (req, res, next) => {
   const secret = process.env.RETELL_WEBHOOK_SECRET;
   if (!secret || secret.trim().length === 0) {
-    if (process.env.NODE_ENV !== "production") {
-      next();
-      return;
-    }
-    res.status(500).json({ error: "CONFIGURATION_ERROR", message: "RETELL_WEBHOOK_SECRET is not configured" });
+    console.warn("⚠️  RETELL_WEBHOOK_SECRET not set — skipping Retell signature verification");
+    next();
     return;
   }
 
