@@ -28,15 +28,29 @@ export const requireClerkAuth: RequestHandler = (req, res, next) => {
 // Validates that incoming requests to voice routes originated from SignalWire.
 // Uses HMAC-SHA1 signature verification (same algorithm as Twilio cXML).
 // Skipped in development to allow local testing without SignalWire.
+//
+// TODO: Remove SKIP_SW_SIGNATURE_CHECK bypass before broad client rollout.
 export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
+  // Temporary bypass for testing — set SKIP_SW_SIGNATURE_CHECK=true in Railway
+  // to unblock call flow while signature issues are diagnosed.
+  // IMPORTANT: remove this env var before going live with real clients.
+  if (process.env.SKIP_SW_SIGNATURE_CHECK === "true") {
+    console.warn("[signalwire] ⚠️  signature check SKIPPED via SKIP_SW_SIGNATURE_CHECK");
+    next();
+    return;
+  }
+
   if (process.env.NODE_ENV !== "production") {
     next();
     return;
   }
 
-  const apiToken = process.env.SIGNALWIRE_API_TOKEN;
-  if (!apiToken) {
-    console.error("[signalwire] SIGNALWIRE_API_TOKEN not set — rejecting voice request");
+  // SignalWire webhook signing uses the project Auth Token (not the REST API token).
+  // Set SIGNALWIRE_AUTH_TOKEN to the Auth Token from your SignalWire project settings.
+  // Falls back to SIGNALWIRE_API_TOKEN for backwards compatibility.
+  const signingKey = process.env.SIGNALWIRE_AUTH_TOKEN ?? process.env.SIGNALWIRE_API_TOKEN;
+  if (!signingKey) {
+    console.error("[signalwire] SIGNALWIRE_AUTH_TOKEN not set — rejecting voice request");
     res.status(403).json({ error: "FORBIDDEN", message: "SignalWire signature verification not configured" });
     return;
   }
@@ -47,14 +61,24 @@ export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
     return;
   }
 
+  // PUBLIC_API_BASE_URL must be set to the full public URL, e.g. https://api.qyro.us
+  // If missing, signature will never match (HMAC is computed over the full URL).
   const baseUrl = process.env.PUBLIC_API_BASE_URL ?? "";
-  const url = `${baseUrl}${req.originalUrl}`;
+  // Strip query string — SignalWire signs only path, not query params
+  const path = req.originalUrl.split("?")[0];
+  const url = `${baseUrl}${path}`;
+
+  if (!baseUrl) {
+    console.error("[signalwire] PUBLIC_API_BASE_URL not set — HMAC will be computed over a relative path and will not match");
+  }
 
   // SignalWire uses the same HMAC-SHA1 scheme as Twilio cXML:
   // sort POST params, append key+value pairs to URL, sign with HMAC-SHA1.
   const params: Record<string, string> = req.body ?? {};
   const sorted = Object.keys(params).sort().reduce((acc, k) => acc + k + params[k], "");
-  const computed = createHmac("sha1", apiToken).update(url + sorted, "utf-8").digest("base64");
+  const computed = createHmac("sha1", signingKey).update(url + sorted, "utf-8").digest("base64");
+
+  console.debug(`[signalwire] verifying signature for url=${url} paramKeys=${Object.keys(params).sort().join(",")}`);
 
   let valid = false;
   try {
@@ -64,6 +88,7 @@ export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
   }
 
   if (!valid) {
+    console.error(`[signalwire] signature mismatch — check PUBLIC_API_BASE_URL and SIGNALWIRE_AUTH_TOKEN. url=${url}`);
     res.status(403).json({ error: "FORBIDDEN", message: "Invalid SignalWire signature" });
     return;
   }
