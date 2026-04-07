@@ -5,5 +5,9 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/workers/**"]
+  "exclude": [
+    "src/workers/researchWorker.ts",
+    "src/workers/replyTriageWorker.ts",
+    "src/workers/outreachWorker.ts"
+  ]
 }

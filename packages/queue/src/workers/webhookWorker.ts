@@ -90,11 +90,12 @@ async function fetchSignalWireTranscriptText(url: string): Promise<string | null
   const apiToken = process.env.SIGNALWIRE_API_TOKEN;
 
   try {
-    const authHeader = (projectId && apiToken)
-      ? { Authorization: `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}` }
-      : {};
+    const headers: Record<string, string> = {};
+    if (projectId && apiToken) {
+      headers.Authorization = `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}`;
+    }
 
-    const res = await fetch(url, { headers: { ...authHeader } });
+    const res = await fetch(url, { headers });
     if (!res.ok) return null;
 
     const contentType = String(res.headers.get("content-type") ?? "").toLowerCase();
