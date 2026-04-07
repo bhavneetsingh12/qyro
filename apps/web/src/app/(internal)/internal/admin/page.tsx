@@ -22,6 +22,18 @@ type TenantRow = {
     callsRemaining: number;
     productAccess: Access;
   };
+  voice: {
+    voiceNumber: string;
+    voiceRuntime: "signalwire" | "retell";
+    retellAgentId: string;
+  };
+};
+
+type VoiceForm = {
+  tenantId: string;
+  voiceNumber: string;
+  voiceRuntime: "signalwire" | "retell";
+  retellAgentId: string;
 };
 
 export default function MasterAdminPage() {
@@ -31,6 +43,15 @@ export default function MasterAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<TenantRow[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [voiceForm, setVoiceForm] = useState<VoiceForm>({
+    tenantId: "",
+    voiceNumber: "",
+    voiceRuntime: "signalwire",
+    retellAgentId: "",
+  });
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const [voiceSaved, setVoiceSaved] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const sortedRows = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
 
@@ -144,6 +165,58 @@ export default function MasterAdminPage() {
     }
   }
 
+  function selectVoiceTenant(tenantId: string) {
+    const row = rows.find((r) => r.id === tenantId);
+    setVoiceForm({
+      tenantId,
+      voiceNumber: row?.voice?.voiceNumber ?? "",
+      voiceRuntime: row?.voice?.voiceRuntime ?? "signalwire",
+      retellAgentId: row?.voice?.retellAgentId ?? "",
+    });
+    setVoiceSaved(false);
+    setVoiceError(null);
+  }
+
+  async function handleVoiceSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!voiceForm.tenantId) {
+      setVoiceError("Select a tenant first.");
+      return;
+    }
+    if (voiceForm.retellAgentId.trim() && voiceForm.voiceRuntime !== "retell") {
+      setVoiceError("Retell Agent ID is set but Voice Runtime is not 'Retell AI'.");
+      return;
+    }
+    setVoiceSaving(true);
+    setVoiceError(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_URL}/api/v1/admin/tenants/${voiceForm.tenantId}/voice`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          voiceNumber: voiceForm.voiceNumber,
+          voiceRuntime: voiceForm.voiceRuntime,
+          retellAgentId: voiceForm.retellAgentId,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error((body as { message?: string }).message ?? "Save failed");
+      }
+      await fetchTenants();
+      setVoiceSaved(true);
+      setTimeout(() => setVoiceSaved(false), 3000);
+    } catch (err) {
+      setVoiceError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setVoiceSaving(false);
+    }
+  }
+
   if (loading) {
     return <div className="p-8 text-sm text-stone-500">Loading admin panel…</div>;
   }
@@ -166,7 +239,85 @@ export default function MasterAdminPage() {
 
       {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
 
-      <div className="mt-6 space-y-4">
+      {/* ── Voice Configuration ───────────────────────────────────────── */}
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-stone-900">Voice Configuration</h2>
+        <p className="mt-0.5 text-sm text-stone-500">Set voice_number, voice_runtime, and Retell agent ID for any client tenant.</p>
+
+        <form onSubmit={(e) => void handleVoiceSave(e)} className="mt-4 rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-stone-700">Tenant</label>
+            <select
+              className="input"
+              value={voiceForm.tenantId}
+              onChange={(e) => selectVoiceTenant(e.target.value)}
+            >
+              <option value="">— select a tenant —</option>
+              {sortedRows.map((r) => (
+                <option key={r.id} value={r.id}>{r.name} ({r.slug})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-stone-700">Voice number</label>
+            <input
+              className="input"
+              value={voiceForm.voiceNumber}
+              onChange={(e) => setVoiceForm({ ...voiceForm, voiceNumber: e.target.value })}
+              placeholder="+15035551234"
+            />
+            <p className="text-xs text-stone-400">E.164 format. This is the number the client&apos;s customers call.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-stone-700">Voice runtime</label>
+            <select
+              className="input"
+              value={voiceForm.voiceRuntime}
+              onChange={(e) => setVoiceForm({ ...voiceForm, voiceRuntime: e.target.value as "signalwire" | "retell" })}
+            >
+              <option value="signalwire">SignalWire Direct</option>
+              <option value="retell">Retell AI</option>
+            </select>
+          </div>
+
+          {voiceForm.voiceRuntime === "retell" && (
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-stone-700">Retell Agent ID</label>
+              <input
+                className="input"
+                value={voiceForm.retellAgentId}
+                onChange={(e) => setVoiceForm({ ...voiceForm, retellAgentId: e.target.value })}
+                placeholder="agent_xxxxxxxxxxxx"
+              />
+              <p className="text-xs text-stone-400">Find this in Retell dashboard → Agents.</p>
+            </div>
+          )}
+
+          {voiceError && <p className="text-sm text-rose-600">{voiceError}</p>}
+
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={voiceSaving || !voiceForm.tenantId}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50"
+            >
+              {voiceSaving ? "Saving…" : "Save voice settings"}
+            </button>
+            {voiceSaved && (
+              <span className="text-sm text-teal-600 font-medium">Saved</span>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {/* ── Tenant Access / Trial ─────────────────────────────────────── */}
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-stone-900">Tenant Access &amp; Trials</h2>
+      </div>
+
+      <div className="mt-4 space-y-4">
         {sortedRows.map((row) => (
           <div key={row.id} className="rounded-xl border border-[#E8E6E1] bg-white p-5">
             <div className="flex items-center justify-between gap-3">

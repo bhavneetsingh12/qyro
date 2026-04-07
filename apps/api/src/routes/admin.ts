@@ -76,6 +76,11 @@ router.get("/v1/admin/tenants", async (req: Request, res: Response, next: NextFu
           ...resolveTrialState(meta),
           productAccess: (meta.trial_product_access as Record<string, unknown>) ?? { lead: false, assist: false },
         },
+        voice: {
+          voiceNumber: (meta.voice_number as string) ?? (meta.voiceNumber as string) ?? "",
+          voiceRuntime: (meta.voice_runtime as string) === "retell" ? "retell" : "signalwire",
+          retellAgentId: (meta.retell_agent_id as string) ?? "",
+        },
       };
     }));
 
@@ -177,6 +182,56 @@ router.patch("/v1/admin/users/:userId/role", async (req: Request, res: Response,
     }
 
     await adminDb.update(users).set({ role }).where(eq(users.id, userId));
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /v1/admin/tenants/:tenantId/voice ─────────────────────────────────
+
+router.patch("/v1/admin/tenants/:tenantId/voice", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const current = await requireMasterAdmin(req, res);
+    if (!current) return;
+
+    const tenantId = String(req.params.tenantId ?? "").trim();
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "tenantId is required" });
+      return;
+    }
+
+    const tenant = await adminDb.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const { voiceNumber, voiceRuntime, retellAgentId } = req.body as {
+      voiceNumber?: string;
+      voiceRuntime?: string;
+      retellAgentId?: string;
+    };
+
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const nextMeta: Record<string, unknown> = { ...meta };
+
+    if (voiceNumber !== undefined) {
+      nextMeta.voice_number = voiceNumber.trim();
+      nextMeta.voiceNumber = voiceNumber.trim();
+    }
+    if (voiceRuntime !== undefined) {
+      nextMeta.voice_runtime = voiceRuntime === "retell" ? "retell" : "signalwire";
+    }
+    if (retellAgentId !== undefined) {
+      nextMeta.retell_agent_id = retellAgentId.trim();
+    }
+
+    await adminDb
+      .update(tenants)
+      .set({ metadata: nextMeta, updatedAt: new Date() })
+      .where(eq(tenants.id, tenantId));
 
     res.json({ ok: true });
   } catch (err) {

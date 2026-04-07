@@ -17,9 +17,6 @@ type TenantSettingsResponse = {
   hasHunterApiKey?: boolean;
   enrichmentMonthlyLimit?: number;
   enrichmentMonthlyUsed?: number;
-  voiceNumber?: string;
-  voiceRuntime?: string;
-  retellAgentId?: string;
 };
 
 type SettingsForm = {
@@ -33,9 +30,6 @@ type SettingsForm = {
   hasHunterApiKey: boolean;
   enrichmentMonthlyLimit: number;
   enrichmentMonthlyUsed: number;
-  voiceNumber: string;
-  voiceRuntime: "signalwire" | "retell";
-  retellAgentId: string;
 };
 
 export default function InternalSettingsPage() {
@@ -52,9 +46,6 @@ export default function InternalSettingsPage() {
     hasHunterApiKey: false,
     enrichmentMonthlyLimit: 2500,
     enrichmentMonthlyUsed: 0,
-    voiceNumber: "",
-    voiceRuntime: "signalwire",
-    retellAgentId: "",
   });
 
   const [loading, setLoading] = useState(true);
@@ -85,9 +76,6 @@ export default function InternalSettingsPage() {
             hasHunterApiKey: Boolean(data.hasHunterApiKey),
             enrichmentMonthlyLimit: Number(data.enrichmentMonthlyLimit ?? 2500),
             enrichmentMonthlyUsed: Number(data.enrichmentMonthlyUsed ?? 0),
-            voiceNumber: data.voiceNumber ?? "",
-            voiceRuntime: (data.voiceRuntime === "retell" ? "retell" : "signalwire") as "signalwire" | "retell",
-            retellAgentId: data.retellAgentId ?? "",
           });
         }
       } catch {
@@ -105,21 +93,12 @@ export default function InternalSettingsPage() {
     setSaving(true);
     setError(null);
 
-    if (form.retellAgentId.trim() && form.voiceRuntime !== "retell") {
-      setError("Retell Agent ID is set but Voice Runtime is not 'Retell AI'. Either switch the runtime to Retell AI or clear the agent ID.");
-      setSaving(false);
-      return;
-    }
-
     try {
       const token = await getToken();
       const payload: Record<string, unknown> = {
         enrichmentProvider: form.enrichmentProvider,
         outreachEnabled: form.outreachEnabled,
         enrichmentMonthlyLimit: form.enrichmentMonthlyLimit,
-        voiceNumber: form.voiceNumber,
-        voiceRuntime: form.voiceRuntime,
-        retellAgentId: form.retellAgentId,
       };
 
       if (form.apolloApiKey.trim()) payload.apolloApiKey = form.apolloApiKey.trim();
@@ -156,9 +135,6 @@ export default function InternalSettingsPage() {
           hasHunterApiKey: Boolean(data.hasHunterApiKey),
           enrichmentMonthlyLimit: Number(data.enrichmentMonthlyLimit ?? prev.enrichmentMonthlyLimit),
           enrichmentMonthlyUsed: Number(data.enrichmentMonthlyUsed ?? prev.enrichmentMonthlyUsed),
-          voiceNumber: data.voiceNumber ?? prev.voiceNumber,
-          voiceRuntime: (data.voiceRuntime === "retell" ? "retell" : "signalwire") as "signalwire" | "retell",
-          retellAgentId: data.retellAgentId ?? prev.retellAgentId,
         }));
       }
 
@@ -258,50 +234,6 @@ export default function InternalSettingsPage() {
             </div>
           </div>
 
-          <div className="bg-white border border-[#E8E6E1] rounded-[14px] p-6 space-y-5">
-            <p className="text-sm font-semibold text-stone-800">Voice configuration</p>
-
-            <FormField
-              label="Voice number"
-              hint="Your business phone number in E.164 format (e.g. +15035551234)."
-            >
-              <input
-                className="input"
-                value={form.voiceNumber}
-                onChange={(e) => setForm({ ...form, voiceNumber: e.target.value })}
-                placeholder="+15035551234"
-              />
-            </FormField>
-
-            <FormField
-              label="Voice runtime"
-              hint="SignalWire Direct uses built-in TwiML voice. Retell AI enables natural conversational voice."
-            >
-              <select
-                className="input"
-                value={form.voiceRuntime}
-                onChange={(e) => setForm({ ...form, voiceRuntime: e.target.value as "signalwire" | "retell" })}
-              >
-                <option value="signalwire">SignalWire Direct</option>
-                <option value="retell">Retell AI</option>
-              </select>
-            </FormField>
-
-            {form.voiceRuntime === "retell" && (
-              <FormField
-                label="Retell Agent ID"
-                hint="Find this in your Retell dashboard → Agents."
-              >
-                <input
-                  className="input"
-                  value={form.retellAgentId}
-                  onChange={(e) => setForm({ ...form, retellAgentId: e.target.value })}
-                  placeholder="agent_xxxxxxxxxxxx"
-                />
-              </FormField>
-            )}
-          </div>
-
           {error && <p className="text-sm text-rose-600">{error}</p>}
 
           <div className="flex items-center gap-3">
@@ -323,24 +255,6 @@ export default function InternalSettingsPage() {
           </div>
         </form>
       )}
-    </div>
-  );
-}
-
-function FormField({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-stone-700">{label}</label>
-      {children}
-      <p className="text-xs text-stone-400">{hint}</p>
     </div>
   );
 }
