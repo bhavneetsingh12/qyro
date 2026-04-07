@@ -36,7 +36,7 @@ type VoiceForm = {
   retellAgentId: string;
 };
 
-export default function MasterAdminPage() {
+export default function OpsPage() {
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
@@ -65,7 +65,7 @@ export default function MasterAdminPage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({} as { message?: string }));
-      throw new Error(body.message ?? "Could not load tenants");
+      throw new Error((body as { message?: string }).message ?? "Could not load tenants");
     }
 
     const body = (await res.json()) as { data: TenantRow[] };
@@ -91,7 +91,7 @@ export default function MasterAdminPage() {
         setAuthorized(true);
         await fetchTenants();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load admin panel");
+        setError(err instanceof Error ? err.message : "Could not load page");
       } finally {
         setLoading(false);
       }
@@ -129,7 +129,7 @@ export default function MasterAdminPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { message?: string }));
-        throw new Error(body.message ?? "Failed to save tenant access");
+        throw new Error((body as { message?: string }).message ?? "Failed to save tenant access");
       }
 
       await fetchTenants();
@@ -232,14 +232,14 @@ export default function MasterAdminPage() {
   return (
     <div className="p-8 max-w-6xl">
       <h1 className="text-xl font-semibold text-stone-900">Operations Console</h1>
-      <p className="mt-1 text-sm text-stone-500">Grant or revoke paid bypass access and trial limits across all tenants.</p>
+      <p className="mt-1 text-sm text-stone-500">Voice configuration and tenant access controls.</p>
 
       {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
 
-      {/* ── Voice Configuration ───────────────────────────────────────── */}
+      {/* ── Voice Configuration ─────────────────────────────────────────── */}
       <div className="mt-8">
         <h2 className="text-base font-semibold text-stone-900">Voice Configuration</h2>
-        <p className="mt-0.5 text-sm text-stone-500">Set voice_number, voice_runtime, and Retell agent ID for any client tenant.</p>
+        <p className="mt-0.5 text-sm text-stone-500">Set voice number, runtime, and agent ID for any client tenant.</p>
 
         <form onSubmit={(e) => void handleVoiceSave(e)} className="mt-4 rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
           <div className="space-y-1.5">
@@ -264,7 +264,7 @@ export default function MasterAdminPage() {
               onChange={(e) => setVoiceForm({ ...voiceForm, voiceNumber: e.target.value })}
               placeholder="+15035551234"
             />
-            <p className="text-xs text-stone-400">E.164 format. This is the number the client&apos;s customers call.</p>
+            <p className="text-xs text-stone-400">E.164 format. The number the client&apos;s customers call.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -309,9 +309,10 @@ export default function MasterAdminPage() {
         </form>
       </div>
 
-      {/* ── Tenant Access / Trial ─────────────────────────────────────── */}
-      <div className="mt-8">
+      {/* ── Tenant Access / Trial ────────────────────────────────────────── */}
+      <div className="mt-10">
         <h2 className="text-base font-semibold text-stone-900">Tenant Access &amp; Trials</h2>
+        <p className="mt-0.5 text-sm text-stone-500">Grant or revoke paid bypass access and trial limits.</p>
       </div>
 
       <div className="mt-4 space-y-4">
@@ -319,7 +320,7 @@ export default function MasterAdminPage() {
           <div key={row.id} className="rounded-xl border border-[#E8E6E1] bg-white p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-stone-900">{row.name}</h2>
+                <p className="text-sm font-semibold text-stone-900">{row.name}</p>
                 <p className="text-xs text-stone-500">{row.slug} • plan: {row.plan} • subscription: {row.subscriptionStatus}</p>
               </div>
               <button

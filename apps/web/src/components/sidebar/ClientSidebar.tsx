@@ -18,6 +18,7 @@ import {
   X,
   GitMerge,
   ArrowLeftRight,
+  ShieldCheck,
 } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 import clsx from "clsx";
@@ -33,6 +34,7 @@ const navItems = [
   { href: "/client/outbound-pipeline",  label: "Outbound Pipeline",  icon: GitMerge },
   { href: "/client/approvals",          label: "Approvals",          icon: CheckSquare },
   { href: "/client/widget",             label: "Widget",             icon: Code2 },
+  { href: "/client/admin",             label: "Admin",              icon: ShieldCheck },
   { href: "/client/settings",           label: "Settings",           icon: Settings },
 ];
 

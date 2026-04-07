@@ -100,6 +100,13 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       escalationContactEmail: tenant.escalationContactEmail ?? (meta.escalationContactEmail as string | undefined) ?? "",
       voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
       retellAgentId: (meta.retell_agent_id as string) ?? "",
+      industry: (meta.industry as string) ?? "",
+      timezone: (meta.timezone as string) ?? "",
+      businessDescription: (meta.businessDescription as string) ?? "",
+      greetingScript: (meta.greetingScript as string) ?? "",
+      escalationPhrases: (meta.escalationPhrases as string) ?? "",
+      plan: (meta.plan as string) ?? subscription?.stripePriceId ?? "",
+      subscriptionStatus: (subscription?.status as string) ?? "none",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
       outreachEnabled:       meta.outreach_enabled !== false,
       hasApolloApiKey:       !!apolloApiKey,
@@ -146,6 +153,11 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       apolloApiKey,
       hunterApiKey,
       enrichmentMonthlyLimit,
+      industry,
+      timezone,
+      businessDescription,
+      greetingScript,
+      escalationPhrases,
     } = req.body as {
       name?:             string;
       approvedServices?: string;
@@ -168,6 +180,11 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       apolloApiKey?: string;
       hunterApiKey?: string;
       enrichmentMonthlyLimit?: number;
+      industry?: string;
+      timezone?: string;
+      businessDescription?: string;
+      greetingScript?: string;
+      escalationPhrases?: string;
     };
 
     const existing = await db.query.tenants.findFirst({
@@ -214,6 +231,11 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(enrichmentMonthlyLimit !== undefined && {
         enrichmentMonthlyLimit: Math.max(0, Number(enrichmentMonthlyLimit) || 0),
       }),
+      ...(industry           !== undefined && { industry }),
+      ...(timezone           !== undefined && { timezone }),
+      ...(businessDescription !== undefined && { businessDescription }),
+      ...(greetingScript     !== undefined && { greetingScript }),
+      ...(escalationPhrases  !== undefined && { escalationPhrases }),
     };
 
     await db
@@ -374,6 +396,50 @@ router.patch("/users/:userId", async (req: Request, res: Response, next: NextFun
   } catch (err) {
     next(err);
   }
+});
+
+// ─── GET /api/v1/tenants/faq  (stub) ─────────────────────────────────────────
+
+router.get("/faq", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, req.tenantId) });
+    if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const faq = Array.isArray(meta.faqEntries) ? meta.faqEntries : [];
+    res.json({ faq });
+  } catch (err) { next(err); }
+});
+
+// ─── PATCH /api/v1/tenants/faq  (stub) ───────────────────────────────────────
+
+router.patch("/faq", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { faq } = req.body as { faq?: unknown[] };
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, req.tenantId) });
+    if (!tenant) { res.status(404).json({ error: "Tenant not found" }); return; }
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    await db.update(tenants).set({
+      metadata: { ...meta, faqEntries: Array.isArray(faq) ? faq : [] },
+      updatedAt: new Date(),
+    }).where(eq(tenants.id, req.tenantId));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ─── POST /api/v1/tenants/users/invite  (stub) ───────────────────────────────
+
+router.post("/users/invite", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!requireTenantManager(req, res)) return;
+    const { email, role } = req.body as { email?: string; role?: string };
+    if (!email?.trim()) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "email is required" });
+      return;
+    }
+    // Stub: invitation delivery not yet implemented.
+    // When Clerk webhooks are wired, create the user record and send an invite email here.
+    res.json({ ok: true, message: "Invitation queued — user will receive an email when invite delivery is configured." });
+  } catch (err) { next(err); }
 });
 
 export default router;
