@@ -73,6 +73,7 @@ export const researchQueue = new Queue<ResearchJobData>(QUEUE_NAMES.RESEARCH, {
     removeOnFail:     { count: 500 },
   },
 });
+researchQueue.on("error", (err) => console.error("[researchQueue] error:", err.message));
 
 export const outreachQueue = new Queue<OutreachJobData>(QUEUE_NAMES.OUTREACH, {
   connection: redis,
@@ -84,6 +85,7 @@ export const outreachQueue = new Queue<OutreachJobData>(QUEUE_NAMES.OUTREACH, {
     removeOnFail:     { count: 500 },
   },
 });
+outreachQueue.on("error", (err) => console.error("[outreachQueue] error:", err.message));
 
 export const replyQueue = new Queue<ReplyJobData>(QUEUE_NAMES.REPLY, {
   connection: redis,
@@ -94,6 +96,7 @@ export const replyQueue = new Queue<ReplyJobData>(QUEUE_NAMES.REPLY, {
     removeOnFail:     { count: 500 },
   },
 });
+replyQueue.on("error", (err) => console.error("[replyQueue] error:", err.message));
 
 export const outboundCallQueue = new Queue<OutboundCallJobData>(QUEUE_NAMES.OUTBOUND_CALL, {
   connection: redis,
@@ -103,6 +106,7 @@ export const outboundCallQueue = new Queue<OutboundCallJobData>(QUEUE_NAMES.OUTB
     removeOnFail: { count: 500 },
   },
 });
+outboundCallQueue.on("error", (err) => console.error("[outboundCallQueue] error:", err.message));
 
 export const webhookQueue = new Queue<WebhookJobData>(QUEUE_NAMES.WEBHOOK, {
   connection: redis,
@@ -113,3 +117,4 @@ export const webhookQueue = new Queue<WebhookJobData>(QUEUE_NAMES.WEBHOOK, {
     removeOnFail: { count: 1000 },
   },
 });
+webhookQueue.on("error", (err) => console.error("[webhookQueue] error:", err.message));
