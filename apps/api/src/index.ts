@@ -20,6 +20,8 @@ import adminRouter from "./routes/admin";
 // ─── Required env var validation ─────────────────────────────────────────────
 // Fail fast with a clear message rather than a cryptic crash later.
 
+console.log("[api] 1. Starting — validating env vars");
+
 const REQUIRED_ENV_VARS = [
   "DATABASE_URL",
   "REDIS_URL",
@@ -34,6 +36,8 @@ for (const key of REQUIRED_ENV_VARS) {
     process.exit(1);
   }
 }
+
+console.log("[api] 2. Env vars OK");
 
 // ─── App setup ────────────────────────────────────────────────────────────────
 
@@ -137,19 +141,30 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
+// ─── Catch unhandled errors so crashes always print a useful message ──────────
+
+process.on("uncaughtException", (err) => {
+  console.error("[api] UNCAUGHT EXCEPTION:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[api] UNHANDLED REJECTION:", reason);
+  process.exit(1);
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 async function start() {
   try {
-    console.log(`[api] Starting server on port ${PORT}...`);
-    console.log(`[api] NODE_ENV: ${process.env.NODE_ENV}`);
+    console.log(`[api] 3. Starting server — PORT=${PORT} NODE_ENV=${process.env.NODE_ENV}`);
 
     const server = app.listen(PORT, () => {
-      console.log(`[api] listening on http://localhost:${PORT}`);
+      console.log(`[api] 4. Listening on http://localhost:${PORT}`);
     });
 
     async function shutdown() {
-      console.log("[api] shutting down...");
+      console.log("[api] SIGTERM received — shutting down gracefully");
       server.close(async () => {
         await closeDb();
         process.exit(0);

@@ -12,6 +12,12 @@ export const redis = new IORedis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null, // required by BullMQ
 });
 
+// Without an error listener, a Redis connection failure emits an uncaught
+// 'error' event that crashes the Node process before app.listen() is reached.
+redis.on("error", (err: Error) => {
+  console.error("[redis] connection error:", err.message);
+});
+
 // ─── Queue names ──────────────────────────────────────────────────────────────
 
 export const QUEUE_NAMES = {
