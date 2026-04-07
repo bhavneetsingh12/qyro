@@ -24,7 +24,7 @@ export default async function ProductsPage() {
       if (res.ok) {
         const body = await res.json();
         if (body.isMasterAdmin === true) {
-          redirect("/internal/admin");
+          redirect("/admin");
         }
         productAccess = body.productAccess ?? productAccess;
         showBillingStatus = body.showBillingStatus !== false;
