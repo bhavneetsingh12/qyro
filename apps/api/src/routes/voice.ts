@@ -71,13 +71,15 @@ async function registerRetellInboundCall(params: {
 
   const payload = {
     agent_id: params.agentId,
+    from_number: params.toNumber,   // tenant's registered number
+    to_number: params.toNumber,     // same — we are the receiver
     audio_encoding: "mulaw",
     audio_websocket_protocol: "twilio",
     sample_rate: 8000,
     metadata: {
       tenantId: params.tenantId,
       callSid: params.callSid,
-      callerNumber: params.fromNumber,
+      callerNumber: params.fromNumber,  // actual caller preserved here
     },
   };
 
