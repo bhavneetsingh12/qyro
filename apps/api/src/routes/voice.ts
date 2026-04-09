@@ -63,6 +63,10 @@ async function registerRetellInboundCall(params: {
   callSid: string;
 }): Promise<{ callId: string; accessToken: string }> {
   const apiKey = String(process.env.RETELL_API_KEY ?? "").trim();
+  console.log(`[voice/incoming] RETELL_API_KEY prefix: ${apiKey ? apiKey.slice(0, 8) + "..." : "UNSET"}`);
+  if (!apiKey) {
+    throw new Error("RETELL_API_KEY is not set — cannot register inbound call");
+  }
   const base = String(process.env.RETELL_BASE_URL ?? "https://api.retellai.com").replace(/\/$/, "");
 
   const payload = {
