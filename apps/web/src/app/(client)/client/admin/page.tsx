@@ -10,6 +10,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "pr
 
 type Tab = "org" | "voice" | "ai" | "team" | "billing";
 
+type CalendarProvider = "callback_only" | "calcom" | "calendly" | "google" | "square_appointments" | "acuity";
+
 type Settings = {
   name: string;
   industry: string;
@@ -24,6 +26,11 @@ type Settings = {
   approvedServices: string;
   greetingScript: string;
   escalationPhrases: string;
+  calendarProvider: CalendarProvider;
+  calendarApiKey: string;
+  calendarBookingUrl: string;
+  calendarEventTypeId: string;
+  hasCalendarApiKey: boolean;
 };
 
 type FaqEntry = { question: string; answer: string };
@@ -128,6 +135,84 @@ function OrgTab({ settings, onChange, onSave, saving, saved, error }: {
           <input className="input" value={settings.businessHours} onChange={(e) => onChange({ businessHours: e.target.value })} placeholder="Mon-Fri 9am-6pm, Sat 10am-2pm" />
         </Field>
       </Section>
+
+      <Section title="Appointment Booking">
+        <p className="text-xs text-stone-500 -mt-2">
+          Choose how your AI handles appointment requests. &ldquo;Call back to confirm&rdquo; works for any business — no calendar software needed.
+        </p>
+        <Field label="Calendar provider">
+          <select
+            className="input"
+            value={settings.calendarProvider}
+            onChange={(e) => onChange({ calendarProvider: e.target.value as CalendarProvider, calendarApiKey: "", calendarBookingUrl: "", calendarEventTypeId: "" })}
+          >
+            <option value="callback_only">None — call back to confirm (default)</option>
+            <option value="calcom">Cal.com</option>
+            <option value="calendly">Calendly</option>
+            <option value="google">Google Calendar</option>
+            <option value="square_appointments">Square Appointments</option>
+            <option value="acuity">Acuity Scheduling</option>
+          </select>
+        </Field>
+
+        {settings.calendarProvider !== "callback_only" && (
+          <Field
+            label="API key / access token"
+            hint={
+              settings.calendarProvider === "calcom"
+                ? "Cal.com API key from Settings → Developer → API Keys."
+                : settings.calendarProvider === "calendly"
+                  ? "Calendly personal access token from app.calendly.com → Integrations → API & Webhooks."
+                  : "API key or access token for your calendar provider."
+            }
+          >
+            <input
+              className="input font-mono text-sm"
+              type="password"
+              value={settings.calendarApiKey}
+              onChange={(e) => onChange({ calendarApiKey: e.target.value })}
+              placeholder={settings.hasCalendarApiKey ? "••••••••  (saved — type to replace)" : "Paste API key here"}
+              autoComplete="off"
+            />
+          </Field>
+        )}
+
+        {(settings.calendarProvider === "calendly" || settings.calendarProvider === "acuity" || settings.calendarProvider === "square_appointments") && (
+          <Field
+            label="Booking URL"
+            hint="Your public scheduling link. The AI will text this to callers so they can pick a time."
+          >
+            <input
+              className="input"
+              value={settings.calendarBookingUrl}
+              onChange={(e) => onChange({ calendarBookingUrl: e.target.value })}
+              placeholder="https://calendly.com/your-name/service"
+            />
+          </Field>
+        )}
+
+        {settings.calendarProvider === "calcom" && (
+          <Field
+            label="Event type ID"
+            hint="Numeric ID from your Cal.com event type URL, e.g. 123456."
+          >
+            <input
+              className="input"
+              value={settings.calendarEventTypeId}
+              onChange={(e) => onChange({ calendarEventTypeId: e.target.value })}
+              placeholder="123456"
+            />
+          </Field>
+        )}
+
+        {settings.calendarProvider === "callback_only" && (
+          <div className="rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5 text-xs text-stone-500">
+            When a caller requests an appointment, your AI will save the request and send an SMS to your escalation number so you can call them back to confirm.
+            Make sure your escalation contact phone is set in the Voice tab.
+          </div>
+        )}
+      </Section>
+
       <SaveBar saving={saving} saved={saved} error={error} />
     </form>
   );
@@ -503,6 +588,11 @@ const DEFAULT_SETTINGS: Settings = {
   approvedServices: "",
   greetingScript: "",
   escalationPhrases: "",
+  calendarProvider: "callback_only",
+  calendarApiKey: "",
+  calendarBookingUrl: "",
+  calendarEventTypeId: "",
+  hasCalendarApiKey: false,
 };
 
 const TABS: { key: Tab; label: string }[] = [
@@ -550,6 +640,11 @@ export default function ClientAdminPage() {
             approvedServices:      String(d.approvedServices ?? ""),
             greetingScript:        String(d.greetingScript ?? ""),
             escalationPhrases:     String(d.escalationPhrases ?? ""),
+            calendarProvider:      (d.calendarProvider as CalendarProvider) ?? "callback_only",
+            calendarApiKey:        "",
+            calendarBookingUrl:    String(d.calendarBookingUrl ?? ""),
+            calendarEventTypeId:   String(d.calendarEventTypeId ?? ""),
+            hasCalendarApiKey:     Boolean(d.hasCalendarApiKey),
           });
           setBilling({
             plan: String(d.plan ?? ""),

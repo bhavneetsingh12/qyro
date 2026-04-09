@@ -84,8 +84,11 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       approvedServices: (meta.approvedServices as string) ?? "",
       bookingLink:      (meta.bookingLink as string) ?? "",
       emailFromName:    (meta.emailFromName as string) ?? "",
-      calendarProvider: (meta.calendarProvider as string) ?? "cal_com",
-      providersList:    (meta.providersList as string) ?? "",
+      calendarProvider:    (meta.calendarProvider as string) ?? "callback_only",
+      hasCalendarApiKey:   !!(meta.calendarApiKey ?? meta.calendar_api_key),
+      calendarBookingUrl:  (meta.calendarBookingUrl as string) ?? "",
+      calendarEventTypeId: (meta.calendarEventTypeId as string) ?? "",
+      providersList:       (meta.providersList as string) ?? "",
       autoRespond:      Boolean(meta.autoRespond ?? false),
       businessHours:    (meta.businessHours as string) ?? "",
       voiceNumber,
@@ -137,6 +140,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       bookingLink,
       emailFromName,
       calendarProvider,
+      calendarApiKey,
+      calendarBookingUrl,
+      calendarEventTypeId,
       providersList,
       autoRespond,
       autoSendMissedCall,
@@ -163,7 +169,10 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       approvedServices?: string;
       bookingLink?:      string;
       emailFromName?:    string;
-      calendarProvider?: "cal_com" | "google_calendar";
+      calendarProvider?: "cal_com" | "google_calendar" | "calendly" | "square_appointments" | "acuity" | "callback_only";
+      calendarApiKey?: string;
+      calendarBookingUrl?: string;
+      calendarEventTypeId?: string;
       providersList?: string;
       autoRespond?: boolean;
       autoSendMissedCall?: boolean;
@@ -203,8 +212,11 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(approvedServices !== undefined && { approvedServices }),
       ...(bookingLink      !== undefined && { bookingLink }),
       ...(emailFromName    !== undefined && { emailFromName }),
-      ...(calendarProvider !== undefined && { calendarProvider }),
-      ...(providersList    !== undefined && { providersList }),
+      ...(calendarProvider    !== undefined && { calendarProvider }),
+      ...(calendarApiKey      !== undefined && { calendarApiKey }),
+      ...(calendarBookingUrl  !== undefined && { calendarBookingUrl }),
+      ...(calendarEventTypeId !== undefined && { calendarEventTypeId }),
+      ...(providersList       !== undefined && { providersList }),
       ...(autoRespond      !== undefined && { autoRespond: Boolean(autoRespond) }),
       ...(businessHours    !== undefined && { businessHours }),
       ...(voiceNumber !== undefined && {

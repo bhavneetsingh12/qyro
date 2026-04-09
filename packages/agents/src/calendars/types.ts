@@ -1,4 +1,10 @@
-export type ProviderKind = "google_calendar" | "cal_com";
+export type ProviderKind =
+  | "google_calendar"
+  | "cal_com"
+  | "calendly"
+  | "square_appointments"
+  | "acuity"
+  | "callback_only";
 
 export type Slot = {
   startAt: string;

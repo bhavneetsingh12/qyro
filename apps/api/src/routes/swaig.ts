@@ -177,25 +177,34 @@ async function sendSignalWireSms(params: {
   return data.sid ?? null;
 }
 
-// Cal.com booking — direct API call without adapter to avoid subpath export dependency
+// ─── Calendar provider helpers ────────────────────────────────────────────────
+
+function normalizeCalendarProvider(raw: unknown): string {
+  const s = String(raw ?? "").trim().toLowerCase().replace(/[.\s-]/g, "_");
+  if (s === "calcom" || s === "cal_com") return "calcom";
+  if (s === "google" || s === "google_calendar") return "google";
+  if (s === "calendly") return "calendly";
+  if (s === "square" || s === "square_appointments") return "square";
+  if (s === "acuity") return "acuity";
+  return "callback_only";
+}
+
 async function bookCalCom(params: {
+  apiKey: string;
+  eventTypeId: string;
   startAt: string;
   endAt: string;
   name: string;
   email: string;
   notes?: string;
 }): Promise<{ uid: string; startAt: string; endAt: string } | null> {
-  const apiKey = process.env.CAL_API_KEY;
-  const eventTypeId = process.env.CAL_EVENT_TYPE_ID;
-  if (!apiKey || !eventTypeId) return null;
-
   const response = await fetch(
-    `https://api.cal.com/v1/bookings?apiKey=${encodeURIComponent(apiKey)}`,
+    `https://api.cal.com/v1/bookings?apiKey=${encodeURIComponent(params.apiKey)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        eventTypeId,
+        eventTypeId: params.eventTypeId,
         start: params.startAt,
         responses: { name: params.name, email: params.email },
         timeZone: process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles",
@@ -327,17 +336,9 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
   }
 
   try {
-    const prospectId = await findOrCreateProspect(
-      tenant.id,
-      phoneNumber,
-      callerName,
-    );
-
+    const prospectId = await findOrCreateProspect(tenant.id, phoneNumber, callerName);
     if (!prospectId) {
-      res.json({
-        response:
-          "I'm sorry, I wasn't able to save your booking. Please call back and we'll get you scheduled.",
-      } satisfies SwaigResponse);
+      res.json({ response: "I'm sorry, I wasn't able to save your booking. Please call back and we'll get you scheduled." } satisfies SwaigResponse);
       return;
     }
 
@@ -354,21 +355,90 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
       : rawDate;
     const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
 
-    // Try Cal.com if configured
+    const dateStr = startAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    const timeStr = startAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+    const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+    const provider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
+    const fromPhone = tenant.voiceNumber ?? null;
+
     let calBookingUid: string | null = null;
-    if (process.env.CAL_API_KEY && process.env.CAL_EVENT_TYPE_ID && phoneNumber) {
-      const calResult = await bookCalCom({
-        startAt: startAt.toISOString(),
-        endAt: endAt.toISOString(),
-        name: callerName,
-        email: `${phoneNumber.replace(/\D/g, "")}@placeholder.qyro.us`,
-        notes: `Booked via voice call. Service: ${service || "not specified"}.`,
-      }).catch((err) => {
-        console.warn("[swaig/book-appointment] Cal.com failed:", err);
-        return null;
-      });
-      calBookingUid = calResult?.uid ?? null;
+    let appointmentStatus = "pending_confirmation";
+    let aiResponse = "";
+
+    // ── Provider switch ────────────────────────────────────────────────────────
+
+    if (provider === "calcom") {
+      const apiKey = String(meta.calendarApiKey ?? meta.calendar_api_key ?? process.env.CAL_API_KEY ?? "");
+      const eventTypeId = String(meta.calendarEventTypeId ?? meta.calendar_event_type_id ?? process.env.CAL_EVENT_TYPE_ID ?? "");
+
+      if (apiKey && eventTypeId) {
+        const calResult = await bookCalCom({
+          apiKey,
+          eventTypeId,
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
+          name: callerName,
+          email: `${phoneNumber.replace(/\D/g, "")}@placeholder.qyro.us`,
+          notes: `Booked via voice call. Service: ${service || "not specified"}.`,
+        }).catch((err) => {
+          console.warn("[swaig/book-appointment] Cal.com failed:", err);
+          return null;
+        });
+
+        if (calResult) {
+          calBookingUid = calResult.uid;
+          appointmentStatus = "proposed";
+          aiResponse = `I've booked your ${service || "appointment"} for ${dateStr} at ${timeStr}. You'll receive a confirmation shortly. Is there anything else I can help you with?`;
+        }
+      }
+
+      // If Cal.com failed or unconfigured, fall through to SMS callback below
+      if (!aiResponse) {
+        console.warn(`[swaig/book-appointment] Cal.com not configured or failed for tenant ${tenant.id} — using SMS callback`);
+      }
     }
+
+    if ((provider === "calendly" || provider === "acuity") && !aiResponse) {
+      const bookingUrl = String(meta.calendarBookingUrl ?? meta.calendar_booking_url ?? "");
+
+      if (bookingUrl && fromPhone && phoneNumber) {
+        const smsBody = `Hi ${callerName}! Book your ${service || "appointment"} here: ${bookingUrl}\nReply STOP to opt out.`;
+        await sendSignalWireSms({ from: fromPhone, to: phoneNumber, body: smsBody }).catch((err) =>
+          console.warn("[swaig/book-appointment] booking-url SMS failed:", err),
+        );
+        appointmentStatus = "pending_confirmation";
+        aiResponse = `I've sent you a text with a link to schedule your ${service || "appointment"}. Is there anything else I can help you with?`;
+      }
+    }
+
+    // Default: SMS callback flow — works for any business regardless of calendar software
+    if (!aiResponse) {
+      const escalationPhone = tenant.escalationContactPhone;
+
+      if (fromPhone && escalationPhone) {
+        const businessSms =
+          `New appointment request: ${callerName} wants ${service || "an appointment"} on ${dateStr} at ${timeStr}. ` +
+          `Call them back at ${phoneNumber} to confirm.`;
+        await sendSignalWireSms({ from: fromPhone, to: escalationPhone, body: businessSms }).catch((err) =>
+          console.warn("[swaig/book-appointment] business SMS failed:", err),
+        );
+      }
+
+      if (fromPhone && phoneNumber) {
+        const callerSms =
+          `Hi ${callerName}! We've received your appointment request for ${service || "your service"} on ${dateStr}. ` +
+          `We'll call you back to confirm. Reply STOP to opt out.`;
+        await sendSignalWireSms({ from: fromPhone, to: phoneNumber, body: callerSms }).catch((err) =>
+          console.warn("[swaig/book-appointment] caller SMS failed:", err),
+        );
+      }
+
+      appointmentStatus = "pending_confirmation";
+      aiResponse = "I've sent your appointment request. Someone from our team will call you back to confirm. Is there anything else I can help you with?";
+    }
+
+    // ── Persist ────────────────────────────────────────────────────────────────
 
     const [appt] = await db
       .insert(appointments)
@@ -378,9 +448,9 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
         calBookingUid,
         startAt,
         endAt,
-        status: "proposed",
+        status: appointmentStatus,
         notes: [
-          "Booked via SWAIG voice call.",
+          `Booked via SWAIG voice call (provider: ${provider}).`,
           service ? `Service: ${service}.` : "",
           `Caller: ${callerName} (${phoneNumber}).`,
         ]
@@ -397,33 +467,13 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
       resourceId: appt?.id,
     });
 
-    const dateStr = startAt.toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-    const timeStr = startAt.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-
     res.json({
-      response: `I've booked your ${service || "appointment"} for ${dateStr} at ${timeStr}. You'll receive a confirmation shortly. Is there anything else I can help you with?`,
-      action: [
-        {
-          set_meta_data: {
-            appointment_booked: true,
-            appointment_id: appt?.id,
-          },
-        },
-      ],
+      response: aiResponse,
+      action: [{ set_meta_data: { appointment_booked: true, appointment_id: appt?.id } }],
     } satisfies SwaigResponse);
   } catch (err) {
     console.error("[swaig/book-appointment] error:", err);
-    res.json({
-      response:
-        "I'm sorry, something went wrong while booking. Please call back and we'll get you taken care of.",
-    } satisfies SwaigResponse);
+    res.json({ response: "I'm sorry, something went wrong while booking. Please call back and we'll get you taken care of." } satisfies SwaigResponse);
   }
 });
 
