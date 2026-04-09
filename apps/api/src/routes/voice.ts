@@ -67,18 +67,16 @@ async function registerRetellInboundCall(params: {
 
   const payload = {
     agent_id: params.agentId,
-    audio_encoding: "mulaw",
-    audio_websocket_protocol: "twilio",
-    sample_rate: 8000,
     from_number: params.fromNumber,
     to_number: params.toNumber,
+    direction: "inbound",
     metadata: {
       tenantId: params.tenantId,
       callSid: params.callSid,
     },
   };
 
-  const res = await fetch(`${base}/v2/register-call`, {
+  const res = await fetch(`${base}/v2/create-phone-call`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
