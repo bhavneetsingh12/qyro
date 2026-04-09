@@ -4,7 +4,7 @@ import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
-import { requireClerkAuth, validateRetellRequest, validateSignalWireSignature } from "./middleware/auth";
+import { requireClerkAuth, validateRetellRequest, validateSignalWireSignature, validateSwaigRequest } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
 import { rateLimit } from "./middleware/rateLimit";
 import leadsRouter from "./routes/leads";
@@ -17,6 +17,7 @@ import retellRouter, { handleRetellLlmWebSocket } from "./routes/retell";
 import eventsRouter from "./routes/events";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
 import adminRouter from "./routes/admin";
+import swaigRouter from "./routes/swaig";
 
 // ─── Required env var validation ─────────────────────────────────────────────
 // Fail fast with a clear message rather than a cryptic crash later.
@@ -119,6 +120,7 @@ app.use("/webhooks", webhooksRouter);
 app.use("/webhooks", billingPublicRouter);
 app.use("/api/v1/voice", validateSignalWireSignature, voiceRouter);
 app.use("/api/v1/retell", validateRetellRequest, retellRouter);
+app.use("/api/v1/swaig", validateSwaigRequest, swaigRouter);
 app.use("/api/v1/assist", assistPublicRouter);
 
 // ─── Authenticated + tenant-scoped routes ─────────────────────────────────────

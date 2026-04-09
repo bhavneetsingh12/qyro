@@ -149,6 +149,53 @@ export const validateRetellRequest: RequestHandler = (req, res, next) => {
   next();
 };
 
+// Validates SWAIG webhook requests from SignalWire AI Agent.
+// SWAIG supports HTTP basic auth — embed credentials in the webhook URL:
+//   https://user:SWAIG_WEBHOOK_SECRET@api.qyro.us/api/v1/swaig/...
+// Falls through in non-production when secret is not configured.
+export const validateSwaigRequest: RequestHandler = (req, res, next) => {
+  const secret = process.env.SWAIG_WEBHOOK_SECRET;
+  if (!secret || secret.trim().length === 0) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[swaig] SWAIG_WEBHOOK_SECRET not set — rejecting request in production");
+      res.status(403).json({ error: "FORBIDDEN", message: "SWAIG webhook secret not configured" });
+      return;
+    }
+    console.warn("[swaig] ⚠️  SWAIG_WEBHOOK_SECRET not set — skipping auth in dev");
+    next();
+    return;
+  }
+
+  // HTTP Basic Auth: Authorization: Basic base64(username:password)
+  const authHeader = String(req.headers.authorization ?? "").trim();
+  if (authHeader.toLowerCase().startsWith("basic ")) {
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
+    // Accept any username; the password must match the secret
+    const password = decoded.includes(":") ? decoded.split(":").slice(1).join(":") : decoded;
+    if (password === secret.trim()) {
+      next();
+      return;
+    }
+    res.status(403).json({ error: "FORBIDDEN", message: "Invalid SWAIG credentials" });
+    return;
+  }
+
+  // Also accept raw Bearer token or x-swaig-secret header as fallback
+  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  const headerDirect = String(req.headers["x-swaig-secret"] ?? "").trim();
+  if (bearer === secret.trim() || headerDirect === secret.trim()) {
+    next();
+    return;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    next();
+    return;
+  }
+
+  res.status(403).json({ error: "FORBIDDEN", message: "Invalid SWAIG authentication" });
+};
+
 // Extracts Clerk userId from the verified session. Safe to call after requireClerkAuth.
 export function getClerkUserId(req: Parameters<RequestHandler>[0]): string {
   const { userId } = getAuth(req);
