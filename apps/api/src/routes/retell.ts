@@ -1,8 +1,10 @@
 import { Router, type NextFunction, type Request, type Response, type Router as ExpressRouter } from "express";
 import { and, eq, inArray } from "drizzle-orm";
+import { type WebSocket } from "ws";
 import { db } from "@qyro/db";
 import { assistantSessions, appointments, callAttempts, doNotContact, prospectsRaw, tenants, webhookEvents } from "@qyro/db";
 import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/queue";
+import { processTurn } from "@qyro/agents/voiceAssistant";
 
 const router: ExpressRouter = Router();
 
@@ -559,5 +561,118 @@ router.post("/tools/log-call-outcome", async (req: Request, res: Response, next:
     next(err);
   }
 });
+
+// ─── Retell Custom LLM WebSocket handler ──────────────────────────────────────
+// Called from index.ts when SignalWire/Retell opens the wss connection.
+// Path: wss://api.qyro.us/api/v1/retell/llm-websocket
+
+export function handleRetellLlmWebSocket(ws: WebSocket): void {
+  // State captured from call_details message
+  let tenantId = "";
+  let callAttemptId = "";
+  let sessionId = "";
+
+  console.log("[retell/ws] connection opened");
+
+  ws.on("message", async (raw: Buffer) => {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    const interactionType = String(msg.interaction_type ?? "");
+
+    // ── Keepalive ────────────────────────────────────────────────────────────
+    if (interactionType === "ping_pong") {
+      ws.send(JSON.stringify({ response_type: "ping_pong", timestamp: msg.timestamp }));
+      return;
+    }
+
+    // ── Call metadata ────────────────────────────────────────────────────────
+    if (interactionType === "call_details") {
+      const call = getNestedObject(msg.call);
+      const meta = getNestedObject(call.metadata);
+      tenantId = getString(meta, ["tenantId", "tenant_id"]);
+      callAttemptId = getString(meta, ["callAttemptId", "call_attempt_id"]);
+      sessionId = getString(meta, ["sessionId", "session_id"]);
+      console.log(`[retell/ws] call_details — tenantId=${tenantId} callAttemptId=${callAttemptId}`);
+      return;
+    }
+
+    // ── AI turn ──────────────────────────────────────────────────────────────
+    if (interactionType === "response_required" || interactionType === "reminder_required") {
+      const responseId = Number(msg.response_id ?? 0);
+      const transcript = Array.isArray(msg.transcript) ? (msg.transcript as unknown[]) : [];
+
+      // Fallback: pull tenant context from call object if call_details arrived late
+      if (!tenantId) {
+        const call = getNestedObject(msg.call);
+        const meta = getNestedObject(call.metadata);
+        tenantId = getString(meta, ["tenantId", "tenant_id"]);
+        callAttemptId = callAttemptId || getString(meta, ["callAttemptId", "call_attempt_id"]);
+        sessionId = sessionId || getString(meta, ["sessionId", "session_id"]);
+      }
+
+      // All turns except the last become history
+      const history = transcript.slice(0, -1).map((t) => {
+        const turn = getNestedObject(t as Record<string, unknown>);
+        const role = String(turn.role ?? "").toLowerCase();
+        return {
+          role: (role === "agent" ? "assistant" : "user") as "user" | "assistant",
+          content: String(turn.content ?? ""),
+        };
+      });
+
+      // The last transcript turn is the current user utterance
+      const lastRaw = transcript.length > 0
+        ? getNestedObject(transcript[transcript.length - 1] as Record<string, unknown>)
+        : {};
+      const speech = String(lastRaw.content ?? "").trim();
+
+      let reply: string;
+
+      if (!speech && interactionType === "reminder_required") {
+        reply = "Are you still there? Is there anything else I can help you with?";
+      } else if (tenantId && speech) {
+        try {
+          const turn = await processTurn({
+            tenantId,
+            sessionId: sessionId || undefined,
+            message: speech,
+            history,
+            runId: callAttemptId || undefined,
+          });
+          reply = turn.ok
+            ? turn.data.reply
+            : "I'm having some trouble. Could you please try again?";
+        } catch (err) {
+          console.error("[retell/ws] processTurn error:", err);
+          reply = "I'm sorry, I ran into an issue. Could you repeat that?";
+        }
+      } else {
+        reply = tenantId
+          ? "I didn't catch that. Could you say that again?"
+          : "Hello, how can I help you today?";
+      }
+
+      ws.send(JSON.stringify({
+        response_id: responseId,
+        content: reply,
+        content_complete: true,
+        end_call: false,
+      }));
+    }
+  });
+
+  ws.on("error", (err: Error) => {
+    console.error("[retell/ws] socket error:", err);
+  });
+
+  ws.on("close", () => {
+    console.log("[retell/ws] connection closed");
+  });
+}
 
 export default router;

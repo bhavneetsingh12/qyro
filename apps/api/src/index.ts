@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { WebSocketServer } from "ws";
 import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
@@ -12,7 +13,7 @@ import assistRouter, { assistPublicRouter } from "./routes/assist";
 import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 import voiceRouter from "./routes/voice";
-import retellRouter from "./routes/retell";
+import retellRouter, { handleRetellLlmWebSocket } from "./routes/retell";
 import eventsRouter from "./routes/events";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
 import adminRouter from "./routes/admin";
@@ -161,6 +162,28 @@ async function start() {
 
     const server = app.listen(PORT, () => {
       console.log(`[api] 4. Listening on http://localhost:${PORT}`);
+    });
+
+    // ── Retell Custom LLM WebSocket ─────────────────────────────────────────
+    const wss = new WebSocketServer({ noServer: true });
+
+    server.on("upgrade", (request, socket, head) => {
+      const url = new URL(request.url ?? "", `http://localhost`);
+      if (url.pathname !== "/api/v1/retell/llm-websocket") {
+        socket.destroy();
+        return;
+      }
+      // Validate Retell shared secret sent as Authorization header
+      const secret = process.env.RETELL_WEBHOOK_SECRET ?? "";
+      const authHeader = String(request.headers.authorization ?? "");
+      if (secret && authHeader !== secret) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        handleRetellLlmWebSocket(ws);
+      });
     });
 
     async function shutdown() {
