@@ -43,7 +43,8 @@ function isDndRequest(text: string): boolean {
 
 function getVoiceRuntime(metaRaw: unknown): "retell" | "twilio" {
   const meta = metaRaw && typeof metaRaw === "object" ? (metaRaw as Record<string, unknown>) : {};
-  const raw = String(meta.voice_runtime ?? "twilio").trim().toLowerCase();
+  const raw = String(meta.voice_runtime ?? "").trim().toLowerCase();
+  // "retell" is explicit opt-in; "signalwire" and legacy "twilio" both use TwiML path
   return raw === "retell" ? "retell" : "twilio";
 }
 
@@ -54,9 +55,58 @@ function getRetellAgentId(metaRaw: unknown): string {
   return String(process.env.RETELL_AGENT_ID_DEFAULT ?? "").trim();
 }
 
-function twimlRetellRedirect(agentId: string): string {
+async function registerRetellInboundCall(params: {
+  agentId: string;
+  fromNumber: string;
+  toNumber: string;
+  tenantId: string;
+  callSid: string;
+}): Promise<{ callId: string; accessToken: string }> {
+  const apiKey = String(process.env.RETELL_API_KEY ?? "").trim();
   const base = String(process.env.RETELL_BASE_URL ?? "https://api.retellai.com").replace(/\/$/, "");
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${base}/twilio-voice-webhook/${encodeURIComponent(agentId)}</Redirect></Response>`;
+
+  const payload = {
+    agent_id: params.agentId,
+    audio_encoding: "mulaw",
+    audio_websocket_protocol: "twilio",
+    sample_rate: 8000,
+    from_number: params.fromNumber,
+    to_number: params.toNumber,
+    metadata: {
+      tenantId: params.tenantId,
+      callSid: params.callSid,
+    },
+  };
+
+  const res = await fetch(`${base}/v2/register-call`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await res.text();
+  console.log("[voice/incoming] Retell register-call response:", text);
+
+  if (!res.ok) {
+    throw new Error(`Retell register-call failed ${res.status}: ${text.slice(0, 250)}`);
+  }
+
+  const data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  const callId = String(data.call_id ?? "").trim();
+  const accessToken = String(data.access_token ?? "").trim();
+
+  if (!callId || !accessToken) {
+    throw new Error(`Retell register-call missing fields. Response: ${text.slice(0, 250)}`);
+  }
+
+  return { callId, accessToken };
+}
+
+function twimlRetellStream(accessToken: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://api.retellai.com/audio-websocket/${encodeURIComponent(accessToken)}"/></Connect></Response>`;
 }
 
 function mapTwilioStatusToPipeline(status: string): string {
@@ -216,13 +266,21 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     if (runtime === "retell") {
       const agentId = getRetellAgentId(tenant.metadata);
       if (agentId) {
+        const { callId, accessToken } = await registerRetellInboundCall({
+          agentId,
+          fromNumber: fromPhone,
+          toNumber: toPhone,
+          tenantId: tenant.id,
+          callSid,
+        });
+        console.log(`[voice/incoming] Retell call registered: callId=${callId}`);
         // Create a minimal session record for audit trail.
         // callAttempt is created by the Retell call-events or tool endpoints.
         await db.insert(assistantSessions).values({
           tenantId: tenant.id,
           sessionType: "voice_inbound",
         });
-        sendTwiml(twimlRetellRedirect(agentId));
+        sendTwiml(twimlRetellStream(accessToken));
         return;
       }
       console.warn(`[voice/incoming] voice_runtime=retell but no agent ID configured for tenant ${tenant.id} — falling back to Twilio`);
