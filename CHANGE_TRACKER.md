@@ -163,6 +163,75 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pnpm -s -r typecheck: pass (no output)
   - pnpm --filter @qyro/crons build: pass
 
+## 2026-04-07 to 2026-04-10
+
+### b0e540a - fix: retell call-events 500 — RETELL_WEBHOOK_SECRET missing caused hard 500
+- Added graceful error when RETELL_WEBHOOK_SECRET is not configured — returns 401 instead of 500.
+
+### 9ee9b98 - feat: add voice runtime and retell agent ID fields to settings pages
+- Added `voice_runtime` and `retell_agent_id` fields to client settings page and PATCH /tenants/settings.
+- Operators can now switch per-tenant voice runtime (signalwire/retell) from the portal.
+
+### 6c02a8f - fix: move voice config to client settings only, add voice admin panel
+- Voice number and configuration moved to client portal settings only (removed from internal portal).
+- Added voice section to client admin panel for tenant-level voice management.
+
+### 0e552ab - feat: client admin panel with org/voice/AI/team/billing + secure ops path
+- Added `/client/admin` page with tabbed interface: org, voice, AI, team, billing.
+- Moved platform ops path from `/admin` to `/qx-ops` with rate limiting.
+- Rate limiter: 5 requests per minute per IP; 1-hour block on violation.
+
+### f8eca3d - fix: move admin panel to /admin route, remove from internal portal
+- Intermediate fix before /qx-ops migration.
+
+### 41c89c8 - feat: add Retell Custom LLM WebSocket endpoint
+- Added WebSocket handler at `/api/v1/retell/llm-websocket`.
+- Retell can now use QYRO as its custom LLM backend for fully custom conversational logic.
+- Wired into the WS upgrade path in `apps/api/src/index.ts`.
+
+### 292eb65 - fix: SignalWire signature validation
+- Fixed auth token key in validation middleware (was using wrong env var key).
+- Added `SKIP_SW_SIGNATURE_CHECK=true` bypass flag for Railway testing.
+- Fixed URL construction in HMAC validation to match SignalWire's expected format.
+
+### d3a9650 - fix: add express.urlencoded() so SignalWire webhook bodies parse correctly
+- SignalWire sends `application/x-www-form-urlencoded` for cXML webhooks.
+- Added `express.urlencoded({ extended: false })` middleware before voice routes.
+
+### c7e935b - feat: SWAIG endpoints for SignalWire AI agent
+- Added new route file `apps/api/src/routes/swaig.ts`.
+- Added `validateSwaigRequest` middleware (HTTP Basic auth with `SWAIG_WEBHOOK_SECRET`).
+- Implemented 4 SWAIG function endpoints:
+  - `POST /api/v1/swaig/booking` — book_appointment
+  - `POST /api/v1/swaig/faq` — business_info
+  - `POST /api/v1/swaig/escalation` — escalate
+  - `POST /api/v1/swaig/sms` — callback_sms
+- Tenant identification: SWML global_data → payload tenantId → voice_number lookup.
+- Mounted in `apps/api/src/index.ts` with SWAIG auth middleware.
+
+### 01db096 - feat: multi-provider calendar adapter for SWAIG booking, default SMS callback flow
+- SWAIG booking endpoint now uses the calendar adapter factory (`packages/agents/src/calendars/index.ts`).
+- Supports Cal.com and Google Calendar based on `tenant.metadata.calendarProvider`.
+- Falls back to `callback_only` if no calendar provider configured — sends SMS to request callback.
+- Default missed-call SMS callback flow documented and implemented.
+
+### 0dc5b37 - feat: auto tenant creation on signup, onboarding flow, product selection
+- `tenant.ts` provisioning now sets `onboarding_complete: false` in metadata.
+- `GET /api/v1/tenants/settings` now returns `onboardingComplete` and `tenantType`.
+- Added `PATCH /api/v1/tenants/onboarding` endpoint (saves business info + marks complete).
+- `/products` page redirects to `/onboarding` when `onboardingComplete === false`.
+- New 4-step onboarding page at `apps/web/src/app/onboarding/page.tsx`:
+  - Step 0: Product selection (Assist vs Lead — Lead shows "coming soon")
+  - Step 1: Business info (name, industry, phone, timezone)
+  - Step 2: AI setup (description, services, greeting)
+  - Step 3: Done (call-forwarding instructions)
+- Existing tenants unaffected (no `onboarding_complete` field = skip gate).
+
+### 32474ce - docs: complete architecture document
+- Generated `docs/ARCHITECTURE.md` from all .md files + git log + live filesystem scan.
+
+---
+
 ## Ongoing Update Rule
 - For each new user command, append a new entry with:
   - timestamp/date

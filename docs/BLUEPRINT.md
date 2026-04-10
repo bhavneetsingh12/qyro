@@ -1,12 +1,12 @@
 # QYRO Architecture Blueprint
-_Last updated: 2026-04-05 | Owner: Bhavneet Singh / Zentryx LLC_
+_Last updated: 2026-04-10 | Owner: Bhavneet Singh / Zentryx LLC_
 
 ## Two products, one platform
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      SHARED PLATFORM                            │
-│         Postgres · Redis · n8n · Node API · Auth · Billing      │
+│   Postgres · Redis · Railway · Node API · Auth · Billing        │
 ├───────────────────────────┬─────────────────────────────────────┤
 │     QYRO Lead             │         QYRO Assist                 │
 │  (internal → sell later)  │      (sell this first)              │
@@ -32,6 +32,43 @@ This is the immediate revenue product.
 
 They share agents where it makes sense (Reply Triage, Booking, QA).
 They have separate prompt packs, separate workflows, separate dashboards.
+
+---
+
+## Architecture change log — April 6–10, 2026
+
+### Voice — SignalWire AI Agent (SWAIG) added
+- Added native SignalWire AI function endpoint surface at `/api/v1/swaig/`
+- Functions: `book_appointment`, `business_info`, `escalate`, `callback_sms`
+- SWAIG auth via HTTP Basic with `SWAIG_WEBHOOK_SECRET`
+- Multi-provider calendar adapter added to SWAIG booking (Cal.com + Google Calendar factory)
+- Tenant identification from SWML `global_data`, payload `tenantId`, or `voice_number` lookup
+
+### Voice — Retell Custom LLM WebSocket
+- Added `/api/v1/retell/llm-websocket` WebSocket endpoint
+- Retell can use QYRO as its LLM backend for fully custom conversational logic
+
+### SignalWire signature validation hardened
+- `SKIP_SW_SIGNATURE_CHECK=true` bypass flag added for Railway testing
+- `express.urlencoded()` added to fix body parsing for SignalWire cXML webhooks
+- Auth token key corrected in validation middleware
+
+### Observability and admin
+- Client admin panel added at `/client/admin` (org, voice, AI, team, billing tabs)
+- Secure ops path moved from `/admin` to `/qx-ops` with rate limiting
+- Voice config moved to client portal settings only
+- SSE real-time dashboard (Redis pub/sub → `/api/v1/events/stream`)
+- Anomaly detection worker (every 15 min): high API volume, export volume, sequential pagination
+
+### Onboarding + tenant provisioning
+- Auto-provisioning now sets `onboarding_complete: false` on first Clerk login
+- Self-serve 4-step onboarding flow at `/onboarding`
+- `PATCH /api/v1/tenants/onboarding` endpoint saves business info + marks complete
+
+### Infrastructure
+- Railway cron services fully replace n8n schedule triggers (n8n JSON kept as fallback)
+- Railway deployment: per-service start commands via Railway dashboard (not railway.json)
+- BullMQ queue error handlers added; Redis error handler prevents SIGTERM crash loop
 
 ---
 
@@ -117,22 +154,23 @@ const PRODUCT_ACCESS = {
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Frontend | Next.js 14 (App Router) | Phase 2+ — QYRO Assist client portal |
-| Backend API | Node.js + TypeScript + Express | REST + webhook ingestion |
-| Database | Postgres (Supabase or Neon) | RLS for tenant isolation |
-| Cache / Queue | Redis + BullMQ | job queues + research cache |
-| Object Storage | Azure Blob or S3-compatible | recordings, exports, prompt packs |
-| Orchestrator | n8n Cloud (queue mode) | workflows, retries, approval gates |
-| Auth | Clerk | multi-tenant, RBAC |
-| Billing | Stripe | Phase 2+ for QYRO Assist |
-| AI | OpenAI (tiered) | see TOKEN_BUDGET.md |
-| Voice | SignalWire (+ Retell runtime path) | cXML-compatible transport with provider-neutral DB fields |
-| Calendar | Cal.com | booking + reschedule |
-| CRM | HubSpot | contact sync |
-| Lead sources | Google Places API (New) | primary search source; no scraping |
-| Email enrichment | Apollo API (domain lookup), Hunter API | email lookup only — not lead search |
-| Transactional email | Resend | REST API (no SDK); see sendEmail.ts |
-| Process management | PM2 | API server + BullMQ workers; see infra/pm2/ |
+| Frontend | Next.js 14 (App Router) | Deployed on Vercel; git push = auto-deploy |
+| Backend API | Node.js + TypeScript + Express | Deployed on Railway; port 3001 |
+| Database | Postgres (Railway) | Drizzle ORM; RLS policies in migration 0001 |
+| Cache / Queue | Redis + BullMQ | Railway Redis; 6 queue types + workers |
+| Scheduling | Railway cron services | Replaced n8n schedules; n8n JSON kept as fallback |
+| Auth | Clerk | Separate prod/dev environments; JWT bearer tokens |
+| Billing | Stripe | Active; `tenant_subscriptions` table; webhook as entitlement authority |
+| AI | OpenAI (tiered) + Claude | see TOKEN_BUDGET.md |
+| Voice telephony | SignalWire | **ACTIVE** — cXML-compatible; `x-signalwire-signature` verification |
+| Voice AI (path A) | SignalWire AI Agent + SWAIG | **ACTIVE** — native SWML function calling; `/api/v1/swaig/*` |
+| Voice AI (path B) | Retell + Custom LLM WebSocket | **ACTIVE** — per-tenant `voice_runtime=retell`; `/api/v1/retell/*` |
+| Calendar | Cal.com + Google Calendar | Adapter pattern; factory in `packages/agents/src/calendars/` |
+| Lead sources | Google Places API (New) | Primary and only search source; no scraping |
+| Email enrichment | Apollo API (domain lookup), Hunter API | Email lookup only — not lead search |
+| Transactional email | Resend | REST API (no SDK); `apps/api/src/lib/sendEmail.ts` |
+| Real-time events | Redis pub/sub + SSE | `GET /api/v1/events/stream`; dashboard live toasts |
+| Process management | PM2 (local) + Railway services (prod) | `infra/pm2/ecosystem.prod.config.cjs`; separate Railway service per worker |
 
 ---
 
@@ -234,43 +272,46 @@ qyro/
         └─────┬─────┘
               v
         [OpenAI API]
-        [Google Places API]  ← lead search
-        [Apollo/Hunter API]  ← email enrichment only
-        [Resend]             ← transactional email
-        [Cal.com]
-        [Twilio — Phase 5]
+        [Google Places API]   ← lead search
+        [Apollo/Hunter API]   ← email enrichment only
+        [Resend]              ← transactional email
+        [Cal.com / Google Calendar]
+        [SignalWire]          ← ACTIVE telephony transport (cXML)
+          ├── [SWAIG]         ← SignalWire AI Agent native function calling
+          └── [Retell]        ← realtime voice AI (per-tenant opt-in)
 ```
 
 ---
 
 ## Build phases (detailed)
 
-### Phase 1 — QYRO Lead, internal (CURRENT)
+### Phase 1 — QYRO Lead, internal — **COMPLETE**
 **What:** Backend only. Bhavneet runs the lead engine for himself.
 **Tenant:** Single hardcoded tenant (tenant_type: "internal")
-**No:** frontend UI, billing, self-serve, Client Assistant
-**Agents to build:** leadDiscovery, research, outreach, replyTriage, booking
-**Workflows in n8n:** lead ingestion, research queue, outreach approval, reply handling
+**Agents built:** leadDiscovery, research, outreach, replyTriage, booking, emailEnrichment, qa
+**Scheduling:** Railway cron services (replaced n8n schedule triggers)
 
-### Phase 2 — QYRO Assist, multi-tenant
+### Phase 2 — QYRO Assist, multi-tenant — **COMPLETE**
 **What:** The product Bhavneet sells to local businesses.
 **Tenant type:** "assistant"
-**Build:** Next.js portal, client widget (embeddable JS), Stripe billing, manual onboarding
-**Agents:** clientAssistant, missed-call follow-up (reuse outreach + replyTriage)
+**Built:** Next.js portal, embeddable widget, Stripe billing, self-serve onboarding flow
+**Agents:** clientAssistant, voiceAssistant, missed-call follow-up, QA guardrail
+**Voice:** SignalWire AI Agent (SWAIG) + optional Retell runtime per tenant
 **Prompt packs:** docs/PROMPTS/assist/
 
-### Phase 3 — QYRO Assist productization
-Self-serve onboarding, niche template library, analytics dashboard,
-white-label option for agencies.
+### Phase 3 — Stripe Billing + Onboarding Polish — **NEXT**
+Self-serve onboarding (4-step flow built; Stripe checkout not yet wired in-flow),
+niche template library, calling hours enforcement, Cal.com webhook confirmations,
+Calendly / Square Appointments adapters.
 
 ### Phase 4 — QYRO Lead as a product
 Add tenant_type: "lead_engine". Build onboarding, billing, UI for it.
 All backend agents already exist from Phase 1 — just expose them via UI.
 Separate landing page and pricing from QYRO Assist.
 
-### Phase 5 — Voice
-Inbound missed-call callback first. Requires COMPLIANCE.md gate.
-TCPA + state legal review required before any outbound voice.
+### Phase 5 — Voice at Scale
+Outbound cold calling (consent-only). Requires COMPLIANCE.md full gate.
+Currently: inbound voice **ACTIVE**, outbound with DNC/capacity controls **ACTIVE**.
 
 ---
 

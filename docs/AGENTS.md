@@ -1,4 +1,5 @@
 # QYRO Agent Specifications
+_Last updated: 2026-04-10_
 
 ## Agent contract rules (apply to ALL agents)
 
@@ -154,6 +155,69 @@
 
 ---
 
+## Voice Assistant Agent
+
+**File:** `packages/agents/src/agents/voiceAssistant.ts`
+**Model tier:** cheap (gpt-4o-mini) | escalate to standard for complex queries
+**Max input:** 3,000 tokens (after compaction) | **Max output:** 400 tokens
+
+**What it does:**
+- Voice-optimized variant of Client Assistant — same capabilities, tuned for spoken output
+- Produces concise, natural-sounding responses suitable for TTS playback
+- Detects intent: question | booking_intent | escalate | do_not_contact
+- Coordinates with Booking Agent for slot selection and confirmation
+- Compacts conversation history every 6 turns (same as clientAssistant)
+- Returns escalation signal → triggers TwiML `<Dial>` transfer + SMS/email to staff
+- Returns DND signal → immediately adds caller to `do_not_contact`
+
+**What it must never do:**
+- Produce long verbose replies (voice callers cannot re-read — keep it concise)
+- Promise services not in `approved_services` list
+- Continue talking after escalation flag is set
+- Quote prices outside `approved_price_range`
+
+**Inputs:** `{ tenantId, sessionId, message, history, callerPhone }`
+**Outputs:** `{ reply, escalate: boolean, bookingIntent: boolean, dndRequested: boolean }`
+
+**Voice call paths:**
+- **SWAIG path:** SignalWire AI Agent handles speech; calls `/api/v1/swaig/*` function endpoints directly. voiceAssistant.ts is NOT called in this path — SWAIG uses its own LLM.
+- **Retell path:** Retell handles speech; calls `/api/v1/retell/tools/*` endpoints. voiceAssistant.ts is called inside those tool handlers.
+- **TwiML loop path:** `POST /api/v1/voice/turn` calls voiceAssistant.ts directly; reply wrapped in `<Say>`.
+
+---
+
+## SWAIG Function Surface (SignalWire AI Agent)
+
+**Route file:** `apps/api/src/routes/swaig.ts`
+**Auth:** HTTP Basic with `SWAIG_WEBHOOK_SECRET`
+**Not an "agent" in the LLM sense** — these are callable functions that the SignalWire AI Agent invokes during a live call.
+
+This is **Voice Path A** — the primary production voice path for most tenants.
+
+**How it works:**
+1. Customer calls tenant's SignalWire number
+2. SignalWire AI Agent handles speech via its own LLM (configured in SWML)
+3. When AI needs to take a business action, it POSTs to a SWAIG function endpoint
+4. QYRO executes the action and returns a result string the AI reads aloud
+
+**Functions:**
+
+| Endpoint | Function name | What it does |
+|---|---|---|
+| `POST /api/v1/swaig/booking` | `book_appointment` | Finds available slots via calendar adapter, creates booking, logs to `appointments` |
+| `POST /api/v1/swaig/faq` | `business_info` | Returns approved business info, services, hours from tenant settings |
+| `POST /api/v1/swaig/escalation` | `escalate` | Logs escalation, notifies staff via SMS/email, returns transfer instruction |
+| `POST /api/v1/swaig/sms` | `callback_sms` | Sends follow-up SMS to caller, logs to `message_attempts` |
+
+**Tenant identification (priority order):**
+1. `tenantId` / `tenant_id` in payload root (set via SWML `global_data` in AI agent config — recommended)
+2. `tenantId` in `argument.parsed[0]`
+3. `to` / `call_to` number looked up against `tenants.voice_number`
+
+**Calendar adapter:** Multi-provider — factory loads Cal.com or Google Calendar adapter from `tenant.metadata.calendarProvider`. Defaults to `callback_only` if no provider configured.
+
+---
+
 ## QA Guardrail Agent
 
 **File:** `packages/agents/src/agents/qa.ts`
@@ -177,6 +241,8 @@
 ---
 
 ## Prompt Hygiene Agent
+
+**Status:** Specced but NOT YET BUILT. File `promptHygiene.ts` does not exist.
 
 **File:** `packages/agents/src/agents/promptHygiene.ts`
 **Model tier:** cheap (gpt-4o-mini)

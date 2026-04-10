@@ -41,23 +41,25 @@ Phase 1 — QYRO Lead, internal only (COMPLETE)
   Agents: Lead Discovery, Research (cached), Outreach, Reply Triage, Booking
   Goal: use this to find and sign the first QYRO Assist clients
 
-Phase 2 — QYRO Assist, multi-tenant (sell this first) (CURRENT)
+Phase 2 — QYRO Assist, multi-tenant (sell this first) (COMPLETE)
   Full multi-tenant (tenant_type: "assistant")
   Client widget + missed-call follow-up + FAQ + booking
-  Manual onboarding for first clients is fine
-  Stripe billing
+  Stripe billing, self-serve onboarding flow
+  Voice ACTIVE via SignalWire AI Agent (SWAIG) + optional Retell per tenant
 
-Phase 3 — QYRO Assist productization
-  Self-serve onboarding, niche prompt packs, analytics, admin portal
+Phase 3 — QYRO Assist productization (CURRENT)
+  Stripe checkout wired into onboarding flow, niche prompt packs,
+  calling hours enforcement, Cal.com webhook confirmations,
+  Calendly/Square Appointments adapters
 
 Phase 4 — QYRO Lead as a product
   Add tenant_type: "lead_engine", build onboarding UI + billing
   No new backend agents needed — already built in Phase 1
   Separate pricing page and landing page from QYRO Assist
 
-Phase 5 — Voice (both products)
-  Only after COMPLIANCE.md gate is satisfied
-  Inbound only first (missed-call callback), not cold calling
+Phase 5 — Voice at scale
+  Inbound ACTIVE (SignalWire AI Agent). Outbound callback ACTIVE (DNC enforced).
+  Cold outbound: blocked — COMPLIANCE.md gate must be satisfied first
 ```
 
 ---
@@ -161,11 +163,16 @@ When you see these signs: finish the current task, /compact, stop.
 5. /compact when done
 
 ## Current phase
-**Phase 2 — COMPLETE. Phase 3 — Stripe Billing + Self-Serve Onboarding (NEXT)**
+**Phase 2 — COMPLETE. Phase 3 — Stripe checkout in onboarding, calling hours, calendar confirmations (NEXT)**
 
-Phase 1 (QYRO Lead backend) is complete. Phase 2 (QYRO Assist product) is complete.
-P0/P1 critical fixes have been documented (see QYRO_P0_FIXES.md).
-Phase 3 will add Stripe billing, self-serve onboarding, and admin controls.
+Phase 1 (QYRO Lead backend): COMPLETE.
+Phase 2 (QYRO Assist product): COMPLETE — voice ACTIVE via SignalWire AI Agent (SWAIG).
+  Self-serve 4-step onboarding built. Stripe billing foundation built.
+  SWAIG function surface: booking, FAQ, escalation, SMS callback.
+  Retell Custom LLM WebSocket: per-tenant opt-in via voice_runtime=retell.
+  Auto tenant provisioning: first Clerk login creates tenant + triggers onboarding gate.
+Phase 3: Wire Stripe checkout into onboarding flow, calling hours enforcement,
+  Cal.com webhook confirmations, niche template library.
 
 ### April 2026 shipping updates
 Recent working changes now in the codebase:
@@ -243,10 +250,12 @@ Production configuration work completed during the same window:
 [x] End-to-end checkout completed: product unlock confirmed after webhook processing
 ```
 
-Follow-up scheduled for next morning:
+Follow-up remaining (Phase 3):
 
 ```
-[ ] Twilio setup pass (phone numbers, env vars, webhooks)
+[ ] Wire Stripe checkout into onboarding step 1 (product selection → checkout)
+[ ] Calling hours enforcement in outboundCallWorker.ts (see COMPLIANCE.md TODO)
+[ ] Cal.com webhook for booking confirmation
 [ ] P1 optimization: replace JS tenant scan in voice number resolution with indexed DB lookup
 ```
 ```
@@ -278,12 +287,24 @@ All voice inbound and outbound call infrastructure complete.
 [x] Session AA — Calendar adapters (Google + Cal.com)
 [x] Session AB — Client Assistant agent (text)
 [x] Session AC — Voice Assistant agent
-[x] Session AD — Voice routes (Twilio inbound)
+[x] Session AD — Voice routes (SignalWire inbound + outbound)
 [x] Session AE — Assist API expansion (outbound queue + controls)
 [x] Session AF — Assist prompt packs (FAQ, SMS, email, voice)
 [x] Session AG — Widget JavaScript (embeddable chat)
 [x] Session AH — Client portal updates (calls/approvals/settings/call-control)
 [x] Session AI — Assist E2E test script
+[x] Session AJ — SWAIG function surface (booking, FAQ, escalation, SMS callback)
+[x] Session AK — Retell Custom LLM WebSocket + per-tenant voice_runtime
+[x] Session AL — Self-serve 4-step onboarding flow + auto tenant provisioning
+[x] Session AM — SSE real-time dashboard + Redis pub/sub events
+[x] Session AN — Escalation detection + human handoff (SMS + email + transfer)
+[x] Session AO — Client admin panel (/client/admin), /qx-ops ops path
+[x] Session AP — Railway cron services (replaced n8n schedule triggers)
+[x] Session AQ — Daily digest analytics + recharts dashboard
+[x] Session AR — Consent pre-check gate + skipped leads filter
+[x] Session AS — Async webhook processing via BullMQ webhookWorker
+[x] Session AT — Call recording storage, transcript capture, playback UI
+[x] Session AU — Docs: fix all inconsistencies, update ARCHITECTURE.md
 ```
 
 ### Phase 2 — Design direction
@@ -310,15 +331,16 @@ Shared: layout components, design system, API client.
 ```
 qyro/
   apps/
-    web/          Next.js 14 frontend — Phase 2 (CURRENT — building now)
-    api/          Node/Express/TS backend — Phase 1+
+    web/          Next.js 14 frontend — COMPLETE (Phase 2+)
+    api/          Node/Express/TS backend — COMPLETE (Phase 1+)
+    crons/        Railway cron scripts — nightly-ingest, morning-digest
   packages/
-    db/           Drizzle ORM schema + migrations
+    db/           Drizzle ORM schema + migrations (13 migrations to date)
     agents/       Agent runner + token budget enforcement
     prompts/      Prompt loader + validator
-    queue/        BullMQ job definitions
+    queue/        BullMQ job definitions + 6 workers
   docs/           Architecture docs (load these to orient, not source files)
-  infra/          Docker Compose, env templates
+  infra/          Docker Compose, env templates, PM2 config
   .claudeignore   Files Claude Code should never load
 ```
 
@@ -376,8 +398,10 @@ Security fixes also applied (2026-04-05 audit):
 [x] Sign-up page (/sign-up) added
 
 ### P1 Important (Phase 3)
-- Rate limiting on chat endpoint is in-memory only — resets on server restart (acceptable for single-instance dev, upgrade before scaling)
-- Self-serve tenant onboarding not built (manual onboarding only)
+- Rate limiting on chat endpoint migrated to Redis-backed INCR/EXPIRE (fixed — was in-memory)
+- Self-serve tenant onboarding: BUILT — 4-step flow at /onboarding; gated on onboarding_complete flag
+- Stripe checkout not yet wired into onboarding flow (products page has manual billing actions)
+- Calling hours enforcement in outboundCallWorker.ts: planned but not yet in code (see COMPLIANCE.md)
 - Clerk webhooks not implemented (user lifecycle sync)
 - Cal.com webhooks not implemented (booking confirmation)
 - Calendly / Square Appointments adapters not built

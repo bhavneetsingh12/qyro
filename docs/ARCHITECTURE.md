@@ -1,86 +1,88 @@
-# QYRO Architecture Document
-_Generated: 2026-04-10 | Derived from: all .md files, git log (50 commits), and live filesystem_
+# QYRO Architecture Reference
+_Last updated: 2026-04-10 | Owner: Bhavneet Singh / Zentryx LLC_
+_Source of truth for all system state. Detailed enough for new-developer onboarding,
+Claude Code session resumption, and technical review._
 
 ---
 
-## 1. System Overview
+## 1. What QYRO Is
 
-QYRO is two separately-sold AI products running on one shared platform:
+QYRO is **two SaaS products on one shared platform**:
 
-| Product | Target buyer | Tenant type | Status |
+| Product | Tenant type | Status | Who uses it |
 |---|---|---|---|
-| **QYRO Assist** | Local businesses (dental, medspa, home services, etc.) | `assistant` | Production-ready |
-| **QYRO Lead** | Agencies / sales teams | `internal` now, `lead_engine` Phase 4 | Internal use only |
+| **QYRO Lead** | `internal` / future `lead_engine` | COMPLETE (internal use) | Bhavneet only — finds and contacts QYRO Assist prospects |
+| **QYRO Assist** | `assistant` | COMPLETE (selling now) | Local business clients — AI receptionist: calls, chat, booking, follow-up |
 
-Both products share one codebase, one Postgres database, one Redis instance, one API, and one auth layer. They are separated at runtime by `tenant_type` on the `tenants` table. They have separate Next.js portal routes, separate pricing pages, and separate landing page sections.
-
-**Current priority:** Ship QYRO Assist to paying clients. QYRO Lead runs internally only and is used to find Assist clients.
+Both products share one codebase, one database, one API, one infrastructure.
+Separated at the data layer by `tenant_type` and enforced by Postgres RLS + tenant middleware.
 
 ---
 
-## 2. Architecture Diagram
+## 2. High-Level Architecture
 
 ```
-[ Public landing / sign-up ]
-          |
-          v
-[ Clerk Auth — session JWT ]
-          |
-     ┌────┴─────┐
-     v           v
-[ /internal/* ] [ /client/* ]    (Next.js App Router — Vercel)
-  QYRO Lead       QYRO Assist
-  portal          portal
-     └────┬─────┘
-          |  Bearer token
-          v
-[ Node/Express API — Railway ]
-  apps/api/src/index.ts (port 3001)
-          |
-  ┌───────┼────────┬──────────────┐
-  v       v        v              v
-[Postgres] [Redis] [BullMQ queues] [SSE /events/stream]
-  Railway   Railway  research       Redis pub/sub
-  Postgres  Redis    outreach       real-time push
-                     outbound-call
-                     webhook
-                     reply-triage
-          |
-  ┌───────┼────────────────────┐
-  v       v                    v
-[OpenAI] [SignalWire + Retell] [Stripe]
-  LLM     telephony             billing
-          (cXML + Retell AI)
-          |
-  ┌───────┼─────────┐
-  v       v         v
-[Cal.com] [Google Calendar] [Resend email]
-  booking  booking           transactional
+┌────────────────────────────────────────────────────────────────────────┐
+│                          VERCEL (Next.js 14)                           │
+│  Landing page  /products  /onboarding  /client/*  /internal/*  widgets │
+└─────────────────────────────┬──────────────────────────────────────────┘
+                              │ HTTPS (API_URL)
+┌─────────────────────────────▼──────────────────────────────────────────┐
+│                      RAILWAY — Express API (:3001)                     │
+│                                                                        │
+│  Auth middleware (Clerk JWT)   Tenant middleware   Quota middleware     │
+│                                                                        │
+│  /api/v1/leads      /api/v1/campaigns   /api/v1/tenants                │
+│  /api/v1/assist     /api/v1/billing     /api/v1/admin                  │
+│  /api/v1/voice      /api/v1/retell      /api/v1/swaig                  │
+│  /api/v1/webhooks   /api/v1/events/stream (SSE)                        │
+│  /widgets/assist    (public, rate-limited)                             │
+└──────┬──────────────┬──────────────┬──────────────────────────────────┘
+       │              │              │
+┌──────▼──────┐ ┌─────▼─────┐ ┌─────▼──────────────────────────────────┐
+│  Postgres   │ │   Redis   │ │         BullMQ Workers (Railway)        │
+│  (Railway)  │ │ (Railway) │ │  research  outreach  replyTriage        │
+│  Drizzle    │ │  pub/sub  │ │  outboundCall  webhook  anomaly          │
+│  RLS on     │ │  queues   │ │                                         │
+│  every table│ │  cache    │ └─────────────────────────────────────────┘
+└─────────────┘ └─────┬─────┘
+                      │ SSE broadcast
+              ┌───────▼───────┐
+              │  Browser SSE  │
+              │  client dash  │
+              └───────────────┘
+
+External services:
+  OpenAI (gpt-4o-mini / gpt-4o)   Google Places API   Apollo/Hunter (email)
+  SignalWire (telephony PSTN)       Retell (voice AI)   Cal.com / Google Calendar
+  Resend (transactional email)      Stripe (billing)    Clerk (auth)
 ```
 
 ---
 
-## 3. Tech Stack
+## 3. Technology Stack
 
-| Layer | Choice | Notes |
-|---|---|---|
-| Frontend | Next.js 14 App Router | Deployed on Vercel; push to main = auto-deploy |
-| Backend API | Node.js + TypeScript + Express | Deployed on Railway; port 3001 |
-| Database | Postgres | Railway Postgres; Drizzle ORM; RLS policies in migration 0001 |
-| Cache / Queues | Redis + BullMQ | Railway Redis; 6 queue types |
-| Auth | Clerk | Separate production/dev environments; JWT bearer tokens to API |
-| Billing | Stripe | Webhooks as entitlement authority; `tenant_subscriptions` table |
-| AI models | OpenAI (tiered) | gpt-4o-mini (cheap), gpt-4o (standard), claude-sonnet-4-6 (premium) |
-| Voice telephony | SignalWire (primary) | cXML-compatible; `x-signalwire-signature` verification |
-| Voice AI runtime | Retell | Custom LLM WebSocket; tenant-level `voice_runtime` flag |
-| Alternative voice | SWAIG | SignalWire AI native; separate route surface |
-| Calendar (Assist) | Cal.com + Google Calendar | Adapter pattern; factory in `packages/agents/src/calendars/` |
-| Email | Resend | Raw fetch (no SDK); `sendEmail.ts` wrapper |
-| Lead sources | Google Places API (New) | Only search source; Apollo used for email enrichment only |
-| Email enrichment | Apollo API + Hunter API | Domain-level email lookup; monthly usage tracking |
-| Process management | PM2 + Railway services | `infra/pm2/ecosystem.prod.config.cjs`; separate Railway service per worker |
-| Scheduling | Railway crons (active) + n8n (legacy) | Railway cron scripts in `apps/crons/`; n8n kept until verified |
-| Real-time | Redis pub/sub + SSE | `packages/queue/src/realtime.ts`; `/api/v1/events/stream` |
+| Layer | Choice | Deployment | Notes |
+|---|---|---|---|
+| Frontend | Next.js 14 (App Router) | Vercel | `git push main` = auto-deploy |
+| Backend API | Node.js + TypeScript + Express | Railway | Port 3001; separate service |
+| Database | Postgres | Railway | Drizzle ORM; RLS policies enforced |
+| Cache/Queue | Redis + BullMQ | Railway | 6 queue types + 6 workers |
+| Scheduling | Railway cron services | Railway | Replaced n8n schedule triggers |
+| Auth | Clerk | Clerk cloud | JWT bearer tokens; separate prod/dev envs |
+| Billing | Stripe | Stripe cloud | Webhooks = entitlement authority |
+| AI — cheap | gpt-4o-mini | OpenAI | Classification, scoring, drafts, FAQ |
+| AI — standard | gpt-4o | OpenAI | Booking slot parsing, complex sessions |
+| AI — premium | claude-sonnet-4-6 | Anthropic | Complex objections, voice premium |
+| Voice telephony | SignalWire | SignalWire | cXML-compatible; `x-signalwire-signature` verification |
+| Voice AI path A | SignalWire AI Agent + SWAIG | SignalWire | Native SWML function calling; `/api/v1/swaig/*` |
+| Voice AI path B | Retell + Custom LLM WS | Retell | Per-tenant opt-in via `voice_runtime=retell`; `/api/v1/retell/*` |
+| Calendar | Cal.com + Google Calendar | Adapter pattern | Factory in `packages/agents/src/calendars/` |
+| Email | Resend | Resend cloud | REST only (no SDK); `apps/api/src/lib/sendEmail.ts` |
+| Lead sources | Google Places API (New) | Google | Primary lead search; no scraping |
+| Email enrichment | Apollo (domain) + Hunter | External APIs | Email lookup only — not lead search |
+| Real-time events | Redis pub/sub + SSE | In-process | `GET /api/v1/events/stream`; dashboard toasts |
+| Process mgmt | PM2 (local) + Railway (prod) | Railway | Separate Railway service per worker |
 
 ---
 
@@ -88,555 +90,666 @@ Both products share one codebase, one Postgres database, one Redis instance, one
 
 ```
 qyro/
+├── CLAUDE.md                    ← Claude Code reads every session
+├── CHANGE_TRACKER.md            ← Running log of all changes
+├── .claudeignore                ← Files Claude should never read
+├── .env.example                 ← Complete env var reference
+├── package.json                 ← pnpm workspace root
+├── turbo.json                   ← Turborepo pipeline config
+│
 ├── apps/
 │   ├── api/                     ← Express API (Railway)
 │   │   └── src/
-│   │       ├── index.ts         ← server entry, route mounts
+│   │       ├── index.ts         ← Server entry; routes mounting; WS upgrade for Retell
+│   │       ├── lib/
+│   │       │   ├── sendEmail.ts       ← Resend REST email sender
+│   │       │   └── entitlements.ts    ← Subscription + trial + override resolver
 │   │       ├── middleware/
-│   │       │   ├── auth.ts      ← Clerk, Retell, SignalWire, SWAIG verification
-│   │       │   ├── tenant.ts    ← tenant resolution + first-login provisioning
-│   │       │   ├── quota.ts     ← per-tenant daily token quota check
-│   │       │   └── rateLimit.ts
-│   │       ├── routes/
-│   │       │   ├── leads.ts         ← QYRO Lead: ingest, research, outreach
-│   │       │   ├── campaigns.ts     ← QYRO Lead: campaign CRUD + approve/reject
-│   │       │   ├── assist.ts        ← QYRO Assist: chat, missed-call, outbound queue
-│   │       │   ├── voice.ts         ← SignalWire/Twilio inbound+outbound TwiML
-│   │       │   ├── retell.ts        ← Retell webhooks + tool endpoints + LLM WebSocket
-│   │       │   ├── swaig.ts         ← SignalWire AI (SWAIG) native endpoints
-│   │       │   ├── billing.ts       ← Stripe checkout, portal, subscription
-│   │       │   ├── tenants.ts       ← settings, onboarding, users, missed-call
-│   │       │   ├── admin.ts         ← master-admin: cross-tenant controls
-│   │       │   ├── events.ts        ← SSE real-time stream
-│   │       │   └── webhooks.ts      ← nightly ingest + morning digest (cron triggers)
-│   │       └── lib/
-│   │           ├── entitlements.ts  ← subscription + trial + override resolver
-│   │           └── sendEmail.ts     ← Resend REST wrapper
+│   │       │   ├── auth.ts            ← Clerk JWT + DEV_BYPASS_AUTH; Retell HMAC; SWAIG Basic
+│   │       │   ├── tenant.ts          ← Tenant scoping; auto-provision on first login
+│   │       │   └── quota.ts           ← Per-tenant token quota check
+│   │       └── routes/
+│   │           ├── leads.ts           ← Lead management + urgency sort
+│   │           ├── campaigns.ts       ← Campaign CRUD
+│   │           ├── assist.ts          ← Outbound pipeline, metrics, call control, analytics
+│   │           ├── voice.ts           ← SignalWire inbound/outbound TwiML + status callbacks
+│   │           ├── retell.ts          ← Retell webhooks, tool endpoints, LLM WS
+│   │           ├── swaig.ts           ← SignalWire AI Agent SWAIG functions
+│   │           ├── tenants.ts         ← Settings, onboarding, users
+│   │           ├── billing.ts         ← Stripe checkout, portal, webhook
+│   │           ├── admin.ts           ← Master-admin cross-tenant controls
+│   │           ├── events.ts          ← SSE stream endpoint
+│   │           └── webhooks.ts        ← Nightly ingest, morning digest, Stripe
 │   │
 │   ├── web/                     ← Next.js 14 (Vercel)
 │   │   └── src/
 │   │       ├── app/
-│   │       │   ├── page.tsx             ← public landing page
-│   │       │   ├── onboarding/          ← NEW: self-serve onboarding (4-step)
-│   │       │   ├── products/            ← product chooser (gated by onboarding)
-│   │       │   ├── sign-in/, sign-up/   ← Clerk pages
-│   │       │   ├── (internal)/          ← QYRO Lead portal
-│   │       │   │   └── internal/
-│   │       │   │       ├── dashboard/
-│   │       │   │       ├── leads/, leads/[id]/
-│   │       │   │       ├── campaigns/, campaigns/new/
-│   │       │   │       ├── approvals/
-│   │       │   │       ├── settings/
-│   │       │   │       ├── team/        ← role + user management
-│   │       │   │       └── admin/       ← master-admin cross-tenant controls
-│   │       │   ├── (client)/            ← QYRO Assist portal
-│   │       │   │   └── client/
-│   │       │   │       ├── dashboard/, dashboard/analytics/
-│   │       │   │       ├── conversations/
-│   │       │   │       ├── calls/       ← call history + transcripts + recordings
-│   │       │   │       ├── bookings/
-│   │       │   │       ├── approvals/
-│   │       │   │       ├── call-control/ ← outbound pause/resume/metrics
-│   │       │   │       ├── outbound-pipeline/
-│   │       │   │       ├── settings/
-│   │       │   │       ├── widget/      ← embed code generator
-│   │       │   │       └── admin/       ← tenant admin panel
-│   │       │   └── (admin)/             ← platform ops (obscured path)
-│   │       │       └── qx-ops/
+│   │       │   ├── page.tsx                      ← Public landing page
+│   │       │   ├── onboarding/page.tsx            ← 4-step self-serve onboarding
+│   │       │   ├── products/page.tsx              ← Product chooser (→ /onboarding gate)
+│   │       │   ├── (client)/client/
+│   │       │   │   ├── dashboard/                 ← Client main dashboard
+│   │       │   │   │   └── analytics/             ← 30-day trend charts (recharts)
+│   │       │   │   ├── conversations/             ← Chat inbox
+│   │       │   │   ├── calls/                     ← Call history + transcript playback
+│   │       │   │   ├── approvals/                 ← Pending message approvals
+│   │       │   │   ├── bookings/                  ← Appointment list
+│   │       │   │   ├── outbound-pipeline/         ← Outbound lead queue
+│   │       │   │   ├── call-control/              ← Pause/resume/capacity controls
+│   │       │   │   ├── settings/page.tsx          ← Voice, AI, org settings
+│   │       │   │   ├── admin/page.tsx             ← Tabbed admin panel (org/voice/AI/team/billing)
+│   │       │   │   └── widget/                    ← Embed code generator
+│   │       │   ├── (internal)/internal/
+│   │       │   │   ├── dashboard/                 ← Lead ops home
+│   │       │   │   ├── leads/                     ← Lead inbox + urgency sort + skipped filter
+│   │       │   │   ├── campaigns/                 ← Campaign manager
+│   │       │   │   ├── approvals/                 ← Message approval queue
+│   │       │   │   ├── settings/                  ← Internal tenant settings
+│   │       │   │   ├── admin/                     ← Master admin (cross-tenant)
+│   │       │   │   └── team/                      ← Tenant user management
+│   │       │   ├── sign-in/  sign-up/  terms/  privacy/  contact/
+│   │       │   └── (admin)/             ← /qx-ops rate-limited ops path
 │   │       ├── components/
-│   │       │   ├── sidebar/InternalSidebar.tsx
 │   │       │   ├── sidebar/ClientSidebar.tsx
-│   │       │   ├── brand/QyroBrand.tsx
-│   │       │   ├── auth/SignOutButton.tsx
-│   │       │   └── billing/BillingActions.tsx
-│   │       └── middleware.ts        ← Clerk protection; public: /, /sign-in, /sign-up, /terms, /privacy
+│   │       │   └── sidebar/InternalSidebar.tsx
+│   │       └── hooks/useSSEEvents.ts    ← SSE hook with reconnect + live indicator
 │   │
-│   └── crons/                   ← Railway cron trigger scripts
-│       ├── nightly-ingest.ts    ← POST /webhooks/nightly/ingest at 22:00 PT
-│       └── morning-digest.ts    ← POST /webhooks/morning/digest at 07:00 PT
+│   └── crons/                   ← Railway cron services (TypeScript)
+│       ├── nightly-ingest.ts    ← POST /api/v1/webhooks/nightly-ingest (22:00 PT)
+│       └── morning-digest.ts    ← POST /api/v1/webhooks/morning-digest (07:00 PT)
 │
 ├── packages/
 │   ├── db/
-│   │   ├── src/schema.ts        ← all 20+ tables (see Section 6)
-│   │   ├── src/client.ts        ← Drizzle + admin pool + setTenantContext()
-│   │   └── migrations/          ← 13 migrations (0000–0012)
+│   │   ├── src/schema.ts        ← ALL tables; tenant_id on every table
+│   │   ├── migrations/          ← 13 migrations (see §6)
+│   │   └── client.ts            ← Drizzle client + connection
 │   │
 │   ├── agents/
 │   │   └── src/
-│   │       ├── budget.ts        ← model tier assignments + per-tenant limits
-│   │       ├── runner.ts        ← callLLM wrapper: quota → OpenAI → log
-│   │       ├── compact.ts       ← 6-turn compaction for Client Assistant
-│   │       ├── cache.ts         ← Redis research cache helpers
-│   │       ├── agents/
-│   │       │   ├── leadDiscovery.ts    ← Google Places → dedup → research queue
-│   │       │   ├── research.ts         ← Redis cache → website → LLM → prospects_enriched
-│   │       │   ├── outreach.ts         ← consent/DNC gate → draft → QA → pending_approval
-│   │       │   ├── replyTriage.ts      ← LLM classify reply → route → DNC on unsubscribe
-│   │       │   ├── booking.ts          ← Cal.com/Google → slot parse → confirm → appointments
-│   │       │   ├── clientAssistant.ts  ← text: FAQ/booking/escalation + compaction
-│   │       │   ├── voiceAssistant.ts   ← voice: same capabilities, voice-optimized
-│   │       │   ├── emailEnrichment.ts  ← mock/Hunter/Apollo email lookup
-│   │       │   └── qa.ts               ← static + LLM checks → pass/block
-│   │       └── calendars/
-│   │           ├── types.ts      ← CalendarAdapter interface
-│   │           ├── calCom.ts     ← Cal.com adapter
-│   │           ├── googleCalendar.ts ← Google Calendar adapter
-│   │           └── index.ts      ← factory: loads adapter from tenant metadata
+│   │       ├── runner.ts        ← Agent call wrapper; AgentResult<T> envelope
+│   │       ├── budget.ts        ← Model tier assignments + per-tenant limits
+│   │       ├── compact.ts       ← Conversation compaction (every 6 turns)
+│   │       ├── calendars/
+│   │       │   ├── index.ts     ← Calendar adapter factory (Cal.com or Google)
+│   │       │   ├── calCom.ts    ← Cal.com REST adapter
+│   │       │   ├── googleCalendar.ts ← Google Calendar adapter
+│   │       │   └── types.ts     ← Shared CalendarSlot, BookingResult types
+│   │       └── agents/
+│   │           ├── leadDiscovery.ts   ← Google Places API lead search
+│   │           ├── research.ts        ← Website summary + urgency score (Redis cached 7d)
+│   │           ├── outreach.ts        ← Outreach draft → pending_approval
+│   │           ├── replyTriage.ts     ← Inbound reply classification + DNC
+│   │           ├── booking.ts         ← Slot parsing + Cal.com booking creation
+│   │           ├── clientAssistant.ts ← Chat/text AI assistant; intent counters
+│   │           ├── voiceAssistant.ts  ← Voice-optimized AI assistant (TwiML path)
+│   │           ├── emailEnrichment.ts ← Apollo/Hunter email lookup
+│   │           ├── qa.ts              ← Outbound message guardrail (PASS/BLOCK)
+│   │           └── (promptHygiene.ts) ← SPECCED, NOT YET BUILT
 │   │
 │   ├── queue/
 │   │   └── src/
-│   │       ├── queues.ts         ← 6 BullMQ queue definitions (see Section 7)
-│   │       ├── realtime.ts       ← Redis pub/sub publisher for SSE events
+│   │       ├── queues.ts        ← All BullMQ queue definitions (6 queues)
+│   │       ├── realtime.ts      ← Redis pub/sub for SSE event emission
 │   │       └── workers/
-│   │           ├── researchWorker.ts       ← processes research queue
-│   │           ├── outreachWorker.ts       ← processes outreach queue
-│   │           ├── replyTriageWorker.ts    ← processes reply-triage queue
-│   │           ├── outboundCallWorker.ts   ← processes outbound-call queue
-│   │           ├── webhookWorker.ts        ← async webhook processing (concurrency 5)
-│   │           └── anomalyDetectionWorker.ts ← detects pipeline anomalies
+│   │           ├── researchWorker.ts        ← Runs research agent
+│   │           ├── outreachWorker.ts         ← Runs outreach agent + QA
+│   │           ├── replyTriageWorker.ts      ← Classifies inbound replies
+│   │           ├── outboundCallWorker.ts     ← Dials SignalWire/Retell + DNC + capacity guard
+│   │           ├── webhookWorker.ts          ← Async voice/Retell webhook processing (concurrency 5)
+│   │           └── anomalyDetectionWorker.ts ← Every 15min: high API vol, export vol, sequential pagination
 │   │
-│   └── prompts/
-│       └── src/loader.ts        ← loads prompt .md from docs/PROMPTS/
+│   └── prompts/                 ← Prompt loader + validator
 │
 ├── docs/
-│   ├── BLUEPRINT.md
-│   ├── AGENTS.md
-│   ├── DECISIONS.md             ← 19 ADRs documented
-│   ├── TOKEN_BUDGET.md
-│   ├── ENVIRONMENTS.md
-│   ├── COMPLIANCE.md
-│   ├── NIGHTLY_LEAD_PIPELINE.md
-│   ├── SOLO_ROLLOUT_CHECKLIST.md
+│   ├── ARCHITECTURE.md          ← This file
+│   ├── BLUEPRINT.md             ← Product vision + phase tracking
+│   ├── AGENTS.md                ← Agent specs + contracts
+│   ├── ENVIRONMENTS.md          ← All env vars + local setup guide
+│   ├── COMPLIANCE.md            ← Channel compliance rules (TCPA, CAN-SPAM)
+│   ├── TOKEN_BUDGET.md          ← Model tiers + token limits
+│   ├── DECISIONS.md             ← Architecture decision records
 │   └── PROMPTS/
-│       ├── lead/medspa_missed_call_v1.md
-│       └── assist/
-│           ├── general_faq_v1.md
-│           ├── general_followup_email_v1.md
-│           ├── general_missed_call_sms_v1.md
-│           └── general_voice_v1.md
+│       ├── assist/              ← QYRO Assist prompt packs
+│       │   ├── general_faq_v1.md
+│       │   ├── general_followup_email_v1.md
+│       │   ├── general_missed_call_sms_v1.md
+│       │   └── general_voice_v1.md
+│       └── lead/
+│           └── medspa_missed_call_v1.md
 │
-├── infra/
-│   ├── docker-compose.yml         ← local dev: Postgres + Redis + n8n
-│   ├── pm2/ecosystem.prod.config.cjs ← production PM2 (API + all workers)
-│   ├── n8n/workflows/             ← legacy workflow JSON (kept during Railway cron rollout)
-│   └── sql_todo_master_admin.sql  ← runbook for master-admin role management
-│
-└── scripts/
-    ├── test-e2e.ts                ← Phase 1 end-to-end test
-    ├── test-assist-e2e.ts         ← Phase 2 Assist end-to-end test
-    ├── test-outbound-calls-e2e.ts ← Outbound call pipeline E2E test
-    └── test-retell-phase-d.ts     ← Retell voice QA harness (10 scenarios)
+└── infra/
+    ├── docker-compose.yml       ← Local Postgres + Redis
+    ├── pm2/ecosystem.config.cjs ← Local process management (API + 6 workers)
+    ├── seed.ts                  ← Seeds internal tenant + test data
+    └── n8n/workflows/           ← Legacy workflow configs (kept as fallback)
 ```
 
 ---
 
 ## 5. Database Schema
 
-### Migration history
+Every table has `tenant_id`. Postgres RLS enforced via migration `0001_rls_policies.sql`.
+
+### Core tables
+
+| Table | Purpose |
+|---|---|
+| `tenants` | One row per tenant. `tenant_type`, `voice_number`, `metadata` (JSONB) |
+| `users` | Clerk users with tenant linkage and roles |
+| `tenant_subscriptions` | Stripe subscription state — entitlement authority |
+
+### QYRO Lead tables
+
+| Table | Purpose |
+|---|---|
+| `prospects_raw` | Raw leads from Google Places / Apollo. `source_type`, `research_skipped`, `research_skip_reason` |
+| `prospects_enriched` | Research agent output: summary, urgency_score, pitch_angles |
+| `do_not_contact` | DNC list (checked before every outreach). Never deleted |
+| `message_attempts` | Outreach drafts + status (pending_approval → sent → replied) |
+
+### QYRO Assist tables
+
+| Table | Purpose |
+|---|---|
+| `conversations` | Session records for chat + voice interactions |
+| `conversation_messages` | Turn-by-turn message history |
+| `call_attempts` | All call records. Fields: direction, status, attempt_count, max_attempts, next_attempt_at, recording_url, transcript_text, transcript_json, duration_seconds |
+| `appointments` | Bookings created by Booking Agent |
+| `daily_summaries` | Per-tenant/per-day analytics (leads, calls, booked, escalations, intent counts) |
+
+### Shared tables
+
+| Table | Purpose |
+|---|---|
+| `usage_events` | Every agent call logged here (model, tokens, cost) |
+| `audit_logs` | System events, escalations, DNC additions, consent gates |
+| `consent_events` | Per-prospect per-channel consent records |
+| `webhook_events` | Deduplication store for Retell and SignalWire webhooks |
+
+### Migrations (in order)
+
 | Migration | What it adds |
 |---|---|
-| 0000_needy_tinkerer.sql | All base tables: tenants, users, plans, prospects, enrichment, leads, outreach, calls, sessions, billing_events, audit_logs, etc. |
-| 0001_rls_policies.sql | Postgres RLS `CREATE POLICY tenant_isolation` on all tenant-scoped tables |
-| 0002_outbound_call_pipeline.sql | Outbound fields on `call_attempts`: direction, status, attempt_count, DND, compliance, booking_status |
-| 0003_voice_conversation_history.sql | Conversation history storage for voice turns |
-| 0004_billing_subscriptions.sql | `tenant_subscriptions` table: Stripe customer/subscription/price/status/period |
-| 0005_tenants_twilio_number.sql | Intermediate voice number field (superseded by 0006) |
-| 0006_rename_voice_fields.sql | Renames provider-branded fields: `twilio_number` → `voice_number`, `twilio_call_sid` → `call_sid` |
-| 0007_anti_scraping.sql | Anti-scraping protections on prospect tables |
-| 0008_auto_send_missed_call.sql | `tenants.auto_send_missed_call` boolean |
-| 0009_escalation_contact.sql | `tenants.escalation_contact_phone`, `escalation_contact_email` |
-| 0010_call_recordings.sql | `call_attempts.duration_seconds`, `transcript_text`, `transcript_json`, `recording_url` |
-| 0011_daily_summaries.sql | `daily_summaries` table: per-tenant daily KPI aggregates |
-| 0012_consent_gate_research_skip.sql | `prospects_raw.source_type`, `research_skipped`, `research_skip_reason` |
-
-### Core tables (abridged)
-```
-tenants              — id, name, slug, plan, voice_number, auto_send_missed_call,
-                       escalation_contact_*, active, metadata (jsonb), created_at
-users                — id, tenant_id, clerk_id, email, name, role, active, tos_accepted_at
-tenant_subscriptions — id, tenant_id, stripe_customer_id, stripe_subscription_id,
-                       stripe_price_id, status, product_access (jsonb), period_*
-plans                — id, name, daily_input_tokens, daily_output_tokens, max_seats, price_monthly
-prospects_raw        — id, tenant_id, name, domain, phone, email, niche, source, source_type,
-                       consent_state, research_skipped, research_skip_reason
-prospects_enriched   — id, tenant_id, prospect_id, urgency_score, summary, pain_points,
-                       pitch_angles, services, researched_at
-call_attempts        — id, tenant_id, prospect_id, call_sid, direction, status, attempt_count,
-                       max_attempts, duration_seconds, transcript_text, transcript_json,
-                       recording_url, dnd_at, booking_status, booking_ref
-assistant_sessions   — id, tenant_id, session_type, channel, turn_count, escalated, created_at
-message_attempts     — id, tenant_id, prospect_id, sequence_id, channel, status, direction,
-                       body, classification
-appointments         — id, tenant_id, prospect_id, cal_booking_id, start_time, status
-do_not_contact       — id, tenant_id, email, phone, domain, reason, created_at
-consent_events       — id, tenant_id, prospect_id, channel, consent_state, method, ip_address
-daily_summaries      — id, tenant_id, date, new_prospects_count, calls_handled_count,
-                       appointments_booked_count, escalations_count, questions_count, avg_urgency
-usage_events         — id, tenant_id, agent_name, model, input_tokens, output_tokens, run_id
-audit_logs           — id, tenant_id, actor_id, action, target_type, target_id, payload
-webhook_events       — id, tenant_id, provider, event_type, payload, processed_at
-dead_letter_queue    — id, tenant_id, queue_name, payload, error, created_at
-```
+| `0000_needy_tinkerer.sql` | Initial schema — all core tables |
+| `0001_rls_policies.sql` | Postgres RLS tenant isolation policies |
+| `0002_outbound_call_pipeline.sql` | call_attempts outbound fields (direction, status, attempt_count, etc.) |
+| `0003_voice_conversation_history.sql` | conversationHistory Redis key linkage |
+| `0004_billing_subscriptions.sql` | tenant_subscriptions table |
+| `0005_tenants_twilio_number.sql` | Initial voice number field (pre-rename) |
+| `0006_rename_voice_fields.sql` | Rename to provider-neutral: voice_number, call_sid |
+| `0007_anti_scraping.sql` | Rate limit tracking, anomaly log tables |
+| `0008_auto_send_missed_call.sql` | Tenant missed call SMS auto-send toggle |
+| `0009_escalation_contact.sql` | Tenant escalation contact fields; session escalation_reason |
+| `0010_call_recordings.sql` | call_attempts recording_url, transcript_text, transcript_json, duration_seconds |
+| `0011_daily_summaries.sql` | daily_summaries table for analytics |
+| `0012_consent_gate_research_skip.sql` | prospects_raw source_type, research_skipped, research_skip_reason |
 
 ---
 
-## 6. API Route Surface
+## 6. API Surface
 
-All authenticated routes require Clerk bearer token + tenant middleware unless marked `[public]`.
+All routes under `/api/v1/` unless noted. Clerk JWT required unless marked PUBLIC.
 
-### QYRO Lead routes
-| Method | Path | Description |
-|---|---|---|
-| GET/POST | `/api/v1/leads` | List leads / ingest new leads via Places API |
-| GET/PATCH/DELETE | `/api/v1/leads/:id` | Lead detail, update, delete |
-| POST | `/api/v1/leads/:id/research` | Enqueue research job |
-| POST | `/api/v1/leads/:id/outreach` | Enqueue outreach draft job |
-| GET/POST | `/api/v1/campaigns` | List / create campaigns |
-| GET/PATCH/DELETE | `/api/v1/campaigns/:id` | Campaign detail / update |
-| POST | `/api/v1/campaigns/:id/approve/:messageId` | Approve outreach message |
-| POST | `/api/v1/campaigns/:id/reject/:messageId` | Reject outreach message |
+### Auth + Admin
 
-### QYRO Assist routes
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/assist/chat` | [public] Widget chat endpoint (tenant from body) |
-| POST | `/api/v1/assist/missed-call` | [public] Missed-call SMS trigger |
-| GET | `/api/v1/assist/sessions` | Conversation session list |
-| GET | `/api/v1/assist/appointments` | Appointment list |
-| POST | `/api/v1/assist/approve/:id` | Approve pending message |
-| POST | `/api/v1/assist/reject/:id` | Reject pending message |
-| POST | `/api/v1/assist/outbound-calls/enqueue` | Queue outbound call attempt |
-| GET | `/api/v1/assist/outbound-calls/pipeline` | Pipeline status view |
-| GET/PATCH | `/api/v1/assist/outbound-calls/control` | Pause/resume/max-concurrency |
-| GET | `/api/v1/assist/outbound-calls/metrics` | Grouped status counts + capacity |
-| POST | `/api/v1/assist/outbound-calls/cancel/:id` | Cancel queued attempt |
-| GET | `/api/v1/assist/analytics` | 30-day KPI series (daily_summaries) |
-| GET | `/api/v1/assist/calls` | Call history + transcripts |
-
-### Voice routes (SignalWire/Twilio cXML)
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/voice/incoming` | Inbound call webhook → TwiML or Retell handoff |
-| POST | `/api/v1/voice/turn` | Voice conversation turn → TwiML response |
-| POST | `/api/v1/voice/status` | Call status callback → retry scheduling |
-| POST | `/api/v1/voice/outbound/twiml` | Outbound call TwiML |
-| POST | `/api/v1/voice/register-call` | Retell inbound registration |
-
-### Retell routes (HMAC-SHA256 verified)
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/retell/call-events` | Call lifecycle events (async queued) |
-| POST | `/api/v1/retell/transcript-events` | Transcript events (async queued) |
-| WS | `/api/v1/retell/llm-websocket` | Custom LLM WebSocket for Retell |
-| POST | `/api/v1/retell/tools/get-business-context` | Tool: tenant context |
-| POST | `/api/v1/retell/tools/check-availability` | Tool: calendar slots |
-| POST | `/api/v1/retell/tools/create-booking` | Tool: create appointment |
-| POST | `/api/v1/retell/tools/escalate-to-human` | Tool: escalation |
-| POST | `/api/v1/retell/tools/mark-do-not-contact` | Tool: add to DNC |
-| POST | `/api/v1/retell/tools/log-call-outcome` | Tool: persist call result |
-
-### SWAIG routes (SignalWire AI native)
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/swaig/booking` | SWAIG booking function |
-| POST | `/api/v1/swaig/faq` | SWAIG FAQ function |
-| POST | `/api/v1/swaig/escalation` | SWAIG escalation function |
-| POST | `/api/v1/swaig/sms` | SWAIG SMS callback |
-
-### Tenant / billing / admin routes
-| Method | Path | Description |
-|---|---|---|
-| GET/PATCH | `/api/v1/tenants/settings` | Tenant settings read/write |
-| PATCH | `/api/v1/tenants/onboarding` | Save onboarding data + mark complete |
-| PATCH | `/api/v1/tenants/settings/missed-call-auto-send` | Toggle auto missed-call SMS |
-| GET/PATCH | `/api/v1/tenants/users` | Team member list + role/access management |
-| GET | `/api/v1/billing/subscription` | Current subscription state |
-| POST | `/api/v1/billing/checkout-session` | Stripe checkout redirect |
-| POST | `/api/v1/billing/portal-session` | Stripe billing portal redirect |
-| POST | `/webhooks/stripe` | [public] Stripe webhook — entitlement authority |
-| POST | `/api/v1/admin/me` | Master-admin self-check |
-| GET | `/api/v1/admin/tenants` | Cross-tenant list |
-| PATCH | `/api/v1/admin/tenants/:id/access` | Override tenant access |
-| PATCH | `/api/v1/admin/users/:id/role` | Change user role |
-| GET | `/api/v1/events/stream` | SSE real-time event stream |
-| POST | `/webhooks/nightly/ingest` | Cron: nightly lead discovery |
-| POST | `/webhooks/morning/digest` | Cron: morning digest + daily_summaries |
-
----
-
-## 7. Queue Workers
-
-6 BullMQ workers, each a separate Railway service:
-
-| Worker | Queue | Concurrency | What it does |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `researchWorker` | `research` | default | Calls `runResearch()` → prospects_enriched; dead-letters on perm failure |
-| `outreachWorker` | `outreach` | default | Calls `runOutreach()` → message_attempts pending_approval |
-| `replyTriageWorker` | `reply-triage` | default | Calls `runReplyTriage()` → DNC on unsubscribe |
-| `outboundCallWorker` | `outbound-call` | default | Checks pause/DNC/capacity → SignalWire or Retell dial; retry scheduling |
-| `webhookWorker` | `webhook` | 5 | Processes voice status + Retell event payloads async; idempotency via Redis TTL |
-| `anomalyDetectionWorker` | varies | default | Detects pipeline anomalies; logs to audit_logs |
+| GET | `/api/v1/admin/me` | Master admin | Current admin identity |
+| GET | `/api/v1/admin/tenants` | Master admin | All tenants |
+| PATCH | `/api/v1/admin/tenants/:id/access` | Master admin | Override tenant product access |
+| PATCH | `/api/v1/admin/users/:id/role` | Master admin | Set user role |
+| GET | `/api/v1/tenants/settings` | Clerk | Tenant settings incl. onboardingComplete |
+| PATCH | `/api/v1/tenants/settings` | Clerk | Update tenant settings |
+| PATCH | `/api/v1/tenants/onboarding` | Clerk | Save onboarding data, mark complete |
+| GET | `/api/v1/tenants/users` | Owner/admin | List tenant users |
+| PATCH | `/api/v1/tenants/users/:id` | Owner/admin | Update user role/access |
 
-Railway start commands:
+### QYRO Lead
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/leads` | Clerk | List prospects (sort by urgency, filter skipped) |
+| GET | `/api/v1/leads/:id` | Clerk | Prospect detail |
+| POST | `/api/v1/leads/discover` | Clerk | Trigger lead discovery |
+| GET | `/api/v1/campaigns` | Clerk | List campaigns |
+| POST | `/api/v1/campaigns` | Clerk | Create campaign |
+| PATCH | `/api/v1/campaigns/:id` | Clerk | Update campaign |
+
+### QYRO Assist
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/assist/outbound-calls/enqueue` | Clerk | Enqueue outbound call (blocks if paused) |
+| GET | `/api/v1/assist/outbound-calls/pipeline` | Clerk | Pipeline status list |
+| POST | `/api/v1/assist/outbound-calls/cancel/:id` | Clerk | Cancel queued attempt |
+| GET | `/api/v1/assist/outbound-calls/control` | Clerk | Pause/resume state + capacity |
+| PATCH | `/api/v1/assist/outbound-calls/control` | Owner/admin/operator | Pause, resume, drain, set max concurrent |
+| GET | `/api/v1/assist/outbound-calls/metrics` | Clerk | Status counts + capacity strip |
+| GET | `/api/v1/assist/analytics` | Clerk | 30-day analytics (daily_summaries) |
+
+### Voice — SignalWire TwiML
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/voice/incoming` | SignalWire sig | Inbound call — TwiML response |
+| POST | `/api/v1/voice/turn` | SignalWire sig | Voice turn processing (voiceAssistant) |
+| POST | `/api/v1/voice/outbound/twiml` | SignalWire sig | Outbound call TwiML |
+| POST | `/api/v1/voice/status` | SW sig (async) | Call status callback → webhookWorker queue |
+
+### Voice — SWAIG (SignalWire AI Agent functions)
+
+HTTP Basic auth: `SWAIG_WEBHOOK_SECRET`
+
+| Method | Path | SWAIG function | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/swaig/booking` | `book_appointment` | Calendar lookup + booking creation |
+| POST | `/api/v1/swaig/faq` | `business_info` | Return approved services/hours |
+| POST | `/api/v1/swaig/escalation` | `escalate` | Log + notify staff + return transfer instruction |
+| POST | `/api/v1/swaig/sms` | `callback_sms` | Send follow-up SMS to caller |
+
+Tenant identification priority: SWML `global_data.tenantId` → payload `tenantId` → `voice_number` lookup.
+
+### Voice — Retell
+
+HMAC-SHA256 validation on `x-retell-signature`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/v1/retell/call-events` | Call lifecycle events → webhookWorker |
+| POST | `/api/v1/retell/transcript-events` | Transcript → webhookWorker |
+| WS | `/api/v1/retell/llm-websocket` | Retell Custom LLM WebSocket (QYRO as LLM backend) |
+| POST | `/api/v1/retell/tools/get-business-context` | Tool: business info |
+| POST | `/api/v1/retell/tools/check-availability` | Tool: calendar slots |
+| POST | `/api/v1/retell/tools/create-booking` | Tool: booking creation |
+| POST | `/api/v1/retell/tools/escalate-to-human` | Tool: escalation |
+| POST | `/api/v1/retell/tools/mark-do-not-contact` | Tool: DNC |
+| POST | `/api/v1/retell/tools/log-call-outcome` | Tool: outcome logging |
+
+### Billing
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/billing/subscription` | Clerk | Current subscription state |
+| POST | `/api/v1/billing/checkout-session` | Clerk | Create Stripe checkout |
+| POST | `/api/v1/billing/portal-session` | Clerk | Create Stripe billing portal |
+| POST | `/webhooks/stripe` | Stripe sig (PUBLIC) | Stripe event processing |
+
+### Internal automation
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/v1/webhooks/nightly-ingest` | `x-webhook-secret` | Trigger lead discovery pipeline |
+| POST | `/api/v1/webhooks/morning-digest` | `x-webhook-secret` | Compute daily metrics → daily_summaries |
+
+### Public (no auth)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Health check |
+| POST | `/widgets/assist/chat` | Widget chat (rate-limited by Redis; `widget_allowed_origins` enforced) |
+| GET | `/api/v1/events/stream` | SSE real-time stream (Clerk JWT via query param) |
+
+---
+
+## 7. AI Agents
+
+All agents go through `packages/agents/src/runner.ts`. All check token budget first via `packages/agents/src/budget.ts`. All errors wrapped in `AgentResult<T>`. All prompts loaded from `docs/PROMPTS/`.
+
+| Agent | File | Model tier | Status |
+|---|---|---|---|
+| Lead Discovery | `leadDiscovery.ts` | cheap (gpt-4o-mini) | ACTIVE |
+| Research | `research.ts` | cheap + optional web_search | ACTIVE |
+| Outreach | `outreach.ts` | cheap | ACTIVE |
+| Reply Triage | `replyTriage.ts` | cheap | ACTIVE |
+| Booking | `booking.ts` | standard (gpt-4o) | ACTIVE |
+| Client Assistant | `clientAssistant.ts` | cheap → escalate to standard | ACTIVE |
+| Voice Assistant | `voiceAssistant.ts` | cheap → escalate to standard | ACTIVE (TwiML path only) |
+| Email Enrichment | `emailEnrichment.ts` | N/A (API call) | ACTIVE |
+| QA Guardrail | `qa.ts` | cheap | ACTIVE |
+| Prompt Hygiene | `promptHygiene.ts` | cheap | **NOT YET BUILT** |
+
+**SWAIG functions are NOT LLM agents** — they are callable endpoints invoked by SignalWire AI Agent.
+
+---
+
+## 8. Queue Workers
+
+All BullMQ. Redis URL from `REDIS_URL`. Separate Railway service per worker.
+
+| Worker | Queue | Concurrency | Trigger | What it does |
+|---|---|---|---|---|
+| `researchWorker` | RESEARCH | 3 | Lead discovery enqueue | Runs research agent; caches in Redis 7d |
+| `outreachWorker` | OUTREACH | 2 | Research complete | Runs outreach + QA; writes pending_approval |
+| `replyTriageWorker` | REPLY_TRIAGE | 5 | Inbound reply | Classifies reply; adds DNC if unsubscribe |
+| `outboundCallWorker` | OUTBOUND_CALL | 3 | Manual enqueue / nightly | DNC + pause + capacity check; dials SignalWire or Retell |
+| `webhookWorker` | WEBHOOK | 5 | Voice/Retell status webhooks | Async processing; Redis idempotency 24h TTL |
+| `anomalyDetectionWorker` | (timer, 15min) | 1 | Cron-style | Detects high API vol, export vol, sequential pagination |
+
+**PM2 start commands (local):**
 ```
 pnpm --filter @qyro/queue worker:research
 pnpm --filter @qyro/queue worker:outreach
-pnpm --filter @qyro/queue worker:reply-triage
 pnpm --filter @qyro/queue worker:outbound-call
 pnpm --filter @qyro/queue worker:webhook
 ```
 
----
-
-## 8. AI Agents
-
-All agents go through `packages/agents/src/runner.ts` → quota check → OpenAI → log to `usage_events`.
-
-| Agent | File | Model | Used by |
-|---|---|---|---|
-| Lead Discovery | `leadDiscovery.ts` | cheap | leads route, nightly ingest |
-| Research | `research.ts` | cheap | research worker |
-| Outreach | `outreach.ts` | cheap | outreach worker |
-| Reply Triage | `replyTriage.ts` | cheap | reply-triage worker |
-| Booking | `booking.ts` | standard | clientAssistant, voiceAssistant |
-| Client Assistant | `clientAssistant.ts` | cheap (→ standard) | assist chat endpoint |
-| Voice Assistant | `voiceAssistant.ts` | cheap (→ standard) | voice turn route |
-| Email Enrichment | `emailEnrichment.ts` | n/a (API calls) | leadDiscovery |
-| QA Guardrail | `qa.ts` | cheap | outreach agent |
-
-### Calendar adapters (not agents but part of the booking flow)
-`packages/agents/src/calendars/` — `CalendarAdapter` interface with `calCom.ts` and `googleCalendar.ts` implementations. Factory loaded from `tenant.metadata.calendarProvider`.
-
-### Model tiers
+**Railway start commands:**
 ```
-cheap    → gpt-4o-mini   ($0.15/1M input, $0.60/1M output)
-standard → gpt-4o        ($2.50/1M input, $10/1M output)
-premium  → claude-sonnet-4-6  (premium plan only)
-```
-
-### Per-plan daily token limits
-```
-starter → 50K input / 20K output / day
-growth  → 200K input / 80K output / day
-agency  → 800K input / 300K output / day
+research worker:   pnpm --filter @qyro/queue worker:research
+outreach worker:   pnpm --filter @qyro/queue worker:outreach
+outboundCall:      pnpm --filter @qyro/queue worker:outbound-call
+webhook worker:    pnpm --filter @qyro/queue worker:webhook
 ```
 
 ---
 
-## 9. Entitlement Model
+## 9. Voice Architecture
 
-Product access (`lead: boolean`, `assist: boolean`) is resolved by `apps/api/src/lib/entitlements.ts` from four layered sources (highest wins):
+### Path A — SignalWire AI Agent (SWAIG) — PRIMARY
 
-1. **Per-user overrides** — `tenant.metadata.user_product_access[userId]`
-2. **Billing override** — `tenant.metadata.billing_override_access`
-3. **Active subscription** — `tenant_subscriptions` table (Stripe as authority)
-4. **Trial access** — `tenant.metadata.trial_*` fields
+```
+Customer calls tenant's SignalWire number
+    ↓
+SignalWire AI Agent (SWML config) handles speech with its own LLM
+    ↓ (when business action needed)
+POST /api/v1/swaig/<function>  [HTTP Basic auth: SWAIG_WEBHOOK_SECRET]
+    ↓
+QYRO executes action (booking / FAQ / escalation / SMS)
+    ↓
+Returns result string → AI reads aloud to caller
+```
 
-**Default posture:** `{ lead: false, assist: false }` when no entitlement source exists.
+QYRO backend (`voiceAssistant.ts`) is **NOT called** in this path.
 
-**Master admin** (identified by Clerk user ID or email match in env) bypasses all entitlement checks and gets `{ lead: true, assist: true }`.
+### Path B — Retell Custom LLM (per-tenant opt-in)
 
-**Stripe webhook** (`POST /webhooks/stripe`) is the authoritative trigger for subscription lifecycle. Events handled: `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.payment_failed`.
+```
+Customer calls tenant's SignalWire number
+    ↓
+SignalWire routes to Retell (configured via tenant voice_runtime=retell)
+    ↓
+Retell connects to /api/v1/retell/llm-websocket (WebSocket)
+    ↓
+QYRO voiceAssistant runs as LLM backend; tool calls handled via /retell/tools/*
+```
+
+### Path C — TwiML Loop (legacy / fallback)
+
+```
+Customer calls → POST /api/v1/voice/incoming → TwiML <Gather>
+    ↓
+Speech recognized → POST /api/v1/voice/turn → voiceAssistant.ts
+    ↓
+Reply wrapped in <Say> → returned as TwiML
+```
+
+This path has a 4-second processing guard. Fallback TwiML: "Please hold while we connect you."
+
+### Outbound calls
+
+```
+Enqueue via POST /api/v1/assist/outbound-calls/enqueue
+    ↓ BullMQ OUTBOUND_CALL queue
+outboundCallWorker:
+  1. Re-check DNC
+  2. Check tenant pause + global pause (OUTBOUND_VOICE_GLOBAL_PAUSED)
+  3. Check capacity: activeCount < maxConcurrentCalls (default 3)
+  4. Dial: SignalWire LaML REST (or Retell create-phone-call if voice_runtime=retell)
+  5. Status webhook → POST /api/v1/voice/status → webhookWorker → retry scheduling
+```
 
 ---
 
-## 10. Voice Architecture
+## 10. Tenant Provisioning and Onboarding
 
-### Phone number model
-Bring-Your-Own-Number (BYON): clients forward their existing business number to a SignalWire number provisioned in QYRO. No number porting required. QYRO handles the AI conversation and forwards calls to staff when escalation is needed.
+### Auto-provisioning
 
-### Voice runtime modes (per tenant)
-```
-tenant.metadata.voice_runtime = "signalwire"  ← TwiML Say/Gather loop (default)
-tenant.metadata.voice_runtime = "retell"      ← Retell AI runtime handoff
-```
+On every authenticated API call, `apps/api/src/middleware/tenant.ts` checks if the user has a tenant. If not, `provisionTenantForClerkUser()` creates one with:
+- `tenant_type: "assistant"` (default)
+- `metadata.onboarding_complete: false`
+- `metadata.provisioned_from: "clerk_first_login"`
 
-### Inbound call flow (SignalWire + Retell)
-```
-1. Customer calls forwarded number
-2. POST /api/v1/voice/incoming
-   → Look up tenant by voice_number
-   → Create call_attempts + assistant_session
-   → If voice_runtime=retell: POST to Retell register-call API → return TwiML redirect
-   → If voice_runtime=signalwire: TwiML Say + Gather → /api/v1/voice/turn loop
-3. Retell AI drives conversation, calls QYRO tool endpoints for business context
-4. QYRO persists call state, transcript, recordings
-5. On escalation: TwiML Dial to staff + SMS/email notification
-```
+Race condition guard: unique constraint on `users.clerk_id` + `ON CONFLICT DO NOTHING`.
 
-### Outbound call flow
-```
-1. POST /api/v1/assist/outbound-calls/enqueue (creates call_attempts row)
-2. outboundCallWorker picks up:
-   → Check pause/global pause
-   → Check DNC list
-   → Check capacity (active calls < maxConcurrentCalls)
-   → Dial via SignalWire REST (or Retell create-call if voice_runtime=retell)
-3. Status callbacks → /api/v1/voice/status
-   → Schedule retries at 15min/2hr/1day/3day for no-answer/busy
-4. DND captured during call → added to do_not_contact immediately
-```
+### Onboarding gate
 
-### SWAIG (alternative)
-SignalWire's native AI function calling system. A separate route surface at `/api/v1/swaig/` exposes booking, FAQ, escalation, and SMS functions. Multi-provider calendar adapter added 2026-04-10. Operates independently of the Retell runtime path.
+`GET /api/v1/tenants/settings` returns `onboardingComplete: boolean`.
+
+`apps/web/src/app/products/page.tsx` redirects to `/onboarding` when `onboardingComplete === false`.
+Existing tenants (field absent) are treated as complete — no disruption.
+
+### Onboarding flow (`/onboarding`)
+
+4-step page at `apps/web/src/app/onboarding/page.tsx`:
+
+| Step | What's collected |
+|---|---|
+| 0 — Product selection | `productType`: "assist" (Lead = "coming soon") |
+| 1 — Business info | name, industry, phone, timezone |
+| 2 — AI setup | businessDescription, services (comma-list), greeting |
+| 3 — Done | Call-forwarding instructions displayed |
+
+`PATCH /api/v1/tenants/onboarding` saves all fields to tenant metadata + sets `onboarding_complete: true`.
+
+After completion: redirects to `/client/dashboard` (Assist) or `/internal/dashboard` (Lead).
 
 ---
 
-## 11. Deployment Topology
+## 11. Real-Time Events (SSE)
 
-### Production
-| Service | Platform | Notes |
+```
+Server-side event emitter: packages/queue/src/realtime.ts
+  publishEvent(tenantId, eventType, data) → Redis pub/sub channel: events:{tenantId}
+
+SSE endpoint: GET /api/v1/events/stream
+  - Clerk JWT required (query param token=)
+  - Subscribes to Redis channel for tenant
+  - Streams events to browser as text/event-stream
+  - 30-second ping heartbeat
+
+Browser: apps/web/src/hooks/useSSEEvents.ts
+  - Reconnect on error/close
+  - Live status indicator
+  - Dashboard toast notifications for: pending_approval, escalation, call_status_change, new_lead
+```
+
+Events emitted by:
+- `leads.ts` — `new_lead`
+- `voice.ts` / `webhookWorker.ts` — `call_status_change`
+- `outreach.ts` / `outreachWorker.ts` — `pending_approval`
+- `voice.ts` / `swaig.ts` — `escalation`
+
+---
+
+## 12. Entitlement Model
+
+Resolution order (highest priority wins):
+
+1. **Billing override** — master admin can force-grant access regardless of subscription
+2. **Active Stripe subscription** — `tenant_subscriptions` table; updated by Stripe webhook
+3. **Trial access** — trial call counters in tenant metadata (decrements per use)
+4. **Per-user overrides** — `users.metadata.product_access` can extend/restrict
+5. **Default** — `{ lead: false, assist: false }` if no entitlement source exists
+
+Implemented in `apps/api/src/lib/entitlements.ts`.
+
+`invoice.payment_failed` Stripe event revokes access immediately.
+
+---
+
+## 13. Security Model
+
+### Auth layers
+
+| Layer | Mechanism | Bypass flag |
 |---|---|---|
-| Web app | Vercel | git push origin main = auto-deploy; project `prj_C4gIk9spUIqDKCQblnCJtNLlmlrJ` |
-| API | Railway | Node.js Express; port 3001; health endpoint at /health |
-| research worker | Railway | Separate service; `pnpm --filter @qyro/queue worker:research` |
-| outreach worker | Railway | Separate service |
-| outbound-call worker | Railway | Separate service |
-| webhook worker | Railway | Separate service |
-| Postgres | Railway | Managed Postgres |
-| Redis | Railway | Managed Redis |
-| nightly-ingest cron | Railway | `node apps/crons/dist/nightly-ingest.js`; 22:00 PT |
-| morning-digest cron | Railway | `node apps/crons/dist/morning-digest.js`; 07:00 PT |
+| Web app routes | Clerk middleware | None in prod |
+| API routes | Clerk JWT bearer token | `DEV_BYPASS_AUTH=true` (blocks if `NODE_ENV=production`) |
+| SignalWire webhooks | HMAC `x-signalwire-signature` | `SKIP_SW_SIGNATURE_CHECK=true` (dev only) |
+| Retell webhooks | HMAC-SHA256 `x-retell-signature` | None |
+| SWAIG functions | HTTP Basic `SWAIG_WEBHOOK_SECRET` | None |
+| Internal crons | `x-webhook-secret` header | None |
+| Stripe webhooks | Stripe signature | None |
 
-### Deploy method
-Push to `main` branch triggers Vercel auto-deploy for web. Railway services auto-deploy on push (configured per service in Railway dashboard).
+### Rate limiting
 
-No `vercel.json` — using Vercel defaults. No manual deploy step needed.
+- Widget chat endpoint: Redis-backed INCR/EXPIRE (persists across restarts)
+- `/qx-ops` admin ops path: 5 req/min per IP; 1-hour block on violation
+- SSE stream: Clerk JWT required; per-tenant channel isolation
 
-### Environment variables
-Each service has its own set. Key vars:
+### Tenant isolation
+
+- Every table has `tenant_id` column
+- Postgres RLS policies (migration `0001_rls_policies.sql`) enforce tenant scoping at DB level
+- Tenant middleware sets `req.tenant` on every authenticated request
+- `widget_allowed_origins` per tenant prevents cross-origin widget abuse
+
+---
+
+## 14. Deployment Topology
 
 ```
-# Core
-DATABASE_URL         REDIS_URL           OPENAI_API_KEY
-CLERK_SECRET_KEY     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+                    ┌──────────────────────────────────────────┐
+                    │               VERCEL                     │
+                    │   Next.js 14 web app — git push = deploy │
+                    │   GitHub: bhavneetsingh12/qyro           │
+                    │   No vercel.json — Vercel defaults       │
+                    └──────────────────────────────────────────┘
 
-# Voice
-SIGNALWIRE_PROJECT_ID   SIGNALWIRE_API_TOKEN   SIGNALWIRE_SPACE_URL
-RETELL_API_KEY          RETELL_AGENT_ID_DEFAULT  RETELL_WEBHOOK_SECRET
-
-# Billing
-STRIPE_SECRET_KEY    STRIPE_WEBHOOK_SECRET
-STRIPE_PRICE_ASSIST_STARTER   STRIPE_PRICE_ASSIST_GROWTH
-STRIPE_PRICE_LEAD_STARTER     STRIPE_PRICE_LEAD_GROWTH
-STRIPE_APP_BASE_URL
-
-# Crons
-API_URL              WEBHOOK_SECRET
-
-# Email / enrichment
-RESEND_API_KEY       EMAIL_FROM
-APOLLO_API_KEY       CAL_API_KEY
-
-# Admin
-MASTER_ADMIN_CLERK_ID   MASTER_ADMIN_EMAIL
-INTERNAL_TENANT_ID      OUTBOUND_VOICE_GLOBAL_PAUSED
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              RAILWAY                                    │
+│                                                                         │
+│  api service         pnpm --filter @qyro/api start                     │
+│  research-worker     pnpm --filter @qyro/queue worker:research          │
+│  outreach-worker     pnpm --filter @qyro/queue worker:outreach          │
+│  outbound-worker     pnpm --filter @qyro/queue worker:outbound-call     │
+│  webhook-worker      pnpm --filter @qyro/queue worker:webhook           │
+│  nightly-cron        node apps/crons/dist/nightly-ingest.js             │
+│  morning-cron        node apps/crons/dist/morning-digest.js             │
+│                                                                         │
+│  postgres            Railway Postgres (daily backups)                   │
+│  redis               Railway Redis (persistence enabled)                │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
+Cron schedules (Railway dashboard — not in code):
+- `nightly-ingest`: 22:00 PT daily
+- `morning-digest`: 07:00 PT daily
+
+Cron required env vars: `API_URL`, `WEBHOOK_SECRET`
+
 ---
 
-## 12. User Signup and Onboarding Flow
+## 15. Known Gaps and TODOs
 
-As of 2026-04-10, new signups go through automated onboarding:
+### Phase 3 (next to build)
 
+| Item | Priority | Notes |
+|---|---|---|
+| Wire Stripe checkout into onboarding | P1 | Products page has manual billing; onboarding doesn't gate on it yet |
+| Calling hours enforcement in outboundCallWorker | P1 | Gate is documented in COMPLIANCE.md; not yet coded |
+| Cal.com webhook for booking confirmation | P1 | Confirmations not yet auto-synced back |
+| Clerk user lifecycle webhooks | P2 | No user sync on Clerk delete/update |
+| Calendly / Square Appointments adapters | P2 | Only Cal.com + Google Calendar today |
+
+### Phase 4 (future)
+
+| Item | Notes |
+|---|---|
+| QYRO Lead as a product | `tenant_type: "lead_engine"` — backend exists; no UI/billing/onboarding yet |
+| Prompt Hygiene Agent | Specced in AGENTS.md; `promptHygiene.ts` does not exist yet |
+| Session P — mobile polish | Pre-launch UI refinement pass |
+
+### Compliance gates (never remove until satisfied)
+
+- Cold outbound AI voice calling: BLOCKED — see COMPLIANCE.md for full gate
+- Proactive SMS outreach (non-missed-call): blocked — consent collection not built
+- FTC National DNC Registry check: not integrated
+
+---
+
+## 16. Key Architectural Decisions
+
+### ADR-001: One codebase, two products
+Keep QYRO Lead and QYRO Assist in one monorepo, separated by `tenant_type`.
+Avoids maintaining two separate codebases. Agents and infra are shared where appropriate.
+
+### ADR-002: SignalWire over Twilio
+Migrated to SignalWire in April 2026. cXML-compatible, same PSTN routing semantics,
+better pricing. All voice fields renamed to provider-neutral names (`voice_number`, `call_sid`).
+
+### ADR-003: SWAIG as primary voice AI path
+SignalWire AI Agent handles all speech processing natively. QYRO exposes callable SWAIG
+function endpoints. This means QYRO's `voiceAssistant.ts` is NOT called on the primary path —
+SignalWire handles the LLM. QYRO handles the business actions.
+
+### ADR-004: Stripe webhook = entitlement authority
+Subscription state is persisted in `tenant_subscriptions` and updated by Stripe webhook.
+Tenant metadata is retained as fallback only. `invoice.payment_failed` = immediate access revoke.
+
+### ADR-005: Consent-first, approval-gated outreach
+No outbound message is auto-sent without human approval gate.
+No prospect is messaged without DNC check. Unsubscribes honored immediately (no queue delay).
+
+### ADR-006: Railway crons replaced n8n schedule triggers
+n8n is kept in `infra/n8n/` as a fallback/recovery option but is no longer the execution path.
+Cron scripts POST to API with `x-webhook-secret` — same auth as before, simpler infrastructure.
+
+### ADR-007: BullMQ webhook worker for voice event async processing
+`POST /api/v1/voice/status`, `/retell/call-events`, `/retell/transcript-events` now return
+immediate 200 and enqueue for processing. Prevents provider timeout (SignalWire/Retell have
+short callback windows). Redis idempotency cache (24h TTL) on Retell events.
+
+---
+
+## 17. Local Development Setup
+
+```bash
+# 1. Start local services
+docker compose -f infra/docker-compose.yml up -d
+
+# 2. Copy env template
+cp .env.example .env.local
+# Fill in: OPENAI_API_KEY, CLERK keys, SIGNALWIRE keys (or SKIP_SW_SIGNATURE_CHECK=true)
+
+# 3. Run migrations
+pnpm db:migrate
+
+# 4. Seed internal tenant
+npx tsx infra/seed.ts
+
+# 5. Start API
+pnpm dev
+
+# 6. Start workers (separate terminals or PM2)
+pm2 start infra/pm2/ecosystem.config.cjs
+
+# If Next chunks 404 locally: clean apps/web/.next and restart web dev server
 ```
-1. User hits /sign-up → Clerk creates account
-2. Root page redirects signed-in users to /products
-3. /products fetches GET /api/v1/tenants/settings:
-   → First API call triggers tenant auto-provisioning in tenant.ts middleware
-     (creates tenant with onboarding_complete: false in metadata)
-   → If onboardingComplete === false → redirect to /onboarding
-4. /onboarding (4-step client-side page):
-   Step 0: Product selection (QYRO Assist vs Lead — Lead is "coming soon")
-   Step 1: Business info (name, industry, phone, timezone)
-   Step 2: AI setup (description, services, greeting)
-   Step 3: Done (call-forwarding instructions + "Go to dashboard")
-5. PATCH /api/v1/tenants/onboarding saves all data + sets onboarding_complete: true
-6. User redirected to /client/dashboard (Assist) or /internal/dashboard (Lead)
-```
 
-**Existing tenants are unaffected:** the onboarding gate only fires when `metadata.onboarding_complete === false` (explicitly false, not missing/null).
+### Key environment variables
 
----
+See `docs/ENVIRONMENTS.md` for the complete env var reference.
 
-## 13. Real-Time Events
+Must be set before any traffic:
+- `DATABASE_URL`, `REDIS_URL`
+- `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `OPENAI_API_KEY`
+- `SIGNALWIRE_PROJECT_ID`, `SIGNALWIRE_API_TOKEN`, `SIGNALWIRE_SPACE_URL`
+- `SWAIG_WEBHOOK_SECRET` (required for SWAIG calls)
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`, `EMAIL_FROM`
+- `WEBHOOK_SECRET` (Railway cron auth)
+- `PUBLIC_API_BASE_URL` (used in TwiML action URLs)
 
-SSE stream at `GET /api/v1/events/stream` (authenticated, tenant-scoped).
+### Pre-launch security checklist
 
-Events published via Redis pub/sub (`packages/queue/src/realtime.ts`):
-- `new_lead` — new prospect ingested
-- `call_status_change` — call attempt status updated
-- `pending_approval` — new message awaiting approval
-- `escalation` — call escalation triggered
-
-Frontend subscribes with 30s ping heartbeat and auto-reconnect. Dashboard shows live toasts for pending approvals and escalations.
-
----
-
-## 14. Security Model
-
-| Concern | Mechanism |
-|---|---|
-| Authentication | Clerk JWT bearer tokens on all protected API routes |
-| Tenant isolation | Application-level `tenant_id` scoping (every query) + Postgres RLS policies (migration 0001) |
-| Voice webhook verification | `x-signalwire-signature` HMAC on voice routes |
-| Retell webhook verification | `x-retell-signature` HMAC-SHA256 on raw request body |
-| SWAIG verification | SWAIG-specific auth in `validateSwaigRequest` middleware |
-| Widget rate limiting | Redis INCR/EXPIRE per tenant+IP (survives restarts); origin allowlist via `widget_allowed_origins` |
-| DEV bypass protection | `DEV_BYPASS_AUTH=true` throws at startup if `NODE_ENV=production` |
-| Master admin | Identified by Clerk user ID or email match in env vars; bypasses billing checks |
-| Outbound compliance | DNC check + tenant pause check + capacity check before every dial |
-| Data minimization | Call recordings retained 90 days; exports auto-delete after 30 days |
-
----
-
-## 15. Known Gaps and Open Items
-
-### P1 — Important, fix before broad client rollout
-
-| Gap | Notes |
-|---|---|
-| In-memory rate limiter on chat endpoint | Resets on server restart; acceptable for single-instance, replace before horizontal scaling |
-| Clerk webhooks not implemented | `user.created` not handled; current first-login provisioning works but has no email/name capture from Clerk |
-| Cal.com webhooks not implemented | Booking confirmations not pushed back to QYRO |
-| RLS policies need verification | Migration 0001 adds them but production execution must be confirmed |
-| SWAIG calendar adapter | Multi-provider added 2026-04-10; needs E2E testing with real SignalWire setup |
-| Retell live receptionist scenarios | 10 benchmark scripts must be run against real PSTN before pilot tenant |
-
-### P2 — Nice to have, Phase 3+
-
-| Gap | Notes |
-|---|---|
-| Self-serve tenant onboarding | Onboarding flow now built, but Stripe checkout not wired in-flow (billing still via /products) |
-| Calendly / Square Appointments adapters | Phase 3 per QYRO_ASSIST_INSTRUCTIONS.md |
-| promptHygiene agent | Specced in AGENTS.md but never built |
-| Session P (polish + mobile) | Dashboard stat placeholders; general mobile pass |
-| Anomaly detection | `anomalyDetectionWorker.ts` exists but undocumented; confirm behavior and alerting targets |
-| Postgres RLS — admin pool | `adminDb` bypasses RLS by design but admin routes need careful review |
-
-### Compliant but worth noting
-| Item | Status |
-|---|---|
-| Email outbound | Active; QA Guardrail + human approval gate + DNC check |
-| SMS outbound | Active (missed-call follow-up); implied consent, STOP keyword handled |
-| Voice inbound | Active; AI disclosure required per COMPLIANCE.md |
-| Voice outbound (cold) | Blocked until COMPLIANCE.md gate satisfied (legal review + consent infrastructure) |
-
----
-
-## 16. Key Architecture Decisions (Summary)
-
-Full ADRs in `docs/DECISIONS.md`. Summary of most impactful:
-
-| ADR | Decision |
-|---|---|
-| ADR-002 | Drizzle ORM over Prisma — TS-first, closer to SQL, better RLS |
-| ADR-003 | Dual tenant isolation: RLS + application-level WHERE clauses |
-| ADR-004 | gpt-4o-mini as default model; gpt-4o for booking/complex; claude-sonnet-4-6 for premium |
-| ADR-007 | Two products on one platform, separated by tenant_type |
-| ADR-009 | Google Places API is sole lead search source; Apollo for email enrichment only |
-| ADR-013 | Subscription-first entitlement model; billing-first default (no access without sub) |
-| ADR-014 | Stripe webhooks are the authoritative entitlement synchronization trigger |
-| ADR-017 | SignalWire as primary cXML telephony transport |
-| ADR-018 | Provider-neutral DB field names: `voice_number`, `call_sid` |
-| ADR-019 | Master-admin role bypasses billing-gated UX for platform operations |
+- [ ] `SKIP_SW_SIGNATURE_CHECK` is NOT set in prod
+- [ ] `DEV_BYPASS_AUTH` is NOT set or is `false` in prod
+- [ ] `OUTBOUND_VOICE_GLOBAL_PAUSED` set correctly (true during soft launch)
+- [ ] Stripe live keys configured + webhook registered
+- [ ] Clerk production environment configured
+- [ ] `MASTER_ADMIN_CLERK_IDS` or `MASTER_ADMIN_EMAILS` set for Bhavneet
+- [ ] `SWAIG_WEBHOOK_SECRET` set
+- [ ] All Railway services have health checks configured
+- [ ] Billing alerts set on OpenAI prod key ($10, $50, $100)
