@@ -124,6 +124,8 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       currentUserRole: req.userRole,
       isMasterAdmin,
       showBillingStatus: !isMasterAdmin,
+      onboardingComplete: meta.onboarding_complete === false ? false : true,
+      tenantType: (meta.tenant_type as string) ?? "",
     });
   } catch (err) {
     next(err);
@@ -265,6 +267,72 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
         }),
         ...(escalationContactEmail !== undefined && {
           escalationContactEmail: escalationContactEmail.trim() || null,
+        }),
+        metadata:  updatedMeta,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenants.id, req.tenantId));
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/v1/tenants/onboarding ────────────────────────────────────────
+// Saves onboarding data and marks the tenant as onboarding-complete.
+// Called once at the end of the onboarding flow.
+
+router.patch("/onboarding", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      productType,
+      name,
+      industry,
+      phone,
+      timezone,
+      businessDescription,
+      services,
+      greeting,
+    } = req.body as {
+      productType?: "assistant" | "lead_engine";
+      name?: string;
+      industry?: string;
+      phone?: string;
+      timezone?: string;
+      businessDescription?: string;
+      services?: string;
+      greeting?: string;
+    };
+
+    const existing = await db.query.tenants.findFirst({
+      where: eq(tenants.id, req.tenantId),
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+
+    const existingMeta = (existing.metadata as Record<string, unknown>) ?? {};
+
+    const updatedMeta: Record<string, unknown> = {
+      ...existingMeta,
+      onboarding_complete: true,
+      ...(productType !== undefined && { tenant_type: productType }),
+      ...(industry    !== undefined && { industry }),
+      ...(timezone    !== undefined && { timezone }),
+      ...(businessDescription !== undefined && { businessDescription }),
+      ...(services    !== undefined && { approvedServices: services }),
+      ...(greeting    !== undefined && { greetingScript: greeting }),
+    };
+
+    await db
+      .update(tenants)
+      .set({
+        ...(name?.trim() && { name: name.trim() }),
+        ...(phone !== undefined && {
+          voiceNumber: normalizePhone(phone) || null,
         }),
         metadata:  updatedMeta,
         updatedAt: new Date(),

@@ -26,6 +26,9 @@ export default async function ProductsPage() {
         if (body.isMasterAdmin === true) {
           redirect("/qx-ops");
         }
+        if (body.onboardingComplete === false) {
+          redirect("/onboarding");
+        }
         productAccess = body.productAccess ?? productAccess;
         showBillingStatus = body.showBillingStatus !== false;
       }

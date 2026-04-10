@@ -26,7 +26,7 @@ async function provisionTenantForClerkUser(clerkUserId: string) {
       slug: tenantSlug,
       plan: "starter",
       active: true,
-      metadata: { provisioned_from: "clerk_first_login" },
+      metadata: { provisioned_from: "clerk_first_login", onboarding_complete: false },
     })
     .returning();
 
