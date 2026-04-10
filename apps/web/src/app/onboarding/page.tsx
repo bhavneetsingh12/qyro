@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { ArrowRight, CheckCircle, PhoneCall, Users, Loader2 } from "lucide-react";
+import { ArrowRight, CheckCircle, PhoneCall, Users, Loader2, Check } from "lucide-react";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
 const API_URL =
@@ -34,6 +34,52 @@ const TIMEZONES = [
   { label: "Hawaii (HT)", value: "Pacific/Honolulu" },
 ];
 
+const ASSIST_PLANS = [
+  {
+    key: "starter" as const,
+    name: "Starter",
+    price: "$297",
+    period: "/mo",
+    features: [
+      "AI inbound receptionist",
+      "Unlimited inbound calls",
+      "Appointment booking",
+      "Missed-call SMS follow-up",
+      "Email support",
+    ],
+    highlight: false,
+  },
+  {
+    key: "growth" as const,
+    name: "Growth",
+    price: "$497",
+    period: "/mo",
+    features: [
+      "Everything in Starter",
+      "Custom AI personality & tone",
+      "Multiple phone numbers",
+      "Analytics dashboard",
+      "Priority support",
+    ],
+    highlight: true,
+  },
+  {
+    key: "pro" as const,
+    name: "Pro",
+    price: "$797",
+    period: "/mo",
+    features: [
+      "Everything in Growth",
+      "Outbound callback campaigns",
+      "Dedicated onboarding call",
+      "SLA guarantee",
+      "Phone support",
+    ],
+    highlight: false,
+  },
+] as const;
+
+type PlanKey = (typeof ASSIST_PLANS)[number]["key"];
 type ProductType = "assistant" | "lead_engine";
 
 type FormState = {
@@ -47,7 +93,8 @@ type FormState = {
   greeting: string;
 };
 
-const TOTAL_STEPS = 4;
+const STORAGE_KEY = "qyro_onboarding_draft";
+const TOTAL_STEPS = 5;
 
 function StepDots({ current }: { current: number }) {
   return (
@@ -68,7 +115,7 @@ function StepDots({ current }: { current: number }) {
   );
 }
 
-// ─── Step 1: Product selection ────────────────────────────────────────────────
+// ─── Step 0: Product selection ────────────────────────────────────────────────
 
 function StepProduct({
   value,
@@ -135,7 +182,7 @@ function StepProduct({
   );
 }
 
-// ─── Step 2: Business info ────────────────────────────────────────────────────
+// ─── Step 1: Business info ────────────────────────────────────────────────────
 
 function StepBusinessInfo({
   form,
@@ -232,6 +279,111 @@ function StepBusinessInfo({
           <ArrowRight size={14} strokeWidth={2.5} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Step 2: Choose plan ──────────────────────────────────────────────────────
+
+function StepPlan({
+  onSelectTrial,
+  onSubscribe,
+  onBack,
+  subscribing,
+  subscribingPlan,
+}: {
+  onSelectTrial: () => void;
+  onSubscribe: (plan: PlanKey) => void;
+  onBack: () => void;
+  subscribing: boolean;
+  subscribingPlan: PlanKey | null;
+}) {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-stone-900 mb-1">Choose your plan</h1>
+      <p className="text-sm text-stone-500 mb-7">
+        Start with a free 14-day trial or subscribe now. No contract, cancel anytime.
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 mb-6">
+        {ASSIST_PLANS.map((plan) => (
+          <div
+            key={plan.key}
+            className={`relative rounded-2xl border-2 p-5 transition-all ${
+              plan.highlight
+                ? "border-amber-400 bg-amber-50"
+                : "border-stone-200 bg-white"
+            }`}
+          >
+            {plan.highlight && (
+              <span className="absolute -top-3 left-5 text-xs font-bold bg-amber-500 text-white px-3 py-0.5 rounded-full">
+                Most popular
+              </span>
+            )}
+
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-1.5 mb-1">
+                  <span className="text-lg font-bold text-stone-900">{plan.price}</span>
+                  <span className="text-xs text-stone-400">{plan.period}</span>
+                  <span className="text-sm font-semibold text-stone-700 ml-1">{plan.name}</span>
+                </div>
+                <ul className="space-y-1 mt-2">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-center gap-1.5 text-xs text-stone-600">
+                      <Check size={11} className="text-amber-500 shrink-0" strokeWidth={3} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <button
+                type="button"
+                disabled={subscribing}
+                onClick={() => onSubscribe(plan.key)}
+                className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  plan.highlight
+                    ? "bg-amber-500 text-white hover:bg-amber-600"
+                    : "bg-stone-900 text-white hover:bg-stone-800"
+                }`}
+              >
+                {subscribing && subscribingPlan === plan.key ? (
+                  <><Loader2 size={12} className="animate-spin" /> Redirecting…</>
+                ) : (
+                  "Subscribe"
+                )}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 flex items-center justify-between gap-4 mb-6">
+        <div>
+          <p className="text-sm font-semibold text-stone-800">Not ready to commit?</p>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Start free for 14 days — no credit card required.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onSelectTrial}
+          disabled={subscribing}
+          className="shrink-0 px-4 py-2 rounded-xl border border-stone-300 text-xs font-semibold text-stone-700 hover:bg-white transition-colors disabled:opacity-50"
+        >
+          Start free trial
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={subscribing}
+        className="px-5 py-2.5 rounded-xl border border-stone-200 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-40"
+      >
+        Back
+      </button>
     </div>
   );
 }
@@ -373,9 +525,10 @@ function StepDone({ businessName, onGoToDashboard }: { businessName: string; onG
 
         <div className="rounded-xl border border-stone-200 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-2">Step 3</p>
-          <h3 className="text-sm font-bold text-stone-900 mb-1">Choose a plan when ready</h3>
+          <h3 className="text-sm font-bold text-stone-900 mb-1">Manage your plan</h3>
           <p className="text-sm text-stone-500 leading-relaxed">
-            You&apos;re on a free trial. Upgrade from your dashboard whenever you&apos;re ready to go live with customers.
+            View or upgrade your subscription from{" "}
+            <span className="font-medium text-stone-700">Settings → Billing</span> at any time.
           </p>
         </div>
       </div>
@@ -400,6 +553,8 @@ export default function OnboardingPage() {
 
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [subscribing, setSubscribing] = useState(false);
+  const [subscribingPlan, setSubscribingPlan] = useState<PlanKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>({
@@ -413,8 +568,81 @@ export default function OnboardingPage() {
     greeting: "",
   });
 
+  // Detect return from Stripe checkout (subscribed=true in URL) and restore saved draft
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("subscribed") === "true") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved) as Partial<FormState>;
+          setForm((prev) => ({ ...prev, ...parsed }));
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        // ignore parse errors
+      }
+      setStep(3); // Jump to AI setup after successful payment
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function checkoutForPlan(plan: PlanKey) {
+    setSubscribing(true);
+    setSubscribingPlan(plan);
+    setError(null);
+
+    try {
+      // Persist form state so we can restore it after Stripe redirects back
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          productType: form.productType,
+          name: form.name,
+          industry: form.industry,
+          phone: form.phone,
+          timezone: form.timezone,
+        }),
+      );
+
+      const token = await getToken();
+      const origin = window.location.origin;
+      const res = await fetch(`${API_URL}/api/v1/billing/checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          product: "assist",
+          plan,
+          successUrl: `${origin}/onboarding?subscribed=true`,
+          cancelUrl: `${origin}/onboarding`,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { message?: string }).message ?? "Failed to start checkout — please try again.",
+        );
+      }
+
+      const body = await res.json();
+      const url = (body as { data?: { url?: string } }).data?.url;
+      if (!url) throw new Error("No checkout URL returned.");
+
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start checkout — please try again.");
+      setSubscribing(false);
+      setSubscribingPlan(null);
+    }
   }
 
   async function saveAndFinish() {
@@ -446,7 +674,7 @@ export default function OnboardingPage() {
         throw new Error((body as { message?: string }).message ?? "Failed to save — please try again.");
       }
 
-      setStep(3);
+      setStep(4);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save — please try again.");
     } finally {
@@ -495,22 +723,32 @@ export default function OnboardingPage() {
           )}
 
           {step === 2 && (
+            <StepPlan
+              onSelectTrial={() => setStep(3)}
+              onSubscribe={checkoutForPlan}
+              onBack={() => setStep(1)}
+              subscribing={subscribing}
+              subscribingPlan={subscribingPlan}
+            />
+          )}
+
+          {step === 3 && (
             <StepAiSetup
               form={form}
               businessName={form.name}
               onChange={(field, value) => updateField(field, value)}
               onNext={saveAndFinish}
-              onBack={() => setStep(1)}
+              onBack={() => setStep(2)}
               saving={saving}
             />
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <StepDone businessName={form.name} onGoToDashboard={goToDashboard} />
           )}
         </div>
 
-        {step < 3 && (
+        {step < 4 && (
           <p className="text-center text-xs text-stone-400 mt-4">
             Step {step + 1} of {TOTAL_STEPS}
           </p>

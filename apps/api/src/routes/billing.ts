@@ -11,7 +11,7 @@ type ProductAccess = {
 };
 
 type BillingProduct = "lead" | "assist" | "bundle";
-type BillingPlan = "starter" | "growth";
+type BillingPlan = "starter" | "growth" | "pro";
 
 const ACTIVE_LIKE_STATUSES = new Set(["trialing", "active", "past_due"]);
 

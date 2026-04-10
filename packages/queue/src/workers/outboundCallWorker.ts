@@ -1,6 +1,7 @@
 import { Worker, type Job } from "bullmq";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
-import { db, callAttempts, prospectsRaw, tenants, doNotContact } from "@qyro/db";
+import { DateTime } from "luxon";
+import { db, callAttempts, prospectsRaw, tenants, doNotContact, auditLogs } from "@qyro/db";
 import { redis, QUEUE_NAMES, outboundCallQueue, type OutboundCallJobData } from "../queues";
 import { publishRealtimeEvent } from "../realtime";
 
@@ -171,6 +172,46 @@ async function dialRetell(params: {
   return { callId, status };
 }
 
+function isWithinCallingHours(
+  prospectTimezone: string | null,
+  tenantTimezone: string | null,
+): boolean {
+  const tz =
+    prospectTimezone ??
+    tenantTimezone ??
+    process.env.DEFAULT_TIMEZONE ??
+    "America/Los_Angeles";
+  const now = DateTime.now().setZone(tz);
+  const hour = now.hour;
+  const day = now.weekday; // 1=Mon … 7=Sun
+  // No calls before 8am or at/after 9pm local time, no calls on Sunday
+  return hour >= 8 && hour < 21 && day !== 7;
+}
+
+function getNextCallingWindowStart(
+  prospectTimezone: string | null,
+  tenantTimezone: string | null,
+): Date {
+  const tz =
+    prospectTimezone ??
+    tenantTimezone ??
+    process.env.DEFAULT_TIMEZONE ??
+    "America/Los_Angeles";
+  let next = DateTime.now()
+    .setZone(tz)
+    .startOf("day")
+    .set({ hour: 8, minute: 0, second: 0, millisecond: 0 });
+  // If 8am today is already past, move to tomorrow
+  if (DateTime.now().setZone(tz) >= next) {
+    next = next.plus({ days: 1 });
+  }
+  // Skip Sunday (weekday === 7) → move to Monday
+  if (next.weekday === 7) {
+    next = next.plus({ days: 1 });
+  }
+  return next.toJSDate();
+}
+
 async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   const { tenantId, callAttemptId } = job.data;
 
@@ -307,6 +348,45 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
       {
         delay: CAPACITY_RETRY_MS,
         jobId: `outbound-call:${attempt.id}:capacity:${Date.now()}`,
+      },
+    );
+    return;
+  }
+
+  // ─── Calling hours gate ────────────────────────────────────────────────────
+  const tenantTimezone = (tenantMeta.timezone as string | null) ?? null;
+  if (!isWithinCallingHours(null, tenantTimezone)) {
+    const nextWindow = getNextCallingWindowStart(null, tenantTimezone);
+    const delayMs = Math.max(0, nextWindow.getTime() - Date.now());
+
+    await db
+      .update(callAttempts)
+      .set({
+        status: "retry_scheduled",
+        outcome: "outside_calling_hours",
+        nextAttemptAt: nextWindow,
+      })
+      .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "retry_scheduled");
+
+    await db.insert(auditLogs).values({
+      tenantId,
+      action: "outbound_call.skipped",
+      resourceType: "call_attempt",
+      resourceId: attempt.id,
+      after: {
+        reason: "outside_calling_hours",
+        nextWindowAt: nextWindow.toISOString(),
+        timezone: tenantTimezone ?? process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles",
+      },
+    });
+
+    await outboundCallQueue.add(
+      "outbound-call",
+      { tenantId, callAttemptId: attempt.id },
+      {
+        delay: delayMs,
+        jobId: `outbound-call:${attempt.id}:hours:${nextWindow.getTime()}`,
       },
     );
     return;

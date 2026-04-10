@@ -9,7 +9,7 @@
 import http from "http";
 import { Worker, Queue, type Job } from "bullmq";
 import IORedis from "ioredis";
-import { sql, gte, count } from "drizzle-orm";
+import { sql, gte, count, and, inArray } from "drizzle-orm";
 import { db, rateLimitHits, auditLogs, scrapingAlerts } from "@qyro/db";
 
 const REQUIRED_ENV_ANOMALY = ["DATABASE_URL", "REDIS_URL"];
@@ -80,7 +80,10 @@ async function detectSequentialPagination(): Promise<void> {
     })
     .from(auditLogs)
     .where(
-      sql`${auditLogs.action} = ANY(${listActions}) AND ${auditLogs.createdAt} >= ${since}`
+      and(
+        inArray(auditLogs.action, listActions),
+        gte(auditLogs.createdAt, since),
+      )
     )
     .groupBy(auditLogs.tenantId);
 
