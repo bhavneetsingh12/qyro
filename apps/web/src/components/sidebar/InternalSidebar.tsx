@@ -82,7 +82,7 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
             Settings
           </Link>
           <button
-            onClick={() => signOut({ redirectUrl: "/sign-in" })}
+            onClick={() => signOut({ redirectUrl: "/" })}
             className="sidebar-link w-full text-left"
           >
             <LogOut size={16} strokeWidth={1.75} />

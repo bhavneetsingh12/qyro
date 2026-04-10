@@ -14,7 +14,7 @@ export default function SignOutButton({
   return (
     <button
       type="button"
-      onClick={() => signOut({ redirectUrl: "/sign-in" })}
+      onClick={() => signOut({ redirectUrl: "/" })}
       className={className}
     >
       {label}

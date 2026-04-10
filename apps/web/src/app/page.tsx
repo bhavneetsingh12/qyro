@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { ArrowRight, PhoneCall, Users, BarChart3, Zap, Shield, Clock } from "lucide-react";
 import { QyroMark } from "@/components/brand/QyroBrand";
+import { ASSIST_PRICING } from "@/config/pricing";
 
 export default async function RootPage() {
   const { userId } = await auth();
@@ -18,8 +19,8 @@ export default async function RootPage() {
             <span className="text-sm font-bold tracking-tight text-stone-900">QYRO</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
-            <a href="#products" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Products</a>
-            <a href="#solutions" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Solutions</a>
+            <Link href="/assist" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">QYRO Assist</Link>
+            <Link href="/lead" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">QYRO Lead</Link>
             <a href="#pricing" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Pricing</a>
           </nav>
           <div className="flex items-center gap-3">
@@ -166,111 +167,53 @@ export default async function RootPage() {
           <h2 className="text-3xl sm:text-4xl font-bold text-stone-900 text-center mb-3">Simple, transparent pricing</h2>
           <p className="text-stone-500 text-center text-sm mb-12">QYRO Assist plans for local businesses. No setup fees. Bring your own number.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {/* Starter */}
-            <div className="rounded-2xl border border-stone-200 bg-[#FAFAF8] p-7 flex flex-col">
-              <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-3">Starter</p>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-bold text-stone-900">$297</span>
-                <span className="text-sm text-stone-400 mb-1">/month</span>
-              </div>
-              <p className="text-sm text-stone-500 mb-5">Perfect for small businesses handling everyday call volume.</p>
-              <ul className="space-y-2.5 flex-1 mb-7">
-                {[
-                  "300 AI-handled minutes/month",
-                  "1 number connected",
-                  "AI inbound call handling",
-                  "Missed-call SMS follow-up",
-                  "FAQ & appointment booking",
-                  "Website chat widget",
-                  "Call transcripts (90-day retention)",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/sign-up"
-                className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white transition-colors"
+            {ASSIST_PRICING.tiers.map((tier) => (
+              <div
+                key={tier.key}
+                className={`rounded-2xl p-7 flex flex-col relative ${
+                  tier.popular
+                    ? "border-2 border-amber-400 bg-white shadow-sm"
+                    : "border border-stone-200 bg-[#FAFAF8]"
+                }`}
               >
-                Get started
-                <ArrowRight size={13} strokeWidth={2.5} />
-              </Link>
-            </div>
-
-            {/* Growth */}
-            <div className="rounded-2xl border-2 border-amber-400 bg-white p-7 flex flex-col relative shadow-sm">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="text-xs font-semibold bg-amber-400 text-white px-3 py-1 rounded-full">Most popular</span>
+                {tier.popular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="text-xs font-semibold bg-amber-400 text-white px-3 py-1 rounded-full">Most popular</span>
+                  </div>
+                )}
+                <p className={`text-xs font-semibold uppercase tracking-widest mb-3 ${tier.popular ? "text-amber-600" : "text-stone-400"}`}>
+                  {tier.label}
+                </p>
+                <div className="flex items-end gap-1 mb-1">
+                  <span className="text-4xl font-bold text-stone-900">${tier.price}</span>
+                  <span className="text-sm text-stone-400 mb-1">/month</span>
+                </div>
+                <p className="text-sm text-stone-500 mb-5">{tier.tagline}</p>
+                <ul className="space-y-2.5 flex-1 mb-7">
+                  {tier.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/sign-up"
+                  className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
+                    tier.popular
+                      ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
+                      : "border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white"
+                  }`}
+                >
+                  Get started
+                  <ArrowRight size={13} strokeWidth={2.5} />
+                </Link>
               </div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-amber-600 mb-3">Growth</p>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-bold text-stone-900">$497</span>
-                <span className="text-sm text-stone-400 mb-1">/month</span>
-              </div>
-              <p className="text-sm text-stone-500 mb-5">For growing businesses that need more volume and outbound follow-up.</p>
-              <ul className="space-y-2.5 flex-1 mb-7">
-                {[
-                  "600 AI-handled minutes/month",
-                  "Up to 3 numbers connected",
-                  "Everything in Starter",
-                  "Inbound + outbound follow-up",
-                  "CRM sync",
-                  "Multi-user team access",
-                  "Advanced call control center",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/sign-up"
-                className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
-              >
-                Get started
-                <ArrowRight size={13} strokeWidth={2.5} />
-              </Link>
-            </div>
-
-            {/* Pro */}
-            <div className="rounded-2xl border border-stone-200 bg-[#FAFAF8] p-7 flex flex-col">
-              <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-3">Pro</p>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-bold text-stone-900">$797</span>
-                <span className="text-sm text-stone-400 mb-1">/month</span>
-              </div>
-              <p className="text-sm text-stone-500 mb-5">High-volume operations with custom voice and unlimited number connections.</p>
-              <ul className="space-y-2.5 flex-1 mb-7">
-                {[
-                  "1,200 AI-handled minutes/month",
-                  "Unlimited numbers connected",
-                  "Everything in Growth",
-                  "Custom voice persona",
-                  "Priority support",
-                  "Dedicated onboarding",
-                  "Early access to new features",
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/sign-up"
-                className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white transition-colors"
-              >
-                Get started
-                <ArrowRight size={13} strokeWidth={2.5} />
-              </Link>
-            </div>
+            ))}
           </div>
           <div className="mt-8 text-center space-y-1.5">
             <p className="text-xs text-stone-400">
-              Overage: <span className="font-medium text-stone-500">$0.35/min</span> beyond included minutes.
+              Overage: <span className="font-medium text-stone-500">${ASSIST_PRICING.overagePerMin}/min</span> beyond included minutes.
             </p>
             <p className="text-xs text-stone-400">
               Your existing carrier costs apply separately. QYRO charges only for AI-handled call time.
@@ -308,6 +251,8 @@ export default async function RootPage() {
             <span className="text-xs text-stone-400">© 2026 QYRO</span>
           </div>
           <div className="flex items-center gap-5 text-xs text-stone-400">
+            <Link href="/assist" className="hover:text-stone-700 transition-colors">QYRO Assist</Link>
+            <Link href="/lead" className="hover:text-stone-700 transition-colors">QYRO Lead</Link>
             <Link href="/sign-in" className="hover:text-stone-700 transition-colors">Sign in</Link>
             <Link href="/contact" className="hover:text-stone-700 transition-colors">Contact</Link>
             <Link href="/terms" className="hover:text-stone-700 transition-colors">Terms</Link>

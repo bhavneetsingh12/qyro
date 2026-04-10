@@ -18,6 +18,7 @@ import eventsRouter from "./routes/events";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
 import adminRouter from "./routes/admin";
 import swaigRouter from "./routes/swaig";
+import pricingRouter from "./routes/pricing";
 
 // ─── Required env var validation ─────────────────────────────────────────────
 // Fail fast with a clear message rather than a cryptic crash later.
@@ -122,6 +123,7 @@ app.use("/api/v1/voice", validateSignalWireSignature, voiceRouter);
 app.use("/api/v1/retell", validateRetellRequest, retellRouter);
 app.use("/api/v1/swaig", validateSwaigRequest, swaigRouter);
 app.use("/api/v1/assist", assistPublicRouter);
+app.use("/api", pricingRouter);
 
 // ─── Authenticated + tenant-scoped routes ─────────────────────────────────────
 
