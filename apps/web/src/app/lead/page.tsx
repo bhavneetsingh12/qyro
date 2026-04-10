@@ -49,12 +49,11 @@ export default function LeadPage() {
             <Link href="/lead" className="text-sm font-medium text-stone-900 transition-colors">QYRO Lead</Link>
           </nav>
           <div className="flex items-center gap-3">
-            <Link href="/sign-in" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Sign in</Link>
             <Link
               href="/assist"
               className="text-sm font-semibold px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
             >
-              Try Assist now
+              Try QYRO Assist
             </Link>
           </div>
         </div>

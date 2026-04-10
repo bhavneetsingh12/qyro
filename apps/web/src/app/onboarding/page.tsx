@@ -291,12 +291,14 @@ function StepPlan({
   onBack,
   subscribing,
   subscribingPlan,
+  preSelectedPlan,
 }: {
   onSelectTrial: () => void;
   onSubscribe: (plan: PlanKey) => void;
   onBack: () => void;
   subscribing: boolean;
   subscribingPlan: PlanKey | null;
+  preSelectedPlan: PlanKey | null;
 }) {
   return (
     <div>
@@ -306,16 +308,26 @@ function StepPlan({
       </p>
 
       <div className="grid grid-cols-1 gap-3 mb-6">
-        {ASSIST_PLANS.map((plan) => (
+        {ASSIST_PLANS.map((plan) => {
+          const isPreSelected = preSelectedPlan === plan.key;
+          const isHighlighted = plan.highlight || isPreSelected;
+          return (
           <div
             key={plan.key}
             className={`relative rounded-2xl border-2 p-5 transition-all ${
-              plan.highlight
+              isPreSelected
+                ? "border-stone-900 bg-stone-50 ring-2 ring-stone-900 ring-offset-2"
+                : plan.highlight
                 ? "border-amber-400 bg-amber-50"
                 : "border-stone-200 bg-white"
             }`}
           >
-            {plan.highlight && (
+            {isPreSelected && (
+              <span className="absolute -top-3 left-5 text-xs font-bold bg-stone-900 text-white px-3 py-0.5 rounded-full">
+                Your selection
+              </span>
+            )}
+            {!isPreSelected && plan.highlight && (
               <span className="absolute -top-3 left-5 text-xs font-bold bg-amber-500 text-white px-3 py-0.5 rounded-full">
                 Most popular
               </span>
@@ -343,7 +355,7 @@ function StepPlan({
                 disabled={subscribing}
                 onClick={() => onSubscribe(plan.key)}
                 className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  plan.highlight
+                  isHighlighted
                     ? "bg-amber-500 text-white hover:bg-amber-600"
                     : "bg-stone-900 text-white hover:bg-stone-800"
                 }`}
@@ -356,7 +368,8 @@ function StepPlan({
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 flex items-center justify-between gap-4 mb-6">
@@ -555,6 +568,7 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [subscribingPlan, setSubscribingPlan] = useState<PlanKey | null>(null);
+  const [preSelectedPlan, setPreSelectedPlan] = useState<PlanKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState<FormState>({
@@ -568,11 +582,14 @@ export default function OnboardingPage() {
     greeting: "",
   });
 
-  // Detect return from Stripe checkout (subscribed=true in URL) and restore saved draft
+  // On mount: check for plan intent from pricing CTAs (?plan=assist-starter stored in localStorage)
+  // and handle return from Stripe checkout (?subscribed=true in URL).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+
     if (params.get("subscribed") === "true") {
+      // Returning from Stripe — restore saved draft and jump to AI setup
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -583,8 +600,27 @@ export default function OnboardingPage() {
       } catch {
         // ignore parse errors
       }
-      setStep(3); // Jump to AI setup after successful payment
+      setStep(3);
       window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+
+    // Check for plan intent stored by PlanCapture on sign-up page
+    try {
+      const planIntent = localStorage.getItem("qyro_plan_intent");
+      if (planIntent && planIntent.startsWith("assist-")) {
+        const planKey = planIntent.replace("assist-", "") as PlanKey;
+        const validKeys: PlanKey[] = ["starter", "growth", "pro"];
+        if (validKeys.includes(planKey)) {
+          setPreSelectedPlan(planKey);
+          // Auto-select QYRO Assist and skip the product selection step
+          setForm((prev) => ({ ...prev, productType: "assistant" }));
+          setStep(1);
+          localStorage.removeItem("qyro_plan_intent");
+        }
+      }
+    } catch {
+      // ignore localStorage errors
     }
   }, []);
 
@@ -729,6 +765,7 @@ export default function OnboardingPage() {
               onBack={() => setStep(1)}
               subscribing={subscribing}
               subscribingPlan={subscribingPlan}
+              preSelectedPlan={preSelectedPlan}
             />
           )}
 

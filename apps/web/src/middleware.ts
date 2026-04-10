@@ -5,8 +5,12 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/assist(.*)",
+  "/lead(.*)",
+  "/contact(.*)",
   "/terms",
   "/privacy",
+  "/api/waitlist(.*)",
 ]);
 
 // ─── Rate limiter for ops route (in-memory, best-effort) ─────────────────────

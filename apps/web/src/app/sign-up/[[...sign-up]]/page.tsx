@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { SignUp } from "@clerk/nextjs";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
+import PlanCapture from "@/components/auth/PlanCapture";
 
 export default function SignUpPage() {
   return (
@@ -9,6 +11,10 @@ export default function SignUpPage() {
           <QyroBrandLockup surface="core" subtitle="Lead engine and client assistant" align="center" />
           <p className="text-sm text-stone-500 mt-1">Create your account</p>
         </div>
+        {/* Captures ?plan= param from pricing CTAs and persists to localStorage */}
+        <Suspense fallback={null}>
+          <PlanCapture />
+        </Suspense>
         <SignUp
           appearance={{
             elements: {

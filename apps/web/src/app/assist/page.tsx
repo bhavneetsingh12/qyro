@@ -108,12 +108,12 @@ export default function AssistPage() {
             <a href="#pricing" className="text-sm font-medium text-stone-500 hover:text-stone-900 transition-colors">Pricing</a>
           </nav>
           <div className="flex items-center gap-3">
-            <Link href="/sign-in" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Sign in</Link>
+            <Link href="/contact" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Book a demo</Link>
             <Link
               href="/sign-up"
               className="text-sm font-semibold px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
             >
-              Get started
+              Start free trial
             </Link>
           </div>
         </div>
@@ -142,11 +142,17 @@ export default function AssistPage() {
               href="/sign-up"
               className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition-colors shadow-sm"
             >
-              Start for free
+              Start free trial
               <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
-            <span className="text-xs text-stone-400">No credit card required to sign up</span>
+            <Link
+              href="/contact"
+              className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
+            >
+              Book a demo
+            </Link>
           </div>
+          <p className="mt-3 text-xs text-stone-400">No credit card required</p>
         </div>
       </section>
 
@@ -234,7 +240,7 @@ export default function AssistPage() {
                   <span className="text-sm text-stone-400 mb-1">/month</span>
                 </div>
                 <p className="text-sm text-stone-500 mb-5">{tier.tagline}</p>
-                <ul className="space-y-2.5 flex-1 mb-7">
+                <ul className="space-y-2.5 flex-1 mb-5">
                   {tier.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-stone-600">
                       <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
@@ -243,16 +249,19 @@ export default function AssistPage() {
                   ))}
                 </ul>
                 <Link
-                  href="/sign-up"
+                  href={`/sign-up?plan=assist-${tier.key}`}
                   className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
                     tier.popular
                       ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
                       : "border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white"
                   }`}
                 >
-                  Get started
+                  Get started with {tier.label}
                   <ArrowRight size={13} strokeWidth={2.5} />
                 </Link>
+                <p className="text-xs text-stone-400 text-center mt-2">
+                  14-day free trial, then ${tier.price}/month
+                </p>
               </div>
             ))}
           </div>
@@ -289,17 +298,25 @@ export default function AssistPage() {
       {/* CTA */}
       <section className="py-24 px-4 sm:px-6">
         <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-stone-900">Ready to answer every call?</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-stone-900">Ready to stop missing calls?</h2>
           <p className="mt-4 text-stone-500 text-base">
-            Create your account in seconds. No credit card required to sign up.
+            14-day free trial. No credit card required.
           </p>
-          <Link
-            href="/sign-up"
-            className="inline-flex items-center gap-2 mt-8 text-sm font-semibold px-7 py-3.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
-          >
-            Create free account
-            <ArrowRight size={14} strokeWidth={2.5} />
-          </Link>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/sign-up"
+              className="inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
+            >
+              Start free trial
+              <ArrowRight size={14} strokeWidth={2.5} />
+            </Link>
+            <Link
+              href="/contact"
+              className="inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-xl border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
+            >
+              Talk to sales
+            </Link>
+          </div>
         </div>
       </section>
 
