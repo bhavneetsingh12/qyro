@@ -31,35 +31,6 @@ services:
       timeout: 3s
       retries: 5
 
-  n8n:
-    image: n8nio/n8n:latest
-    restart: unless-stopped
-    environment:
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: admin
-      N8N_BASIC_AUTH_PASSWORD: qyro_n8n_dev
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: qyro
-      DB_POSTGRESDB_USER: qyro
-      DB_POSTGRESDB_PASSWORD: qyro
-      QUEUE_BULL_REDIS_HOST: redis
-      QUEUE_BULL_REDIS_PORT: 6379
-      EXECUTIONS_MODE: queue
-      N8N_ENCRYPTION_KEY: "dev-only-change-in-prod"
-      WEBHOOK_URL: "http://localhost:5678"
-    ports:
-      - "5678:5678"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - n8n_data:/home/node/.n8n
-
 volumes:
   postgres_data:
   redis_data:
-  n8n_data:

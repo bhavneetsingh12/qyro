@@ -2,6 +2,27 @@
 
 Purpose: running log of all changes made in this workspace session series so follow-up commands have clear traceability.
 
+## 2026-04-11
+
+### pending - docs: consolidate canonical source-of-truth set and remove stale runtime narratives
+- Request summary:
+  - Promote the canonical doc set to the only active source of truth.
+  - Remove Retell/n8n drift from current documentation.
+  - Clean stale generated artifacts and obsolete generated reports from the repo view.
+- Files changed:
+  - `docs/ARCHITECTURE.md`
+  - `docs/ENVIRONMENTS.md`
+  - `docs/AGENTS.md`
+  - `docs/COMPLIANCE.md`
+  - `docs/DECISIONS.md`
+  - `docs/TOKEN_BUDGET.md`
+  - `CLAUDE.md`
+- Key behavior changes:
+  - Canonical docs now describe SignalWire + SWAIG as the active voice stack.
+  - Retell is treated as decommissioned.
+  - Railway cron services are treated as the active scheduling path instead of n8n.
+  - `CLAUDE.md` is trimmed to collaboration/session memory instead of acting as a second architecture spec.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

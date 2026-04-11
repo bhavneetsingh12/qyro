@@ -9,15 +9,13 @@
     "smoke:workers": "pnpm --filter @qyro/workers run smoke:typecheck",
     "test:tenant-middleware": "pnpm --filter @qyro/api run test:tenant-middleware",
     "clean:mac-junk": "find . -name \"._*\" -type f -delete && find . -name \".DS_Store\" -type f -delete",
+    "clean:artifacts": "find apps packages -path '*/dist/*' -prune -exec rm -rf {} + && find packages/agents/src -type f \\( -name '*.js' -o -name '*.d.ts' -o -name '*.map' \\) -delete",
     "db:generate": "pnpm --filter @qyro/db generate",
     "db:migrate": "pnpm --filter @qyro/db migrate",
     "db:studio": "pnpm --filter @qyro/db studio",
     "migrate": "tsx infra/migrate.ts",
     "test:e2e": "tsx scripts/test-e2e.ts",
-    "test:retell-phase-d": "tsx scripts/test-retell-phase-d.ts"
-    ,
-    "worker:reply-triage": "pnpm --filter @qyro/workers run worker:reply-triage"
-    ,
+    "worker:reply-triage": "pnpm --filter @qyro/workers run worker:reply-triage",
     "worker:outreach": "pnpm --filter @qyro/workers run worker:outreach",
     "worker:research": "pnpm --filter @qyro/workers run worker:research"
   },

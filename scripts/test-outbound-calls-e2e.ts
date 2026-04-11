@@ -91,7 +91,7 @@ async function run() {
         metadata: {
           tenant_type: "assistant",
           outbound_voice_enabled: true,
-          twilio_number: "+15035550199",
+          voice_number: "+15035550199",
         },
       })
       .returning({ id: tenants.id });

@@ -1,4 +1,4 @@
-// Inbound webhook routes (Stripe, Clerk, Cal.com, Twilio, internal ops)
+// Inbound webhook routes (Stripe and internal scheduled ops)
 // Internal ops webhooks are protected by WEBHOOK_SECRET (with legacy fallback support).
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
@@ -143,7 +143,7 @@ async function queueOutreachDrafts(params: {
 }
 
 // POST /webhooks/nightly/ingest
-// Triggered by n8n nightly schedule. Runs discovery and optional outreach drafting.
+// Triggered by the nightly Railway cron service. Runs discovery and optional outreach drafting.
 router.post("/nightly/ingest", async (req: Request, res: Response, next: NextFunction) => {
 	try {
 		if (!ensureInternalSecret(req, res)) return;
@@ -226,7 +226,7 @@ router.post("/nightly/ingest", async (req: Request, res: Response, next: NextFun
 });
 
 // POST /webhooks/morning/digest
-// Triggered by n8n in the morning to summarize overnight pipeline health.
+// Triggered by the morning Railway cron service to summarize overnight pipeline health.
 router.post("/morning/digest", async (req: Request, res: Response, next: NextFunction) => {
 	try {
 		if (!ensureInternalSecret(req, res)) return;
