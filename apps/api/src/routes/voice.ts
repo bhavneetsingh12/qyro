@@ -1,7 +1,7 @@
 import express, { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
 import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, tenantSubscriptions } from "@qyro/db";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
 import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/queue";
@@ -39,79 +39,6 @@ function normalizePhone(value?: string): string {
 function isDndRequest(text: string): boolean {
   const lowered = text.toLowerCase();
   return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd)\b/.test(lowered);
-}
-
-function getVoiceRuntime(metaRaw: unknown): "retell" | "twilio" {
-  const meta = metaRaw && typeof metaRaw === "object" ? (metaRaw as Record<string, unknown>) : {};
-  const raw = String(meta.voice_runtime ?? "").trim().toLowerCase();
-  // "retell" is explicit opt-in; "signalwire" and legacy "twilio" both use TwiML path
-  return raw === "retell" ? "retell" : "twilio";
-}
-
-function getRetellAgentId(metaRaw: unknown): string {
-  const meta = metaRaw && typeof metaRaw === "object" ? (metaRaw as Record<string, unknown>) : {};
-  const fromMeta = String(meta.retell_agent_id ?? "").trim();
-  if (fromMeta) return fromMeta;
-  return String(process.env.RETELL_AGENT_ID_DEFAULT ?? "").trim();
-}
-
-async function registerRetellInboundCall(params: {
-  agentId: string;
-  fromNumber: string;
-  toNumber: string;
-  tenantId: string;
-  callSid: string;
-}): Promise<{ callId: string; accessToken: string }> {
-  const apiKey = String(process.env.RETELL_API_KEY ?? "").trim();
-  console.log(`[voice/incoming] RETELL_API_KEY prefix: ${apiKey ? apiKey.slice(0, 8) + "..." : "UNSET"}`);
-  if (!apiKey) {
-    throw new Error("RETELL_API_KEY is not set — cannot register inbound call");
-  }
-  const base = String(process.env.RETELL_BASE_URL ?? "https://api.retellai.com").replace(/\/$/, "");
-
-  const payload = {
-    agent_id: params.agentId,
-    from_number: params.toNumber,   // tenant's registered number
-    to_number: params.toNumber,     // same — we are the receiver
-    audio_encoding: "mulaw",
-    audio_websocket_protocol: "twilio",
-    sample_rate: 8000,
-    metadata: {
-      tenantId: params.tenantId,
-      callSid: params.callSid,
-      callerNumber: params.fromNumber,  // actual caller preserved here
-    },
-  };
-
-  const res = await fetch(`${base}/v2/create-phone-call`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await res.text();
-  console.log("[voice/incoming] Retell register-call response:", text);
-
-  if (!res.ok) {
-    throw new Error(`Retell register-call failed ${res.status}: ${text.slice(0, 250)}`);
-  }
-
-  const data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  const callId = String(data.call_id ?? "").trim();
-  const accessToken = String(data.access_token ?? "").trim();
-
-  if (!callId || !accessToken) {
-    throw new Error(`Retell register-call missing fields. Response: ${text.slice(0, 250)}`);
-  }
-
-  return { callId, accessToken };
-}
-
-function twimlRetellStream(accessToken: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://api.retellai.com/audio-websocket/${encodeURIComponent(accessToken)}"/></Connect></Response>`;
 }
 
 function mapTwilioStatusToPipeline(status: string): string {
@@ -206,13 +133,13 @@ async function findProspectByPhone(tenantId: string, fromPhone: string) {
   const target = normalizePhone(fromPhone);
   if (!target) return null;
 
-  const prospects = await db.query.prospectsRaw.findMany({
-    where: eq(prospectsRaw.tenantId, tenantId),
+  return db.query.prospectsRaw.findFirst({
+    where: and(
+      eq(prospectsRaw.tenantId, tenantId),
+      sql`regexp_replace(coalesce(${prospectsRaw.phone}, ''), '[^+0-9]', '', 'g') = ${target}`,
+    ) as any,
     orderBy: desc(prospectsRaw.createdAt),
-    limit: 200,
   });
-
-  return prospects.find((p) => normalizePhone(p.phone ?? "") === target) ?? null;
 }
 
 router.post("/incoming", async (req: Request, res: Response, next: NextFunction) => {
@@ -266,32 +193,6 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
         .where(eq(tenants.id, tenant.id));
     }
 
-    // ── Retell runtime path ───────────────────────────────────────────────────
-    const runtime = getVoiceRuntime(tenant.metadata);
-    if (runtime === "retell") {
-      const agentId = getRetellAgentId(tenant.metadata);
-      if (agentId) {
-        const { callId, accessToken } = await registerRetellInboundCall({
-          agentId,
-          fromNumber: fromPhone,
-          toNumber: toPhone,
-          tenantId: tenant.id,
-          callSid,
-        });
-        console.log(`[voice/incoming] Retell call registered: callId=${callId}`);
-        // Create a minimal session record for audit trail.
-        // callAttempt is created by the Retell call-events or tool endpoints.
-        await db.insert(assistantSessions).values({
-          tenantId: tenant.id,
-          sessionType: "voice_inbound",
-        });
-        sendTwiml(twimlRetellStream(accessToken));
-        return;
-      }
-      console.warn(`[voice/incoming] voice_runtime=retell but no agent ID configured for tenant ${tenant.id} — falling back to Twilio`);
-    }
-
-    // ── Twilio TwiML path (default) ───────────────────────────────────────────
     const prospect = await findProspectByPhone(tenant.id, fromPhone);
 
     const [session] = await db

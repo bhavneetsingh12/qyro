@@ -92,7 +92,7 @@ Session D  →  packages/agents/src/agents/research.ts         then /compact
 Session E  →  packages/agents/src/agents/outreach.ts         then /compact
 Session F  →  apps/api/src/routes/leads.ts                   then /compact
 Session G  →  apps/api/src/routes/campaigns.ts               then /compact
-Session H  →  packages/queue/src/workers/researchWorker.ts   then /compact
+Session H  →  packages/workers/src/researchWorker.ts   then /compact
 Session I  →  end-to-end test                                then /compact
 
 Phase 2 (CURRENT)
@@ -269,7 +269,7 @@ Follow-up remaining (Phase 3):
 [x] Task E — packages/agents/src/agents/outreach.ts
 [x] Task F — apps/api/src/routes/leads.ts
 [x] Task G — apps/api/src/routes/campaigns.ts
-[x] Task H — packages/queue/src/workers/researchWorker.ts
+[x] Task H — packages/workers/src/researchWorker.ts
 [x] Task I — end-to-end test: ingest 1 lead → research → outreach draft → approval
 ```
 

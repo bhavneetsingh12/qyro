@@ -242,6 +242,31 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/workers:
+    dependencies:
+      '@qyro/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@qyro/db':
+        specifier: workspace:*
+        version: link:../db
+      '@qyro/queue':
+        specifier: workspace:*
+        version: link:../queue
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.71.1
+      tsx:
+        specifier: ^4.7.0
+        version: 4.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.37
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
 packages:
 
   '@alloc/quick-lru@5.2.0':

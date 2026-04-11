@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "smoke:workers": "pnpm --filter @qyro/workers run smoke:typecheck",
+    "test:tenant-middleware": "pnpm --filter @qyro/api run test:tenant-middleware",
     "clean:mac-junk": "find . -name \"._*\" -type f -delete && find . -name \".DS_Store\" -type f -delete",
     "db:generate": "pnpm --filter @qyro/db generate",
     "db:migrate": "pnpm --filter @qyro/db migrate",

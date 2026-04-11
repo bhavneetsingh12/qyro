@@ -8,6 +8,7 @@ config({ path: path.resolve(__dirname, "../../../.env") });
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import { sql as drizzleSql } from "drizzle-orm";
+import { AsyncLocalStorage } from "node:async_hooks";
 import postgres from "postgres";
 import * as schema from "./schema";
 
@@ -23,7 +24,33 @@ const pgConn = postgres(process.env.DATABASE_URL, {
   connect_timeout: 10,
 });
 
-export const db = drizzle(pgConn, { schema });
+const rootDb = drizzle(pgConn, { schema });
+type DbClient = typeof rootDb;
+
+const dbContext = new AsyncLocalStorage<DbClient>();
+
+function getScopedDb(): DbClient {
+  return dbContext.getStore() ?? rootDb;
+}
+
+export const db = new Proxy(rootDb, {
+  get(_target, prop) {
+    const scoped = getScopedDb() as unknown as Record<string, unknown>;
+    const value = scoped[prop as string];
+    if (typeof value === "function") {
+      return (value as Function).bind(scoped);
+    }
+    return value;
+  },
+}) as DbClient;
+
+// Runs all db calls in fn() against a single transaction-bound connection.
+// This allows request middleware to pin tenant RLS context reliably.
+export async function runInDbTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  return rootDb.transaction(async (tx) => {
+    return dbContext.run(tx as DbClient, async () => fn());
+  });
+}
 
 // ─── Admin client (bypasses RLS — use only in seed/migration scripts) ─────────
 

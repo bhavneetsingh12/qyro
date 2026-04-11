@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test:tenant-middleware": "DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres tsx --test src/middleware/tenant.test.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {

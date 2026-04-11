@@ -4,7 +4,7 @@
 
 import type { RequestHandler } from "express";
 import { eq } from "drizzle-orm";
-import { adminDb, setTenantContext, users, tenants } from "@qyro/db";
+import { adminDb, runInDbTransaction, setTenantContext, users, tenants } from "@qyro/db";
 
 function toSlug(input: string): string {
   return input
@@ -94,14 +94,24 @@ export const tenantMiddleware: RequestHandler = async (req, res, next) => {
         where: eq(users.tenantId, tenantId),
       });
 
-      await setTenantContext(tenant.id);
-
-      req.tenantId = tenant.id;
-      req.userId = user?.id ?? "00000000-0000-0000-0000-000000000000";
-      req.userRole = user?.role ?? "owner";
-      req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
-
-      next();
+      if (shouldPinRequestTransaction(req)) {
+        await runInDbTransaction(async () => {
+          await setTenantContext(tenant.id);
+          req.tenantId = tenant.id;
+          req.userId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+          req.userRole = user?.role ?? "owner";
+          req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
+          next();
+          await waitForResponse(req, res);
+        });
+      } else {
+        await setTenantContext(tenant.id);
+        req.tenantId = tenant.id;
+        req.userId = user?.id ?? "00000000-0000-0000-0000-000000000000";
+        req.userRole = user?.role ?? "owner";
+        req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
+        next();
+      }
       return;
     }
 
@@ -140,17 +150,68 @@ export const tenantMiddleware: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    // Set tenant context for RLS — all subsequent db queries in this request
-    // will be scoped to this tenant_id via the Postgres session variable
-    await setTenantContext(tenant.id);
-
-    req.tenantId = tenant.id;
-    req.userId = resolvedUser.id;
-    req.userRole = resolvedUser.role;
-    req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
-
-    next();
+    if (shouldPinRequestTransaction(req)) {
+      await runInDbTransaction(async () => {
+        // Set tenant context for RLS — all db queries in this request run in one transaction.
+        await setTenantContext(tenant.id);
+        req.tenantId = tenant.id;
+        req.userId = resolvedUser.id;
+        req.userRole = resolvedUser.role;
+        req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
+        next();
+        await waitForResponse(req, res);
+      });
+    } else {
+      await setTenantContext(tenant.id);
+      req.tenantId = tenant.id;
+      req.userId = resolvedUser.id;
+      req.userRole = resolvedUser.role;
+      req.tenantType = (tenant.metadata as Record<string, unknown>)?.tenant_type as string ?? "unknown";
+      next();
+    }
   } catch (err) {
     next(err);
   }
 };
+
+export function shouldPinRequestTransaction(req: Parameters<RequestHandler>[0]): boolean {
+  const accept = String(req.headers.accept ?? "").toLowerCase();
+  if (accept.includes("text/event-stream")) return false;
+  if (req.path === "/stream") return false;
+  return true;
+}
+
+export function waitForResponse(
+  req: Parameters<RequestHandler>[0],
+  res: Parameters<RequestHandler>[1],
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      res.removeListener("finish", onDone);
+      res.removeListener("close", onDone);
+      res.removeListener("error", onError);
+      req.removeListener("aborted", onDone);
+    };
+
+    const onDone = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const onError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    res.on("finish", onDone);
+    res.on("close", onDone);
+    res.on("error", onError);
+    req.on("aborted", onDone);
+  });
+}

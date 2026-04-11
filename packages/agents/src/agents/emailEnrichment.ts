@@ -2,7 +2,7 @@
 // This is a minimal next-step implementation for Phase 1.
 // It supports a mock fallback and provider-based flow via env vars.
 
-import { db, tenants } from "@qyro/db";
+import { db, tenantIntegrationSecrets, tenants } from "@qyro/db";
 import { eq } from "drizzle-orm";
 
 export type EmailEnrichmentResult = {
@@ -23,18 +23,24 @@ function normalizeDomain(raw: string): string {
 }
 
 async function getTenantEnrichmentSettings(tenantId: string): Promise<EnrichmentSettings> {
-  const tenant = await db.query.tenants.findFirst({
-    where: eq(tenants.id, tenantId),
-    columns: { metadata: true },
-  });
+  const [tenant, integrationSecrets] = await Promise.all([
+    db.query.tenants.findFirst({
+      where: eq(tenants.id, tenantId),
+      columns: { metadata: true },
+    }),
+    db.query.tenantIntegrationSecrets.findFirst({
+      where: eq(tenantIntegrationSecrets.tenantId, tenantId),
+      columns: { apolloApiKey: true, hunterApiKey: true },
+    }),
+  ]);
 
   const meta = (tenant?.metadata as Record<string, unknown>) ?? {};
   const provider = (meta.enrichmentProvider as string | undefined)?.toLowerCase();
 
   return {
     provider: provider === "apollo" || provider === "hunter" ? provider : "mock",
-    apolloApiKey: typeof meta.apolloApiKey === "string" ? meta.apolloApiKey : null,
-    hunterApiKey: typeof meta.hunterApiKey === "string" ? meta.hunterApiKey : null,
+    apolloApiKey: integrationSecrets?.apolloApiKey ?? (typeof meta.apolloApiKey === "string" ? meta.apolloApiKey : null),
+    hunterApiKey: integrationSecrets?.hunterApiKey ?? (typeof meta.hunterApiKey === "string" ? meta.hunterApiKey : null),
     monthlyLimit: Number(meta.enrichmentMonthlyLimit ?? 2500),
     monthlyUsed: Number(meta.enrichmentMonthlyUsed ?? 0),
   };

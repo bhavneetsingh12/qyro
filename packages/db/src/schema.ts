@@ -50,6 +50,18 @@ export const tenants = pgTable("tenants", {
   voiceNumberIdx: index("tenants_voice_number_idx").on(t.voiceNumber),
 }));
 
+export const tenantIntegrationSecrets = pgTable("tenant_integration_secrets", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  calendarApiKey: text("calendar_api_key"),
+  apolloApiKey:   text("apollo_api_key"),
+  hunterApiKey:   text("hunter_api_key"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantIdx: uniqueIndex("tenant_integration_secrets_tenant_idx").on(t.tenantId),
+}));
+
 export const users = pgTable("users", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tenantId:       uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),

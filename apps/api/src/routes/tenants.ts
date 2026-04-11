@@ -7,7 +7,7 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, tenantSubscriptions, tenants, users } from "@qyro/db";
+import { db, tenantIntegrationSecrets, tenantSubscriptions, tenants, users } from "@qyro/db";
 import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
@@ -48,8 +48,15 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
     }
 
     const meta = (tenant.metadata as Record<string, unknown>) ?? {};
-    const apolloApiKey = (meta.apolloApiKey as string) ?? "";
-    const hunterApiKey = (meta.hunterApiKey as string) ?? "";
+    const integrationSecrets = await db.query.tenantIntegrationSecrets.findFirst({
+      where: eq(tenantIntegrationSecrets.tenantId, req.tenantId),
+    });
+    const calendarApiKey = integrationSecrets?.calendarApiKey
+      ?? (meta.calendarApiKey as string)
+      ?? (meta.calendar_api_key as string)
+      ?? "";
+    const apolloApiKey = integrationSecrets?.apolloApiKey ?? (meta.apolloApiKey as string) ?? "";
+    const hunterApiKey = integrationSecrets?.hunterApiKey ?? (meta.hunterApiKey as string) ?? "";
     const subscription = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, req.tenantId),
     });
@@ -85,7 +92,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       bookingLink:      (meta.bookingLink as string) ?? "",
       emailFromName:    (meta.emailFromName as string) ?? "",
       calendarProvider:    (meta.calendarProvider as string) ?? "callback_only",
-      hasCalendarApiKey:   !!(meta.calendarApiKey ?? meta.calendar_api_key),
+      hasCalendarApiKey:   !!calendarApiKey,
       calendarBookingUrl:  (meta.calendarBookingUrl as string) ?? "",
       calendarEventTypeId: (meta.calendarEventTypeId as string) ?? "",
       providersList:       (meta.providersList as string) ?? "",
@@ -101,8 +108,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       autoSendMissedCall: Boolean(tenant.autoSendMissedCall ?? false),
       escalationContactPhone: tenant.escalationContactPhone ?? (meta.escalationContactPhone as string | undefined) ?? "",
       escalationContactEmail: tenant.escalationContactEmail ?? (meta.escalationContactEmail as string | undefined) ?? "",
-      voiceRuntime: (meta.voice_runtime as string) ?? "signalwire",
-      retellAgentId: (meta.retell_agent_id as string) ?? "",
+      voiceRuntime: "signalwire",
       industry: (meta.industry as string) ?? "",
       timezone: (meta.timezone as string) ?? "",
       businessDescription: (meta.businessDescription as string) ?? "",
@@ -154,8 +160,6 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       voiceNumber,
       connectionMethod,
       widgetAllowedOrigins,
-      voiceRuntime,
-      retellAgentId,
       enrichmentProvider,
       outreachEnabled,
       apolloApiKey,
@@ -184,8 +188,6 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       voiceNumber?: string;
       connectionMethod?: "forwarding" | "webhook";
       widgetAllowedOrigins?: string | string[];
-      voiceRuntime?: "signalwire" | "retell";
-      retellAgentId?: string;
       enrichmentProvider?: "mock" | "apollo" | "hunter";
       outreachEnabled?: boolean;
       apolloApiKey?: string;
@@ -215,7 +217,6 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(bookingLink      !== undefined && { bookingLink }),
       ...(emailFromName    !== undefined && { emailFromName }),
       ...(calendarProvider    !== undefined && { calendarProvider }),
-      ...(calendarApiKey      !== undefined && { calendarApiKey }),
       ...(calendarBookingUrl  !== undefined && { calendarBookingUrl }),
       ...(calendarEventTypeId !== undefined && { calendarEventTypeId }),
       ...(providersList       !== undefined && { providersList }),
@@ -236,12 +237,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
               .map((value) => value.trim())
               .filter(Boolean),
       }),
-      ...(voiceRuntime !== undefined && { voice_runtime: voiceRuntime === "retell" ? "retell" : "signalwire" }),
-      ...(retellAgentId !== undefined && { retell_agent_id: retellAgentId.trim() }),
+      voice_runtime: "signalwire",
       ...(enrichmentProvider !== undefined && { enrichmentProvider }),
       ...(outreachEnabled !== undefined && { outreach_enabled: Boolean(outreachEnabled) }),
-      ...(apolloApiKey !== undefined && apolloApiKey.trim().length > 0 && { apolloApiKey: apolloApiKey.trim() }),
-      ...(hunterApiKey !== undefined && hunterApiKey.trim().length > 0 && { hunterApiKey: hunterApiKey.trim() }),
       ...(enrichmentMonthlyLimit !== undefined && {
         enrichmentMonthlyLimit: Math.max(0, Number(enrichmentMonthlyLimit) || 0),
       }),
@@ -251,6 +249,24 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(greetingScript     !== undefined && { greetingScript }),
       ...(escalationPhrases  !== undefined && { escalationPhrases }),
     };
+
+    delete updatedMeta.retell_agent_id;
+    delete updatedMeta.retellAgentId;
+    delete updatedMeta.calendarApiKey;
+    delete updatedMeta.calendar_api_key;
+    delete updatedMeta.apolloApiKey;
+    delete updatedMeta.hunterApiKey;
+
+    const secretPatch: Record<string, string> = {};
+    if (calendarApiKey !== undefined && calendarApiKey.trim().length > 0) {
+      secretPatch.calendarApiKey = calendarApiKey.trim();
+    }
+    if (apolloApiKey !== undefined && apolloApiKey.trim().length > 0) {
+      secretPatch.apolloApiKey = apolloApiKey.trim();
+    }
+    if (hunterApiKey !== undefined && hunterApiKey.trim().length > 0) {
+      secretPatch.hunterApiKey = hunterApiKey.trim();
+    }
 
     await db
       .update(tenants)
@@ -272,6 +288,22 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
         updatedAt: new Date(),
       })
       .where(eq(tenants.id, req.tenantId));
+
+    if (Object.keys(secretPatch).length > 0) {
+      await db
+        .insert(tenantIntegrationSecrets)
+        .values({
+          tenantId: req.tenantId,
+          ...secretPatch,
+        })
+        .onConflictDoUpdate({
+          target: tenantIntegrationSecrets.tenantId,
+          set: {
+            ...secretPatch,
+            updatedAt: new Date(),
+          },
+        });
+    }
 
     res.json({ ok: true });
   } catch (err) {

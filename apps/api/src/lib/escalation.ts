@@ -3,7 +3,7 @@
 
 import { db } from "@qyro/db";
 import { auditLogs } from "@qyro/db";
-import { publishRealtimeEvent } from "@qyro/queue";
+import { publishRealtimeEvent, webhookQueue } from "@qyro/queue";
 
 export interface EscalationParams {
   tenantId: string;
@@ -117,8 +117,20 @@ async function sendEmailAlert(params: EscalationParams): Promise<void> {
  */
 export function triggerEscalationNotifications(params: EscalationParams): void {
   Promise.allSettled([
-    sendSmsAlert(params),
-    sendEmailAlert(params),
+    webhookQueue.add("webhook", {
+      kind: "escalation_notify",
+      tenantId: params.tenantId,
+      body: {
+        sessionId: params.sessionId,
+        prospectName: params.prospectName,
+        prospectPhone: params.prospectPhone,
+        escalationContactPhone: params.escalationContactPhone,
+        escalationContactEmail: params.escalationContactEmail,
+        fromNumber: params.fromNumber,
+        escalationReason: params.escalationReason,
+        appBaseUrl: params.appBaseUrl,
+      },
+    }),
     publishRealtimeEvent({
       type: "escalation",
       tenantId: params.tenantId,
@@ -138,11 +150,14 @@ export function triggerEscalationNotifications(params: EscalationParams): void {
         prospectName: params.prospectName,
         prospectPhone: params.prospectPhone,
         reason: params.escalationReason ?? null,
-        smsAlertSent: !!params.escalationContactPhone,
-        emailAlertSent: !!params.escalationContactEmail,
+        queued: true,
+        smsTarget: params.escalationContactPhone,
+        emailTarget: params.escalationContactEmail,
       },
     }),
-  ]).catch((err) => {
-    console.error("[escalation] notification batch error:", err);
+  ]).catch(async (err) => {
+    // If queueing fails, fall back to direct best-effort delivery so escalations are not dropped.
+    console.error("[escalation] enqueue failed, using direct fallback:", err);
+    await Promise.allSettled([sendSmsAlert(params), sendEmailAlert(params)]);
   });
 }

@@ -1,0 +1,22 @@
+{
+  "name": "@qyro/workers",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "smoke:typecheck": "tsc --noEmit -p tsconfig.json",
+    "worker:research": "tsx src/researchWorker.ts",
+    "worker:outreach": "tsx src/outreachWorker.ts",
+    "worker:reply-triage": "tsx src/replyTriageWorker.ts"
+  },
+  "dependencies": {
+    "@qyro/agents": "workspace:*",
+    "@qyro/db": "workspace:*",
+    "@qyro/queue": "workspace:*",
+    "bullmq": "^5.0.0",
+    "tsx": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -78,8 +78,7 @@ router.get("/v1/admin/tenants", async (req: Request, res: Response, next: NextFu
         },
         voice: {
           voiceNumber: (meta.voice_number as string) ?? (meta.voiceNumber as string) ?? "",
-          voiceRuntime: (meta.voice_runtime as string) === "retell" ? "retell" : "signalwire",
-          retellAgentId: (meta.retell_agent_id as string) ?? "",
+          voiceRuntime: "signalwire",
         },
       };
     }));
@@ -208,10 +207,8 @@ router.patch("/v1/admin/tenants/:tenantId/voice", async (req: Request, res: Resp
       return;
     }
 
-    const { voiceNumber, voiceRuntime, retellAgentId } = req.body as {
+    const { voiceNumber } = req.body as {
       voiceNumber?: string;
-      voiceRuntime?: string;
-      retellAgentId?: string;
     };
 
     const meta = (tenant.metadata as Record<string, unknown>) ?? {};
@@ -221,12 +218,9 @@ router.patch("/v1/admin/tenants/:tenantId/voice", async (req: Request, res: Resp
       nextMeta.voice_number = voiceNumber.trim();
       nextMeta.voiceNumber = voiceNumber.trim();
     }
-    if (voiceRuntime !== undefined) {
-      nextMeta.voice_runtime = voiceRuntime === "retell" ? "retell" : "signalwire";
-    }
-    if (retellAgentId !== undefined) {
-      nextMeta.retell_agent_id = retellAgentId.trim();
-    }
+    nextMeta.voice_runtime = "signalwire";
+    delete nextMeta.retell_agent_id;
+    delete nextMeta.retellAgentId;
 
     await adminDb
       .update(tenants)

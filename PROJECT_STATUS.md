@@ -1,6 +1,8 @@
 # QYRO Project Status Report
 _Generated: 2026-04-03 | Reviewer: Claude Code (read-only scan)_
 
+> Historical snapshot: this report captures an earlier state and may contain resolved gaps. For current architecture and security posture, rely on the 2026-04-11 reports.
+
 ---
 
 ## 1. WHAT IS BUILT
@@ -51,8 +53,14 @@ _Generated: 2026-04-03 | Reviewer: Claude Code (read-only scan)_
 ### packages/queue — BullMQ
 - `src/queues.ts` — Redis connection; research, outreach, reply queue definitions with retry settings
 - `src/index.ts` — Barrel exports
-- `src/workers/researchWorker.ts` — BullMQ worker for research queue; calls runResearch(); dead-letter on permanent failure; graceful shutdown
-- `src/workers/replyTriageWorker.ts` — BullMQ worker for reply queue; calls runReplyTriage(); dead-letter on permanent failure; graceful shutdown
+- `src/workers/outboundCallWorker.ts` — BullMQ worker for outbound call queue
+- `src/workers/webhookWorker.ts` — BullMQ worker for webhook processing
+- `src/workers/anomalyDetectionWorker.ts` — BullMQ worker for anomaly scans
+
+### packages/workers — Agent-backed workers
+- `src/researchWorker.ts` — BullMQ worker for research queue; calls runResearch(); dead-letter on permanent failure; graceful shutdown
+- `src/outreachWorker.ts` — BullMQ worker for outreach queue; calls runOutreach(); dead-letter on permanent failure; graceful shutdown
+- `src/replyTriageWorker.ts` — BullMQ worker for reply queue; calls runReplyTriage(); dead-letter on permanent failure; graceful shutdown
 
 ### packages/prompts — Prompt loader
 - `src/loader.ts` — Loads prompt .md files from docs/PROMPTS/
@@ -152,8 +160,8 @@ Based on code review only (cannot confirm runtime behavior):
 **1. QA Guardrail not wired into Outreach agent**
 `packages/agents/src/agents/outreach.ts` generates a message draft and immediately inserts it into `message_attempts` with `status: "pending_approval"` without calling `runQA()`. AGENTS.md spec says: _"Passes draft to QA Agent before anything is stored."_ As built, QA only runs if explicitly called from elsewhere — it is not called from the outreach flow. Messages bypass QA.
 
-**2. Outreach worker missing**
-`packages/queue/src/queues.ts` defines the `outreach` queue, but there is no `packages/queue/src/workers/outreachWorker.ts`. Outreach jobs are enqueued (by leads routes and webhooks) but never processed. They will sit in Redis indefinitely.
+**2. Outreach worker package split (resolved)**
+`packages/queue/src/queues.ts` defines the `outreach` queue, and the worker now runs from `packages/workers/src/outreachWorker.ts` (split out to remove the queue -> agents dependency cycle).
 
 **3. Audit logs not written on campaign approval**
 `QYRO_CLAUDE_CODE_INSTRUCTIONS.md` Task G says "verify approve writes to audit_logs." The campaigns route (`POST /:id/approve/:messageId`) updates `message_attempts` but does not insert into `audit_logs`. The `audit_logs` table exists in schema but is never written to anywhere in the codebase.
@@ -194,7 +202,7 @@ Files or features referenced in CLAUDE.md or BLUEPRINT.md that do not exist:
 |---|---|---|
 | `packages/agents/src/agents/clientAssistant.ts` | BLUEPRINT.md, AGENTS.md, schema (assistant_sessions table), compact.ts | Core agent for QYRO Assist — not built. compact.ts exists to support it but nothing calls it. |
 | `packages/agents/src/agents/promptHygiene.ts` | AGENTS.md (full spec written) | Not built. No CI validation of prompt packs. |
-| `packages/queue/src/workers/outreachWorker.ts` | queue/queues.ts (outreach queue defined), routes/leads.ts (jobs enqueued), pm2 config (only research worker listed) | Outreach jobs pile up in Redis unprocessed. |
+| `packages/workers/src/outreachWorker.ts` | queue/queues.ts (outreach queue defined), routes/leads.ts (jobs enqueued), PM2/worker scripts | Outreach jobs processed by dedicated workers package. |
 | `apps/api/src/routes/billing.ts` | BLUEPRINT.md repo structure, CLAUDE.md Phase 2 (Stripe billing) | Stripe billing not implemented. |
 | `docs/PROMPTS/assist/` | BLUEPRINT.md Phase 2 prompt packs | Directory does not exist. No QYRO Assist prompt packs. Only `lead/medspa_missed_call_v1.md` exists. |
 | Widget JS (`widget.qyro.ai/widget.js`) | `apps/web/src/app/(client)/client/widget/page.tsx` references `WIDGET_SRC = "https://widget.qyro.ai/widget.js"` | The actual embeddable widget JavaScript does not exist in this repo. The embed page generates a snippet pointing to a URL that serves nothing. |
@@ -258,7 +266,7 @@ Blueprint shows `routes/tenants.ts` but the route is mounted at `/api/v1/tenants
 
 ### To complete Phase 1 end-to-end testing
 
-1. **Fix the outreach worker gap** — create `packages/queue/src/workers/outreachWorker.ts` that dequeues from the outreach queue and calls `runOutreach()`. Wire it into PM2 (`ecosystem.config.cjs`) and the `package.json` scripts.
+1. **Keep outreach worker wiring healthy** — maintain `packages/workers/src/outreachWorker.ts` + PM2/service start commands so the `outreach` queue remains actively consumed.
 
 2. **Wire QA Guardrail into outreach agent** — call `runQA()` inside `runOutreach()` after `generateMessage()` succeeds, before inserting into `message_attempts`. If QA blocks, set `status: "blocked_by_qa"` instead of `"pending_approval"`.
 

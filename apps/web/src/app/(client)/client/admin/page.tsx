@@ -18,8 +18,7 @@ type Settings = {
   timezone: string;
   businessHours: string;
   voiceNumber: string;
-  voiceRuntime: "signalwire" | "retell";
-  retellAgentId: string;
+  voiceRuntime: "signalwire";
   autoSendMissedCall: boolean;
   escalationContactPhone: string;
   businessDescription: string;
@@ -235,16 +234,8 @@ function VoiceTab({ settings, onChange, onSave, saving, saved, error }: {
           <input className="input" value={settings.voiceNumber} onChange={(e) => onChange({ voiceNumber: e.target.value })} placeholder="+15035551234" />
         </Field>
         <Field label="Voice runtime">
-          <select className="input" value={settings.voiceRuntime} onChange={(e) => onChange({ voiceRuntime: e.target.value as "signalwire" | "retell" })}>
-            <option value="signalwire">SignalWire Direct</option>
-            <option value="retell">Retell AI</option>
-          </select>
+          <input className="input" value="SignalWire" readOnly />
         </Field>
-        {settings.voiceRuntime === "retell" && (
-          <Field label="Retell Agent ID" hint="Found in Retell dashboard → Agents.">
-            <input className="input" value={settings.retellAgentId} onChange={(e) => onChange({ retellAgentId: e.target.value })} placeholder="agent_xxxxxxxxxxxx" />
-          </Field>
-        )}
         <Field label="Escalation contact phone" hint="E.164. QYRO calls/SMSes this number when the AI escalates a call.">
           <input className="input" value={settings.escalationContactPhone} onChange={(e) => onChange({ escalationContactPhone: e.target.value })} placeholder="+15035551234" />
         </Field>
@@ -581,7 +572,6 @@ const DEFAULT_SETTINGS: Settings = {
   businessHours: "",
   voiceNumber: "",
   voiceRuntime: "signalwire",
-  retellAgentId: "",
   autoSendMissedCall: false,
   escalationContactPhone: "",
   businessDescription: "",
@@ -632,8 +622,7 @@ export default function ClientAdminPage() {
             timezone:              String(d.timezone ?? ""),
             businessHours:         String(d.businessHours ?? ""),
             voiceNumber:           String(d.voiceNumber ?? ""),
-            voiceRuntime:          (d.voiceRuntime === "retell" ? "retell" : "signalwire") as "signalwire" | "retell",
-            retellAgentId:         String(d.retellAgentId ?? ""),
+            voiceRuntime:          "signalwire",
             autoSendMissedCall:    Boolean(d.autoSendMissedCall),
             escalationContactPhone: String(d.escalationContactPhone ?? ""),
             businessDescription:   String(d.businessDescription ?? ""),

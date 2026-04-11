@@ -4,7 +4,7 @@
 
 import http from "http";
 import { Worker, type Job } from "bullmq";
-import { redis, QUEUE_NAMES, type ReplyJobData } from "../queues";
+import { redis, QUEUE_NAMES, type ReplyJobData } from "@qyro/queue/queues";
 import { runReplyTriage } from "@qyro/agents";
 import { db } from "@qyro/db";
 import { deadLetterQueue } from "@qyro/db";
@@ -38,7 +38,7 @@ function createReplyTriageWorker() {
       );
     },
     {
-      connection:  redis,
+      connection: redis,
       concurrency: 5,
     },
   );
@@ -54,11 +54,11 @@ function createReplyTriageWorker() {
     await db
       .insert(deadLetterQueue)
       .values({
-        tenantId:     job.data.tenantId,
+        tenantId: job.data.tenantId,
         workflowName: QUEUE_NAMES.REPLY,
-        payload:      job.data,
-        errorType:    err.name ?? "Error",
-        lastError:    err.message,
+        payload: job.data,
+        errorType: err.name ?? "Error",
+        lastError: err.message,
         attemptCount: job.attemptsMade,
       })
       .catch((e) => console.error("[replyTriageWorker] dead-letter write failed:", e));

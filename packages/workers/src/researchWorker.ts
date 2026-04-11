@@ -3,7 +3,7 @@
 // Calls runResearch() per job. Writes permanent failures to dead_letter_queue.
 
 import { Worker, type Job } from "bullmq";
-import { redis, QUEUE_NAMES, type ResearchJobData } from "../queues";
+import { redis, QUEUE_NAMES, type ResearchJobData } from "@qyro/queue/queues";
 import { runResearch } from "@qyro/agents";
 import { db, deadLetterQueue } from "@qyro/db";
 
@@ -36,7 +36,7 @@ function createResearchWorker() {
       );
     },
     {
-      connection:  redis,
+      connection: redis,
       concurrency: 3,
     },
   );
@@ -53,11 +53,11 @@ function createResearchWorker() {
     await db
       .insert(deadLetterQueue)
       .values({
-        tenantId:     job.data.tenantId,
+        tenantId: job.data.tenantId,
         workflowName: QUEUE_NAMES.RESEARCH,
-        payload:      job.data,
-        errorType:    err.name ?? "Error",
-        lastError:    err.message,
+        payload: job.data,
+        errorType: err.name ?? "Error",
+        lastError: err.message,
         attemptCount: job.attemptsMade,
       })
       .catch((e) => console.error("[researchWorker] dead-letter write failed:", e));

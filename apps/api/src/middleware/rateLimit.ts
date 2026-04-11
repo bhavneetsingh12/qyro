@@ -12,6 +12,13 @@ import { rateLimitHits } from "@qyro/db";
 import { redis } from "@qyro/queue";
 
 export type RateLimitTier = "general" | "heavy" | "export";
+export type RateLimitFailureMode = "fail-open" | "fail-closed";
+export type RateLimitScope = "tenant" | "ip";
+
+interface RateLimitOptions {
+  failureMode?: RateLimitFailureMode;
+  scope?: RateLimitScope;
+}
 
 interface RateLimitWindow {
   key: string;
@@ -54,9 +61,17 @@ async function logRateLimitHit(tenantId: string, endpoint: string, limitType: st
  * Skips if tenantId is not yet set on req.
  */
 export function rateLimit(tier: RateLimitTier): RequestHandler {
+  return rateLimitWithOptions(tier, {});
+}
+
+export function rateLimitWithOptions(tier: RateLimitTier, options: RateLimitOptions): RequestHandler {
   return async (req, res, next) => {
+    const failureMode = options.failureMode ?? "fail-open";
+    const scope = options.scope ?? "tenant";
+
     const tenantId: string | undefined = (req as any).tenantId;
-    if (!tenantId) {
+    const scopeKey = scope === "ip" ? getRequestIp(req) : tenantId;
+    if (!scopeKey) {
       next();
       return;
     }
@@ -65,7 +80,7 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
     const windows = TIER_WINDOWS[tier];
 
     for (const win of windows) {
-      const redisKey = `rl:${tier}:${win.key}:${tenantId}`;
+      const redisKey = `rl:${tier}:${scope}:${win.key}:${scopeKey}`;
       let count: number;
       try {
         count = await redis.incr(redisKey);
@@ -73,7 +88,17 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
           await redis.expire(redisKey, win.ttlSeconds);
         }
       } catch {
-        // Redis unavailable — fail open so the service stays up
+        if (failureMode === "fail-closed") {
+          const retryAfter = 30;
+          res.setHeader("Retry-After", String(retryAfter));
+          res.status(503).json({
+            error: "RATE_LIMIT_UNAVAILABLE",
+            message: "Rate limiting is temporarily unavailable. Please retry shortly.",
+            retryAfter,
+          });
+          return;
+        }
+
         console.warn(`[rateLimit] Redis error on key ${redisKey}, failing open`);
         next();
         return;
@@ -81,7 +106,9 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
 
       if (count > win.limit) {
         const ip = getRequestIp(req);
-        void logRateLimitHit(tenantId, endpoint, win.limitType, ip);
+        if (tenantId) {
+          void logRateLimitHit(tenantId, endpoint, win.limitType, ip);
+        }
 
         const retryAfter = win.ttlSeconds;
         res.setHeader("Retry-After", String(retryAfter));

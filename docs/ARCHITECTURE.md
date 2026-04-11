@@ -34,7 +34,7 @@ Separated at the data layer by `tenant_type` and enforced by Postgres RLS + tena
 │                                                                        │
 │  /api/v1/leads      /api/v1/campaigns   /api/v1/tenants                │
 │  /api/v1/assist     /api/v1/billing     /api/v1/admin                  │
-│  /api/v1/voice      /api/v1/retell      /api/v1/swaig                  │
+│  /api/v1/voice      /api/v1/swaig       /api/v1/pricing                │
 │  /api/v1/webhooks   /api/v1/events/stream (SSE)                        │
 │  /widgets/assist    (public, rate-limited)                             │
 └──────┬──────────────┬──────────────┬──────────────────────────────────┘
@@ -54,7 +54,7 @@ Separated at the data layer by `tenant_type` and enforced by Postgres RLS + tena
 
 External services:
   OpenAI (gpt-4o-mini / gpt-4o)   Google Places API   Apollo/Hunter (email)
-  SignalWire (telephony PSTN)       Retell (voice AI)   Cal.com / Google Calendar
+    SignalWire (telephony PSTN)       Cal.com / Google Calendar
   Resend (transactional email)      Stripe (billing)    Clerk (auth)
 ```
 
@@ -76,7 +76,7 @@ External services:
 | AI — premium | claude-sonnet-4-6 | Anthropic | Complex objections, voice premium |
 | Voice telephony | SignalWire | SignalWire | cXML-compatible; `x-signalwire-signature` verification |
 | Voice AI path A | SignalWire AI Agent + SWAIG | SignalWire | Native SWML function calling; `/api/v1/swaig/*` |
-| Voice AI path B | Retell + Custom LLM WS | Retell | Per-tenant opt-in via `voice_runtime=retell`; `/api/v1/retell/*` |
+| Voice AI path B | N/A (decommissioned) | N/A | Retell runtime removed from active API surface |
 | Calendar | Cal.com + Google Calendar | Adapter pattern | Factory in `packages/agents/src/calendars/` |
 | Email | Resend | Resend cloud | REST only (no SDK); `apps/api/src/lib/sendEmail.ts` |
 | Lead sources | Google Places API (New) | Google | Primary lead search; no scraping |
@@ -191,12 +191,15 @@ qyro/
 │   │       ├── queues.ts        ← All BullMQ queue definitions (6 queues)
 │   │       ├── realtime.ts      ← Redis pub/sub for SSE event emission
 │   │       └── workers/
-│   │           ├── researchWorker.ts        ← Runs research agent
-│   │           ├── outreachWorker.ts         ← Runs outreach agent + QA
-│   │           ├── replyTriageWorker.ts      ← Classifies inbound replies
-│   │           ├── outboundCallWorker.ts     ← Dials SignalWire/Retell + DNC + capacity guard
-│   │           ├── webhookWorker.ts          ← Async voice/Retell webhook processing (concurrency 5)
+│   │           ├── outboundCallWorker.ts     ← Dials SignalWire + DNC + capacity guard
+│   │           ├── webhookWorker.ts          ← Async voice webhook processing (concurrency 5)
 │   │           └── anomalyDetectionWorker.ts ← Every 15min: high API vol, export vol, sequential pagination
+│   │
+│   ├── workers/
+│   │   └── src/
+│   │       ├── researchWorker.ts        ← Runs research agent
+│   │       ├── outreachWorker.ts        ← Runs outreach agent + QA
+│   │       └── replyTriageWorker.ts     ← Classifies inbound replies
 │   │
 │   └── prompts/                 ← Prompt loader + validator
 │
@@ -219,7 +222,7 @@ qyro/
 │
 └── infra/
     ├── docker-compose.yml       ← Local Postgres + Redis
-    ├── pm2/ecosystem.config.cjs ← Local process management (API + 6 workers)
+    ├── pm2/ecosystem.config.cjs ← Local process management (API + workers)
     ├── seed.ts                  ← Seeds internal tenant + test data
     └── n8n/workflows/           ← Legacy workflow configs (kept as fallback)
 ```
@@ -290,6 +293,23 @@ Every table has `tenant_id`. Postgres RLS enforced via migration `0001_rls_polic
 
 All routes under `/api/v1/` unless noted. Clerk JWT required unless marked PUBLIC.
 
+### API Trust Matrix (Source of truth: `apps/api/src/index.ts`)
+
+| Route prefix | Trust class | Middleware chain | Fail mode |
+|---|---|---|---|
+| `/webhooks` | Internal/provider callback | Router-specific validation (`WEBHOOK_SECRET` and Stripe signature in mounted routers) | Closed on auth/signature failure |
+| `/api/v1/voice` | Provider-signed | `validateSignalWireSignature` -> `voiceRouter` | Closed (403) on missing/invalid signature in production |
+| `/api/v1/swaig` | Internal-secret/provider | `validateSwaigRequest` -> `swaigRouter` | Closed in production on missing/invalid secret |
+| `/api/v1/assist` | Public ingress (widget/missed-call) | `rateLimitWithOptions(... { scope: "ip", failureMode: "fail-closed" })` -> `assistPublicRouter` | Closed on rate-limit infra failure |
+| `/api` (pricing router) | Public read | `rateLimitWithOptions(... { scope: "ip", failureMode: "fail-closed" })` -> `pricingRouter` | Closed on rate-limit infra failure |
+| `/api/leads` | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `rateLimit("general")` -> `leadsRouter` | Open on rate-limit infra failure (availability-biased) |
+| `/api/campaigns` | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `rateLimit("general")` -> `campaignsRouter` | Open on rate-limit infra failure (availability-biased) |
+| `/api` (assist router) | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `rateLimit("general")` -> `assistRouter` | Open on rate-limit infra failure (availability-biased) |
+| `/api/v1/tenants` | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `rateLimit("general")` -> `tenantsRouter` | Open on rate-limit infra failure (availability-biased) |
+| `/api/v1/events` | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `eventsRouter` | SSE path bypasses transaction pinning intentionally |
+| `/api` (admin router) | Authenticated admin | `requireClerkAuth` -> `adminRouter` | Closed by auth/role checks in admin handlers |
+| `/api` (billing router) | Authenticated + tenant-scoped | `requireClerkAuth` -> `tenantMiddleware` -> `rateLimit("general")` -> `billingRouter` | Open on rate-limit infra failure (availability-biased) |
+
 ### Auth + Admin
 
 | Method | Path | Auth | Purpose |
@@ -351,19 +371,7 @@ Tenant identification priority: SWML `global_data.tenantId` → payload `tenantI
 
 ### Voice — Retell
 
-HMAC-SHA256 validation on `x-retell-signature`.
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/v1/retell/call-events` | Call lifecycle events → webhookWorker |
-| POST | `/api/v1/retell/transcript-events` | Transcript → webhookWorker |
-| WS | `/api/v1/retell/llm-websocket` | Retell Custom LLM WebSocket (QYRO as LLM backend) |
-| POST | `/api/v1/retell/tools/get-business-context` | Tool: business info |
-| POST | `/api/v1/retell/tools/check-availability` | Tool: calendar slots |
-| POST | `/api/v1/retell/tools/create-booking` | Tool: booking creation |
-| POST | `/api/v1/retell/tools/escalate-to-human` | Tool: escalation |
-| POST | `/api/v1/retell/tools/mark-do-not-contact` | Tool: DNC |
-| POST | `/api/v1/retell/tools/log-call-outcome` | Tool: outcome logging |
+Retell runtime and route surface are decommissioned in the active API. Historical references may remain in archived docs only.
 
 ### Billing
 
@@ -427,16 +435,18 @@ All BullMQ. Redis URL from `REDIS_URL`. Separate Railway service per worker.
 
 **PM2 start commands (local):**
 ```
-pnpm --filter @qyro/queue worker:research
-pnpm --filter @qyro/queue worker:outreach
+pnpm --filter @qyro/workers worker:research
+pnpm --filter @qyro/workers worker:outreach
+pnpm --filter @qyro/workers worker:reply-triage
 pnpm --filter @qyro/queue worker:outbound-call
 pnpm --filter @qyro/queue worker:webhook
 ```
 
 **Railway start commands:**
 ```
-research worker:   pnpm --filter @qyro/queue worker:research
-outreach worker:   pnpm --filter @qyro/queue worker:outreach
+research worker:   pnpm --filter @qyro/workers worker:research
+outreach worker:   pnpm --filter @qyro/workers worker:outreach
+reply-triage:      pnpm --filter @qyro/workers worker:reply-triage
 outboundCall:      pnpm --filter @qyro/queue worker:outbound-call
 webhook worker:    pnpm --filter @qyro/queue worker:webhook
 ```
@@ -620,8 +630,9 @@ Implemented in `apps/api/src/lib/entitlements.ts`.
 │                              RAILWAY                                    │
 │                                                                         │
 │  api service         pnpm --filter @qyro/api start                     │
-│  research-worker     pnpm --filter @qyro/queue worker:research          │
-│  outreach-worker     pnpm --filter @qyro/queue worker:outreach          │
+│  research-worker     pnpm --filter @qyro/workers worker:research        │
+│  outreach-worker     pnpm --filter @qyro/workers worker:outreach        │
+│  reply-worker        pnpm --filter @qyro/workers worker:reply-triage    │
 │  outbound-worker     pnpm --filter @qyro/queue worker:outbound-call     │
 │  webhook-worker      pnpm --filter @qyro/queue worker:webhook           │
 │  nightly-cron        node apps/crons/dist/nightly-ingest.js             │
@@ -743,6 +754,14 @@ Must be set before any traffic:
 - `PUBLIC_API_BASE_URL` (used in TwiML action URLs)
 
 ### Pre-launch security checklist
+
+- Pre-deploy gate (run before every prod rollout):
+
+```bash
+pnpm run smoke:workers
+pnpm run test:tenant-middleware
+pnpm exec tsc --noEmit --pretty false
+```
 
 - [ ] `SKIP_SW_SIGNATURE_CHECK` is NOT set in prod
 - [ ] `DEV_BYPASS_AUTH` is NOT set or is `false` in prod

@@ -130,7 +130,7 @@ Files to complete:
   — verify cache stored with 7-day TTL
 
 When done:
-- Start research worker: pnpm --filter @qyro/queue worker:research
+- Start research worker: pnpm --filter @qyro/workers worker:research
 - Trigger a research job manually or via lead ingest
 - Check prospects_enriched for a new row
 - Run the same prospect again — confirm cache_hit logged in usage_events
@@ -195,13 +195,13 @@ When done:
 Session load: CLAUDE.md + packages/queue/src/queues.ts
 
 Files to complete:
-- packages/queue/src/workers/researchWorker.ts
+- packages/workers/src/researchWorker.ts
   — verify concurrency setting reads from env
   — verify failed jobs go to dead_letter_queue after 3 attempts
   — verify graceful shutdown on SIGTERM
 
 When done:
-- Start worker: pnpm --filter @qyro/queue worker:research
+- Start worker: pnpm --filter @qyro/workers worker:research
 - Trigger 3 research jobs
 - Confirm all 3 complete and prospects_enriched has 3 rows
 - Kill worker with Ctrl+C — confirm graceful shutdown logged

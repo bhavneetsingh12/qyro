@@ -3,6 +3,8 @@
 # Generated: 2026-04-03
 # Auditor: Claude Code (read-only, no files modified)
 
+> Historical snapshot: this report predates the SignalWire-only cleanup and worker package split. For current architecture state, use the 2026-04-11 reports.
+
 ---
 
 ## 1. IMPLEMENTATION STATUS
@@ -29,8 +31,8 @@
 | Conversation compaction | DONE | `packages/agents/src/compact.ts` |
 | Leads API routes | DONE | `apps/api/src/routes/leads.ts` |
 | Campaigns API routes | DONE | `apps/api/src/routes/campaigns.ts` |
-| Research BullMQ worker | DONE | `packages/queue/src/workers/researchWorker.ts` |
-| Outreach BullMQ worker | DONE | `packages/queue/src/workers/outreachWorker.ts` |
+| Research BullMQ worker | DONE | `packages/workers/src/researchWorker.ts` |
+| Outreach BullMQ worker | DONE | `packages/workers/src/outreachWorker.ts` |
 | Internal n8n webhook routes | DONE | `apps/api/src/routes/webhooks.ts` (nightly/ingest, morning/digest) |
 | Lead portal — dashboard | DONE | `/internal/dashboard` |
 | Lead portal — lead list + detail | DONE | `/internal/leads`, `/internal/leads/[id]` |

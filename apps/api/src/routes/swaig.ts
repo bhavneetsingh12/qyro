@@ -27,6 +27,7 @@ import {
   messageAttempts,
   promptVersions,
   prospectsRaw,
+  tenantIntegrationSecrets,
   tenants,
 } from "@qyro/db";
 import { logAudit } from "../lib/auditLog";
@@ -361,6 +362,9 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
     const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
     const provider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
     const fromPhone = tenant.voiceNumber ?? null;
+    const secretRow = await db.query.tenantIntegrationSecrets.findFirst({
+      where: eq(tenantIntegrationSecrets.tenantId, tenant.id),
+    });
 
     let calBookingUid: string | null = null;
     let appointmentStatus = "pending_confirmation";
@@ -369,7 +373,7 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
     // ── Provider switch ────────────────────────────────────────────────────────
 
     if (provider === "calcom") {
-      const apiKey = String(meta.calendarApiKey ?? meta.calendar_api_key ?? process.env.CAL_API_KEY ?? "");
+      const apiKey = String(secretRow?.calendarApiKey ?? meta.calendarApiKey ?? meta.calendar_api_key ?? process.env.CAL_API_KEY ?? "");
       const eventTypeId = String(meta.calendarEventTypeId ?? meta.calendar_event_type_id ?? process.env.CAL_EVENT_TYPE_ID ?? "");
 
       if (apiKey && eventTypeId) {

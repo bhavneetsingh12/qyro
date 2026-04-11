@@ -204,8 +204,9 @@ npx tsx infra/seed.ts
 pnpm dev
 
 # 7. Start workers (separate terminals, or use PM2)
-pnpm --filter @qyro/queue worker:research
-pnpm --filter @qyro/queue worker:outreach
+pnpm --filter @qyro/workers worker:research
+pnpm --filter @qyro/workers worker:outreach
+pnpm --filter @qyro/workers worker:reply-triage
 pnpm --filter @qyro/queue worker:outbound-call
 pnpm --filter @qyro/queue worker:webhook
 # or: pm2 start infra/pm2/ecosystem.config.cjs
@@ -217,8 +218,9 @@ Create separate Railway services with these start commands:
 
 ```
 API:               pnpm --filter @qyro/api start (or dev for Railway)
-research worker:   pnpm --filter @qyro/queue worker:research
-outreach worker:   pnpm --filter @qyro/queue worker:outreach
+research worker:   pnpm --filter @qyro/workers worker:research
+outreach worker:   pnpm --filter @qyro/workers worker:outreach
+reply-triage:      pnpm --filter @qyro/workers worker:reply-triage
 outbound-call:     pnpm --filter @qyro/queue worker:outbound-call
 webhook worker:    pnpm --filter @qyro/queue worker:webhook
 nightly cron:      node apps/crons/dist/nightly-ingest.js
@@ -230,6 +232,16 @@ Cron required env vars: `API_URL`, `WEBHOOK_SECRET`
 ---
 
 ## Promoting from staging to prod
+
+### Required pre-deploy validation gate
+
+Run these from repo root before every production deployment:
+
+```bash
+pnpm run smoke:workers
+pnpm run test:tenant-middleware
+pnpm exec tsc --noEmit --pretty false
+```
 
 1. All tests pass on staging
 2. Run migrations on prod database first (never auto-migrate on deploy)
@@ -243,6 +255,19 @@ Cron required env vars: `API_URL`, `WEBHOOK_SECRET`
 ## Pre-launch security checklist
 
 Before enabling real traffic:
+
+### Route trust requirements (must be true in production)
+
+- Provider-signed routes (`/api/v1/voice/*`):
+    - `SIGNALWIRE_AUTH_TOKEN` (or `SIGNALWIRE_API_TOKEN` fallback)
+    - `PUBLIC_API_BASE_URL` exactly matching the externally reachable API hostname
+- Internal-secret/provider routes (`/api/v1/swaig/*`):
+    - `SWAIG_WEBHOOK_SECRET`
+- Internal webhook routes (`/webhooks/*`):
+    - `WEBHOOK_SECRET`
+    - `STRIPE_WEBHOOK_SECRET` for `/webhooks/stripe`
+- Public ingress routes (`/api/v1/assist/*`, pricing routes):
+    - Redis must be healthy because public rate limits are configured fail-closed on limiter infra errors
 
 - [ ] `SKIP_SW_SIGNATURE_CHECK` is NOT set in prod
 - [ ] `DEV_BYPASS_AUTH` is NOT set or is `false` in prod

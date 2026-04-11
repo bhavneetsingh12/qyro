@@ -1,19 +1,17 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
-import { WebSocketServer } from "ws";
 import cors from "cors";
 import { clerkMiddleware } from "@clerk/express";
 import { closeDb } from "@qyro/db";
 
-import { requireClerkAuth, validateRetellRequest, validateSignalWireSignature, validateSwaigRequest } from "./middleware/auth";
+import { requireClerkAuth, validateSignalWireSignature, validateSwaigRequest } from "./middleware/auth";
 import { tenantMiddleware } from "./middleware/tenant";
-import { rateLimit } from "./middleware/rateLimit";
+import { rateLimit, rateLimitWithOptions } from "./middleware/rateLimit";
 import leadsRouter from "./routes/leads";
 import campaignsRouter from "./routes/campaigns";
 import assistRouter, { assistPublicRouter } from "./routes/assist";
 import tenantsRouter from "./routes/tenants";
 import webhooksRouter from "./routes/webhooks";
 import voiceRouter from "./routes/voice";
-import retellRouter, { handleRetellLlmWebSocket } from "./routes/retell";
 import eventsRouter from "./routes/events";
 import billingRouter, { billingPublicRouter } from "./routes/billing";
 import adminRouter from "./routes/admin";
@@ -82,12 +80,7 @@ app.use(cors({
 // before validateSignalWireSignature reads req.body for HMAC computation.
 app.use(express.urlencoded({ extended: false }));
 
-// Parse JSON bodies — capture rawBody for Retell HMAC-SHA256 signature verification.
-app.use(express.json({
-  verify: (req, _res, buf) => {
-    (req as unknown as Record<string, unknown>).rawBody = buf;
-  },
-}));
+app.use(express.json());
 
 // Clerk session verification on all requests (attaches auth to req).
 app.use(clerkMiddleware());
@@ -109,7 +102,6 @@ app.get("/", (_req: Request, res: Response) => {
       admin: "GET /api/v1/admin/me | GET /api/v1/admin/tenants",
       billing: "GET|POST /api/v1/billing/*",
       voice: "POST /api/v1/voice/*",
-      retell: "POST /api/v1/retell/*",
       webhooks: "POST /webhooks/nightly/ingest | POST /webhooks/morning/digest | POST /webhooks/stripe"
     }
   });
@@ -120,10 +112,9 @@ app.get("/", (_req: Request, res: Response) => {
 app.use("/webhooks", webhooksRouter);
 app.use("/webhooks", billingPublicRouter);
 app.use("/api/v1/voice", validateSignalWireSignature, voiceRouter);
-app.use("/api/v1/retell", validateRetellRequest, retellRouter);
 app.use("/api/v1/swaig", validateSwaigRequest, swaigRouter);
-app.use("/api/v1/assist", assistPublicRouter);
-app.use("/api", pricingRouter);
+app.use("/api/v1/assist", rateLimitWithOptions("general", { scope: "ip", failureMode: "fail-closed" }), assistPublicRouter);
+app.use("/api", rateLimitWithOptions("general", { scope: "ip", failureMode: "fail-closed" }), pricingRouter);
 
 // ─── Authenticated + tenant-scoped routes ─────────────────────────────────────
 
@@ -166,28 +157,6 @@ async function start() {
 
     const server = app.listen(PORT, () => {
       console.log(`[api] 4. Listening on http://localhost:${PORT}`);
-    });
-
-    // ── Retell Custom LLM WebSocket ─────────────────────────────────────────
-    const wss = new WebSocketServer({ noServer: true });
-
-    server.on("upgrade", (request, socket, head) => {
-      const url = new URL(request.url ?? "", `http://localhost`);
-      if (url.pathname !== "/api/v1/retell/llm-websocket") {
-        socket.destroy();
-        return;
-      }
-      // Validate Retell shared secret sent as Authorization header
-      const secret = process.env.RETELL_WEBHOOK_SECRET ?? "";
-      const authHeader = String(request.headers.authorization ?? "");
-      if (secret && authHeader !== secret) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        handleRetellLlmWebSocket(ws);
-      });
     });
 
     async function shutdown() {

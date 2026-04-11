@@ -27,18 +27,6 @@ function getEnv(name: string): string {
   return value;
 }
 
-function getVoiceRuntime(meta: Record<string, unknown>): "twilio" | "retell" {
-  const raw = String(meta.voice_runtime ?? meta.voiceRuntime ?? "twilio").trim().toLowerCase();
-  if (raw === "retell") return "retell";
-  return "twilio";
-}
-
-function getRetellAgentId(meta: Record<string, unknown>): string {
-  const fromMeta = String(meta.retell_agent_id ?? meta.retellAgentId ?? "").trim();
-  if (fromMeta) return fromMeta;
-  return String(process.env.RETELL_AGENT_ID_DEFAULT ?? "").trim();
-}
-
 function outboundGlobalPauseEnabled(): boolean {
   return String(process.env.OUTBOUND_VOICE_GLOBAL_PAUSED ?? "false").toLowerCase() === "true";
 }
@@ -122,54 +110,6 @@ async function dialSignalWire(params: {
 
   const data = (await res.json()) as { sid: string; status?: string };
   return data;
-}
-
-async function dialRetell(params: {
-  to: string;
-  from: string;
-  callAttemptId: string;
-  tenantId: string;
-  prospectId: string;
-  retellAgentId: string;
-}): Promise<{ callId: string; status?: string }> {
-  const apiKey = getEnv("RETELL_API_KEY");
-  const base = String(process.env.RETELL_BASE_URL ?? "https://api.retellai.com").replace(/\/$/, "");
-  const path = String(process.env.RETELL_CREATE_CALL_PATH ?? "/v2/create-phone-call").trim();
-
-  const payload = {
-    agent_id: params.retellAgentId,
-    from_number: params.from,
-    to_number: params.to,
-    metadata: {
-      tenantId: params.tenantId,
-      callAttemptId: params.callAttemptId,
-      prospectId: params.prospectId,
-    },
-  };
-
-  const res = await fetch(`${base}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Retell dial failed ${res.status}: ${text.slice(0, 250)}`);
-  }
-
-  const data = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  const callId = String(data.call_id ?? data.callId ?? data.id ?? "").trim();
-  const status = String(data.status ?? "").trim() || undefined;
-
-  if (!callId) {
-    throw new Error("Retell response missing call id");
-  }
-
-  return { callId, status };
 }
 
 function isWithinCallingHours(
@@ -437,44 +377,17 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   }
 
   try {
-    const runtime = getVoiceRuntime(tenantMeta);
-    if (runtime === "retell") {
-      const retellAgentId = getRetellAgentId(tenantMeta);
-      if (!retellAgentId) {
-        throw new Error("RETELL agent id is not configured");
-      }
+    const sw = await dialSignalWire({ to, from, callAttemptId: attempt.id });
 
-      const retell = await dialRetell({
-        to,
-        from,
-        callAttemptId: attempt.id,
-        tenantId,
-        prospectId: attempt.prospectId,
-        retellAgentId,
-      });
-
-      await db
-        .update(callAttempts)
-        .set({
-          callSid: retell.callId,
-          status: "ringing",
-          outcome: retell.status ?? "ringing",
-        })
-        .where(eq(callAttempts.id, attempt.id));
-      emitCallStatusChange(tenantId, attempt.id, "ringing");
-    } else {
-      const sw = await dialSignalWire({ to, from, callAttemptId: attempt.id });
-
-      await db
-        .update(callAttempts)
-        .set({
-          callSid: sw.sid,
-          status: "ringing",
-          outcome: sw.status ?? "ringing",
-        })
-        .where(eq(callAttempts.id, attempt.id));
-      emitCallStatusChange(tenantId, attempt.id, "ringing");
-    }
+    await db
+      .update(callAttempts)
+      .set({
+        callSid: sw.sid,
+        status: "ringing",
+        outcome: sw.status ?? "ringing",
+      })
+      .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "ringing");
   } catch (err) {
     const retryAt = nextAttemptCount < (attempt.maxAttempts ?? 4)
       ? getNextRetryDate(nextAttemptCount)

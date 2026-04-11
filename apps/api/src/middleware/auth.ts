@@ -28,18 +28,7 @@ export const requireClerkAuth: RequestHandler = (req, res, next) => {
 // Validates that incoming requests to voice routes originated from SignalWire.
 // Uses HMAC-SHA1 signature verification (same algorithm as Twilio cXML).
 // Skipped in development to allow local testing without SignalWire.
-//
-// TODO: Remove SKIP_SW_SIGNATURE_CHECK bypass before broad client rollout.
 export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
-  // Temporary bypass for testing — set SKIP_SW_SIGNATURE_CHECK=true in Railway
-  // to unblock call flow while signature issues are diagnosed.
-  // IMPORTANT: remove this env var before going live with real clients.
-  if (process.env.SKIP_SW_SIGNATURE_CHECK === "true") {
-    console.warn("[signalwire] ⚠️  signature check SKIPPED via SKIP_SW_SIGNATURE_CHECK");
-    next();
-    return;
-  }
-
   if (process.env.NODE_ENV !== "production") {
     next();
     return;
@@ -90,59 +79,6 @@ export const validateSignalWireSignature: RequestHandler = (req, res, next) => {
   if (!valid) {
     console.error(`[signalwire] signature mismatch — check PUBLIC_API_BASE_URL and SIGNALWIRE_AUTH_TOKEN. url=${url}`);
     res.status(403).json({ error: "FORBIDDEN", message: "Invalid SignalWire signature" });
-    return;
-  }
-
-  next();
-};
-
-// Validates Retell webhook/tool requests.
-// Primary: HMAC-SHA256 via x-retell-signature header (provider-native).
-// Fallback: shared-secret Bearer token or x-retell-secret header.
-export const validateRetellRequest: RequestHandler = (req, res, next) => {
-  const secret = process.env.RETELL_WEBHOOK_SECRET;
-  if (!secret || secret.trim().length === 0) {
-    console.warn("⚠️  RETELL_WEBHOOK_SECRET not set — skipping Retell signature verification");
-    next();
-    return;
-  }
-
-  const key = secret.trim();
-
-  // Provider-native: Retell signs payloads with HMAC-SHA256 using the webhook secret
-  const retellSig = String(req.headers["x-retell-signature"] ?? "").trim();
-  if (retellSig) {
-    const rawBody: Buffer | undefined = (req as unknown as Record<string, unknown>).rawBody as Buffer | undefined;
-    if (!rawBody) {
-      res.status(403).json({ error: "FORBIDDEN", message: "Missing raw body for Retell signature verification" });
-      return;
-    }
-
-    const expected = createHmac("sha256", key).update(rawBody).digest("hex");
-    const sigBuf = Buffer.from(retellSig);
-    const expBuf = Buffer.from(expected);
-    if (sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf)) {
-      next();
-      return;
-    }
-
-    res.status(403).json({ error: "FORBIDDEN", message: "Invalid Retell signature" });
-    return;
-  }
-
-  // Fallback: shared-secret bearer token or x-retell-secret header
-  const authHeader = String(req.headers.authorization ?? "").trim();
-  const bearer = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
-  const direct = String(req.headers["x-retell-secret"] ?? "").trim();
-  const provided = bearer || direct;
-
-  if (provided === key) {
-    next();
-    return;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    res.status(403).json({ error: "FORBIDDEN", message: "Invalid Retell authentication" });
     return;
   }
 

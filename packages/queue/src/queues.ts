@@ -55,7 +55,7 @@ export type OutboundCallJobData = {
 };
 
 export type WebhookJobData = {
-  kind: "voice_status" | "retell_call_events" | "retell_transcript_events";
+  kind: "voice_status" | "escalation_notify";
   body: Record<string, unknown>;
   query?: Record<string, unknown>;
   headers?: Record<string, string>;

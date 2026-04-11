@@ -116,6 +116,15 @@ router.post("/:id/approve/:messageId", async (req: Request, res: Response, next:
       return;
     }
 
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "campaigns.message.approve",
+      resourceType: "message_attempt",
+      resourceId: messageId,
+    });
+
     res.json({ data: updated });
   } catch (err) {
     next(err);
@@ -167,6 +176,15 @@ router.post("/:id/reject/:messageId", async (req: Request, res: Response, next: 
         ),
       )
       .returning();
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "campaigns.message.reject",
+      resourceType: "message_attempt",
+      resourceId: messageId,
+    });
 
     res.json({ data: updated });
   } catch (err) {
@@ -347,6 +365,15 @@ router.post("/:id/approve", async (req: Request, res: Response, next: NextFuncti
       res.status(404).json({ error: "NOT_FOUND", message: "Campaign not found" });
       return;
     }
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "campaigns.approve",
+      resourceType: "campaign",
+      resourceId: id,
+    });
 
     res.json({ data: updated });
   } catch (err) {

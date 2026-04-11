@@ -2,9 +2,7 @@ import { Worker, type Job } from "bullmq";
 import { and, eq } from "drizzle-orm";
 import {
   db,
-  assistantSessions,
   callAttempts,
-  webhookEvents,
   auditLogs,
 } from "@qyro/db";
 import {
@@ -15,27 +13,16 @@ import {
   type WebhookJobData,
 } from "../index";
 
-type RetellPayload = Record<string, unknown>;
-
-type TranscriptTurn = {
-  role: "user" | "assistant";
-  content: string;
-  ts?: string;
+type EscalationNotifyPayload = {
+  sessionId: string;
+  prospectName?: string;
+  prospectPhone?: string | null;
+  escalationContactPhone?: string | null;
+  escalationContactEmail?: string | null;
+  fromNumber?: string | null;
+  escalationReason?: string;
+  appBaseUrl?: string;
 };
-
-function getString(source: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return "";
-}
-
-function getNestedObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
 
 function firstNonEmpty(...values: Array<unknown>): string | null {
   for (const value of values) {
@@ -56,19 +43,6 @@ function mapTwilioStatusToPipeline(status: string): string {
   if (normalized === "failed") return "failed";
   if (normalized === "canceled") return "canceled";
   return normalized || "unknown";
-}
-
-function mapRetellStatus(raw: string): string {
-  const status = raw.trim().toLowerCase();
-  if (["initiated", "created", "queued", "dialing"].includes(status)) return "dialing";
-  if (status === "ringing") return "ringing";
-  if (["active", "in_progress", "in-progress", "answered"].includes(status)) return "answered";
-  if (["ended", "completed", "complete"].includes(status)) return "completed";
-  if (["no_answer", "no-answer"].includes(status)) return "no_answer";
-  if (status === "busy") return "busy";
-  if (["canceled", "cancelled"].includes(status)) return "canceled";
-  if (["failed", "error"].includes(status)) return "failed";
-  return "failed";
 }
 
 function toRealtimeCallStatus(status: string): "queued" | "dialing" | "connected" | "completed" | "failed" {
@@ -111,76 +85,94 @@ async function fetchSignalWireTranscriptText(url: string): Promise<string | null
   }
 }
 
-function resolveCallAttemptId(payload: RetellPayload): string {
-  const metadata = getNestedObject(payload.metadata);
-  const call = getNestedObject(payload.call);
-  const callMetadata = getNestedObject(call.metadata);
-
-  return getString(payload, ["callAttemptId", "call_attempt_id", "custom_id"])
-    || getString(metadata, ["callAttemptId", "call_attempt_id"])
-    || getString(call, ["callAttemptId", "call_attempt_id", "custom_id"])
-    || getString(callMetadata, ["callAttemptId", "call_attempt_id"]);
+function buildEscalationAlertBody(tenantId: string, payload: EscalationNotifyPayload): string {
+  const appBaseUrl = payload.appBaseUrl ?? "https://app.qyro.us";
+  const sessionLink = `${appBaseUrl}/client/conversations?sessionId=${encodeURIComponent(payload.sessionId)}`;
+  const customer = payload.prospectName || payload.prospectPhone || "Unknown customer";
+  return `QYRO Alert: Customer ${customer} needs immediate assistance. Tenant: ${tenantId}. Session: ${sessionLink}`;
 }
 
-function resolveSessionId(payload: RetellPayload): string {
-  const metadata = getNestedObject(payload.metadata);
-  const session = getNestedObject(payload.session);
+async function sendEscalationSms(tenantId: string, payload: EscalationNotifyPayload): Promise<boolean> {
+  const to = String(payload.escalationContactPhone ?? "").trim();
+  const from = String(payload.fromNumber ?? "").trim();
+  if (!to || !from) return false;
 
-  return getString(payload, ["sessionId", "session_id"])
-    || getString(metadata, ["sessionId", "session_id"])
-    || getString(session, ["id", "sessionId", "session_id"]);
-}
+  const projectId = process.env.SIGNALWIRE_PROJECT_ID;
+  const apiToken = process.env.SIGNALWIRE_API_TOKEN;
+  const spaceUrl = String(process.env.SIGNALWIRE_SPACE_URL ?? "")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+  if (!projectId || !apiToken || !spaceUrl) return false;
 
-function resolveRetellCallId(payload: RetellPayload): string {
-  const call = getNestedObject(payload.call);
-  return getString(payload, ["callId", "call_id", "id"]) || getString(call, ["id", "callId", "call_id"]);
-}
+  const form = new URLSearchParams();
+  form.set("To", to);
+  form.set("From", from);
+  form.set("Body", buildEscalationAlertBody(tenantId, payload));
 
-function parseTranscriptTurns(payload: RetellPayload): TranscriptTurn[] {
-  const turns: TranscriptTurn[] = [];
+  const res = await fetch(
+    `https://${spaceUrl}/api/laml/2010-04-01/Accounts/${encodeURIComponent(projectId)}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${projectId}:${apiToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    },
+  );
 
-  const candidateArrays = [
-    payload.transcript,
-    payload.utterances,
-    payload.messages,
-    getNestedObject(payload.call).transcript,
-    getNestedObject(payload.call).utterances,
-    getNestedObject(payload.conversation).turns,
-  ];
-
-  for (const candidate of candidateArrays) {
-    if (!Array.isArray(candidate)) continue;
-    for (const item of candidate) {
-      const row = getNestedObject(item);
-      const rawRole = getString(row, ["role", "speaker", "source"]).toLowerCase();
-      const role: "user" | "assistant" = (rawRole.includes("agent") || rawRole.includes("assistant")) ? "assistant" : "user";
-      const content = getString(row, ["text", "transcript", "content", "utterance"]);
-      if (!content) continue;
-      const ts = getString(row, ["timestamp", "time", "ts"]) || undefined;
-      turns.push({ role, content, ts });
-    }
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Escalation SMS failed ${res.status}: ${body.slice(0, 200)}`);
   }
 
-  if (turns.length > 0) return turns;
-
-  const fallbackText = getString(payload, ["transcript", "text", "utterance"]);
-  if (!fallbackText) return [];
-  const speakerRaw = getString(payload, ["speaker", "role", "source"]).toLowerCase();
-  const role: "user" | "assistant" = (speakerRaw.includes("agent") || speakerRaw.includes("assistant")) ? "assistant" : "user";
-  return [{ role, content: fallbackText }];
+  return true;
 }
 
-function transcriptTextFromTurns(turns: TranscriptTurn[]): string {
-  return turns.map((turn) => `${turn.role}: ${turn.content}`).join("\n");
-}
+async function sendEscalationEmail(tenantId: string, payload: EscalationNotifyPayload): Promise<boolean> {
+  const toEmail = String(payload.escalationContactEmail ?? "").trim();
+  if (!toEmail) return false;
 
-async function ensureRetellIdempotency(kind: string, payload: RetellPayload): Promise<{ ok: boolean; key?: string }> {
-  const callId = resolveRetellCallId(payload) || resolveCallAttemptId(payload) || resolveSessionId(payload) || "unknown";
-  const eventType = getString(payload, ["event_type", "event", "status", "call_status"]) || kind;
-  const key = `retell:processed:${callId}:${kind}:${eventType}`;
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL ?? "no-reply@qyro.us";
+  if (!apiKey) return false;
 
-  const result = await redis.set(key, "1", "EX", 24 * 60 * 60, "NX");
-  return { ok: result === "OK", key };
+  const customer = payload.prospectName || payload.prospectPhone || "Unknown customer";
+  const appBaseUrl = payload.appBaseUrl ?? "https://app.qyro.us";
+  const sessionLink = `${appBaseUrl}/client/conversations?sessionId=${encodeURIComponent(payload.sessionId)}`;
+  const text = [
+    "A customer requires immediate attention.",
+    "",
+    `Customer: ${customer}`,
+    `Phone: ${payload.prospectPhone ?? "unknown"}`,
+    `Reason: ${payload.escalationReason ?? "escalation requested"}`,
+    `Session: ${sessionLink}`,
+    "",
+    `Tenant: ${tenantId}`,
+    "",
+    "- QYRO Assist",
+  ].join("\n");
+
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: toEmail }] }],
+      from: { email: fromEmail, name: "QYRO Assist" },
+      subject: `QYRO Alert: ${customer} needs assistance`,
+      content: [{ type: "text/plain", value: text }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Escalation email failed ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  return true;
 }
 
 async function processVoiceStatusJob(job: WebhookJobData): Promise<void> {
@@ -260,169 +252,30 @@ async function processVoiceStatusJob(job: WebhookJobData): Promise<void> {
   }
 }
 
-async function processRetellCallEventsJob(job: WebhookJobData): Promise<void> {
-  const payload = getNestedObject(job.body);
-  const dedupe = await ensureRetellIdempotency("call-events", payload);
-  if (!dedupe.ok) return;
+async function processEscalationNotifyJob(job: WebhookJobData): Promise<void> {
+  if (!job.tenantId) throw new Error("escalation_notify missing tenantId");
 
-  try {
-    const callAttemptId = resolveCallAttemptId(payload);
-    if (!callAttemptId) return;
+  const payload = job.body as EscalationNotifyPayload;
+  if (!payload.sessionId) throw new Error("escalation_notify missing sessionId");
 
-    const attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) });
-    if (!attempt) return;
+  const [smsResult, emailResult] = await Promise.allSettled([
+    sendEscalationSms(job.tenantId, payload),
+    sendEscalationEmail(job.tenantId, payload),
+  ]);
 
-    const statusRaw = getString(payload, ["status", "event", "call_status"]);
-    const status = mapRetellStatus(statusRaw || attempt.status || "failed");
-    const durationRaw = getString(payload, ["duration", "duration_seconds", "call_duration"]);
-    const parsedDuration = Number.parseInt(durationRaw, 10);
-    const duration = Number.isFinite(parsedDuration) ? parsedDuration : undefined;
-    const retellCallId = resolveRetellCallId(payload);
-    const recordingUrl = getString(payload, ["recording_url", "recordingUrl", "recording"])
-      || getString(getNestedObject(payload.call), ["recording_url", "recordingUrl", "recording"])
-      || undefined;
-    const transcriptUrl = getString(payload, ["transcript_url", "transcriptUrl"])
-      || getString(getNestedObject(payload.call), ["transcript_url", "transcriptUrl"])
-      || undefined;
+  await db.insert(auditLogs).values({
+    tenantId: job.tenantId,
+    action: "escalation.delivery.attempted",
+    resourceType: "session",
+    resourceId: payload.sessionId,
+    after: {
+      sms: smsResult.status === "fulfilled" ? smsResult.value : `error:${smsResult.reason instanceof Error ? smsResult.reason.message : String(smsResult.reason)}`,
+      email: emailResult.status === "fulfilled" ? emailResult.value : `error:${emailResult.reason instanceof Error ? emailResult.reason.message : String(emailResult.reason)}`,
+    },
+  });
 
-    const retryable = ["no_answer", "busy", "failed"].includes(status);
-    const attemptsUsed = attempt.attemptCount ?? 0;
-    const maxAttempts = attempt.maxAttempts ?? 4;
-    const shouldRetry = attempt.direction === "outbound" && retryable && attemptsUsed < maxAttempts;
-    const retryAt = shouldRetry ? getNextRetryDate(attemptsUsed) : null;
-
-    await db
-      .update(callAttempts)
-      .set({
-        status: shouldRetry ? "retry_scheduled" : status,
-        outcome: status,
-        duration,
-        ...(duration !== undefined ? { durationSeconds: duration } : {}),
-        callSid: retellCallId || attempt.callSid,
-        ...(recordingUrl ? { recordingUrl } : {}),
-        ...(transcriptUrl ? { transcriptUrl } : {}),
-        nextAttemptAt: retryAt,
-      })
-      .where(eq(callAttempts.id, attempt.id));
-
-    const realtimeStatus = shouldRetry ? "retry_scheduled" : status;
-    await publishRealtimeEvent({
-      type: "call_status_change",
-      tenantId: attempt.tenantId,
-      payload: {
-        callAttemptId: attempt.id,
-        status: toRealtimeCallStatus(realtimeStatus),
-        rawStatus: realtimeStatus,
-        retellCallId,
-      },
-    });
-
-    if (shouldRetry && retryAt) {
-      const delayMs = Math.max(0, retryAt.getTime() - Date.now());
-      await outboundCallQueue.add(
-        "outbound-call",
-        { tenantId: attempt.tenantId, callAttemptId: attempt.id },
-        {
-          delay: delayMs,
-          jobId: `outbound-call:${attempt.id}:${attemptsUsed + 1}`,
-        },
-      );
-    }
-
-    await db
-      .insert(webhookEvents)
-      .values({
-        tenantId: attempt.tenantId,
-        source: "retell",
-        eventType: "call-events",
-        payload,
-        processed: true,
-        processedAt: new Date(),
-      });
-  } catch (err) {
-    if (dedupe.key) await redis.del(dedupe.key);
-    throw err;
-  }
-}
-
-async function processRetellTranscriptEventsJob(job: WebhookJobData): Promise<void> {
-  const payload = getNestedObject(job.body);
-  const dedupe = await ensureRetellIdempotency("transcript-events", payload);
-  if (!dedupe.ok) return;
-
-  try {
-    const sessionId = resolveSessionId(payload);
-    const callAttemptId = resolveCallAttemptId(payload);
-
-    const session = sessionId
-      ? await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) })
-      : null;
-
-    let attempt = callAttemptId
-      ? await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) })
-      : null;
-
-    if (!attempt) {
-      const callId = resolveRetellCallId(payload);
-      if (callId) {
-        attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.callSid, callId) });
-      }
-    }
-
-    if (!session && !attempt) return;
-
-    const turns = parseTranscriptTurns(payload);
-    if (turns.length === 0) return;
-
-    const transcriptText = transcriptTextFromTurns(turns);
-
-    if (session) {
-      const currentHistory = Array.isArray(session.conversationHistory)
-        ? (session.conversationHistory as Array<{ role: "user" | "assistant"; content: string }>).filter((m) => m && typeof m.content === "string")
-        : [];
-
-      const updatedHistory = [...currentHistory, ...turns.map((turn) => ({ role: turn.role, content: turn.content }))];
-
-      await db
-        .update(assistantSessions)
-        .set({
-          conversationHistory: updatedHistory,
-          turnCount: updatedHistory.length,
-        })
-        .where(eq(assistantSessions.id, session.id));
-    }
-
-    if (attempt) {
-      const mergedTurns = Array.isArray(attempt.transcriptJson)
-        ? ([...attempt.transcriptJson, ...turns] as unknown[])
-        : (turns as unknown[]);
-
-      const mergedText = [String(attempt.transcriptText ?? "").trim(), transcriptText]
-        .filter(Boolean)
-        .join("\n");
-
-      await db
-        .update(callAttempts)
-        .set({
-          transcriptText: mergedText,
-          transcriptJson: mergedTurns,
-        })
-        .where(eq(callAttempts.id, attempt.id));
-
-      await db
-        .insert(webhookEvents)
-        .values({
-          tenantId: attempt.tenantId,
-          source: "retell",
-          eventType: "transcript-events",
-          payload,
-          processed: true,
-          processedAt: new Date(),
-        });
-    }
-  } catch (err) {
-    if (dedupe.key) await redis.del(dedupe.key);
-    throw err;
+  if (smsResult.status === "rejected" || emailResult.status === "rejected") {
+    throw new Error("escalation notification delivery failed");
   }
 }
 
@@ -434,13 +287,8 @@ async function processWebhookJob(job: Job<WebhookJobData>) {
     return;
   }
 
-  if (data.kind === "retell_call_events") {
-    await processRetellCallEventsJob(data);
-    return;
-  }
-
-  if (data.kind === "retell_transcript_events") {
-    await processRetellTranscriptEventsJob(data);
+  if (data.kind === "escalation_notify") {
+    await processEscalationNotifyJob(data);
     return;
   }
 }
@@ -461,17 +309,8 @@ async function resolveTenantId(data: WebhookJobData): Promise<string | null> {
     return attempt?.tenantId ?? null;
   }
 
-  const payload = getNestedObject(data.body);
-  const callAttemptId = resolveCallAttemptId(payload);
-  if (callAttemptId) {
-    const attempt = await db.query.callAttempts.findFirst({ where: eq(callAttempts.id, callAttemptId) });
-    if (attempt) return attempt.tenantId;
-  }
-
-  const sessionId = resolveSessionId(payload);
-  if (sessionId) {
-    const session = await db.query.assistantSessions.findFirst({ where: eq(assistantSessions.id, sessionId) });
-    if (session) return session.tenantId;
+  if (data.kind === "escalation_notify") {
+    return String(data.tenantId ?? "").trim() || null;
   }
 
   return null;

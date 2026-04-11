@@ -3,7 +3,7 @@
 // Calls runOutreach() per job. Writes permanent failures to dead_letter_queue.
 
 import { Worker, type Job } from "bullmq";
-import { redis, QUEUE_NAMES, type OutreachJobData } from "../queues";
+import { redis, QUEUE_NAMES, type OutreachJobData } from "@qyro/queue/queues";
 import { runOutreach } from "@qyro/agents";
 import { db, deadLetterQueue } from "@qyro/db";
 
@@ -40,7 +40,7 @@ function createOutreachWorker() {
       );
     },
     {
-      connection:  redis,
+      connection: redis,
       concurrency: 2,
     },
   );
@@ -56,11 +56,11 @@ function createOutreachWorker() {
     await db
       .insert(deadLetterQueue)
       .values({
-        tenantId:     job.data.tenantId,
+        tenantId: job.data.tenantId,
         workflowName: QUEUE_NAMES.OUTREACH,
-        payload:      job.data,
-        errorType:    err.name ?? "Error",
-        lastError:    err.message,
+        payload: job.data,
+        errorType: err.name ?? "Error",
+        lastError: err.message,
         attemptCount: job.attemptsMade,
       })
       .catch((e) => console.error("[outreachWorker] dead-letter write failed:", e));

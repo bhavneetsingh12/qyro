@@ -24,16 +24,14 @@ type TenantRow = {
   };
   voice: {
     voiceNumber: string;
-    voiceRuntime: "signalwire" | "retell";
-    retellAgentId: string;
+    voiceRuntime: "signalwire";
   };
 };
 
 type VoiceForm = {
   tenantId: string;
   voiceNumber: string;
-  voiceRuntime: "signalwire" | "retell";
-  retellAgentId: string;
+  voiceRuntime: "signalwire";
 };
 
 export default function MasterAdminPage() {
@@ -47,7 +45,6 @@ export default function MasterAdminPage() {
     tenantId: "",
     voiceNumber: "",
     voiceRuntime: "signalwire",
-    retellAgentId: "",
   });
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceSaved, setVoiceSaved] = useState(false);
@@ -170,8 +167,7 @@ export default function MasterAdminPage() {
     setVoiceForm({
       tenantId,
       voiceNumber: row?.voice?.voiceNumber ?? "",
-      voiceRuntime: row?.voice?.voiceRuntime ?? "signalwire",
-      retellAgentId: row?.voice?.retellAgentId ?? "",
+      voiceRuntime: "signalwire",
     });
     setVoiceSaved(false);
     setVoiceError(null);
@@ -181,10 +177,6 @@ export default function MasterAdminPage() {
     e.preventDefault();
     if (!voiceForm.tenantId) {
       setVoiceError("Select a tenant first.");
-      return;
-    }
-    if (voiceForm.retellAgentId.trim() && voiceForm.voiceRuntime !== "retell") {
-      setVoiceError("Retell Agent ID is set but Voice Runtime is not 'Retell AI'.");
       return;
     }
     setVoiceSaving(true);
@@ -199,8 +191,6 @@ export default function MasterAdminPage() {
         },
         body: JSON.stringify({
           voiceNumber: voiceForm.voiceNumber,
-          voiceRuntime: voiceForm.voiceRuntime,
-          retellAgentId: voiceForm.retellAgentId,
         }),
       });
       if (!res.ok) {
@@ -239,7 +229,7 @@ export default function MasterAdminPage() {
       {/* ── Voice Configuration ───────────────────────────────────────── */}
       <div className="mt-8">
         <h2 className="text-base font-semibold text-stone-900">Voice Configuration</h2>
-        <p className="mt-0.5 text-sm text-stone-500">Set voice_number, voice_runtime, and Retell agent ID for any client tenant.</p>
+        <p className="mt-0.5 text-sm text-stone-500">Set the voice number for any client tenant. SignalWire is the active runtime.</p>
 
         <form onSubmit={(e) => void handleVoiceSave(e)} className="mt-4 rounded-xl border border-[#E8E6E1] bg-white p-5 space-y-4">
           <div className="space-y-1.5">
@@ -269,28 +259,8 @@ export default function MasterAdminPage() {
 
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-stone-700">Voice runtime</label>
-            <select
-              className="input"
-              value={voiceForm.voiceRuntime}
-              onChange={(e) => setVoiceForm({ ...voiceForm, voiceRuntime: e.target.value as "signalwire" | "retell" })}
-            >
-              <option value="signalwire">SignalWire Direct</option>
-              <option value="retell">Retell AI</option>
-            </select>
+            <input className="input" value="SignalWire" readOnly />
           </div>
-
-          {voiceForm.voiceRuntime === "retell" && (
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-stone-700">Retell Agent ID</label>
-              <input
-                className="input"
-                value={voiceForm.retellAgentId}
-                onChange={(e) => setVoiceForm({ ...voiceForm, retellAgentId: e.target.value })}
-                placeholder="agent_xxxxxxxxxxxx"
-              />
-              <p className="text-xs text-stone-400">Find this in Retell dashboard → Agents.</p>
-            </div>
-          )}
 
           {voiceError && <p className="text-sm text-rose-600">{voiceError}</p>}
 

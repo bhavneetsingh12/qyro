@@ -20,8 +20,7 @@ type SettingsForm = {
   businessHours:      string;
   voiceNumber:        string;
   connectionMethod:   string;
-  voiceRuntime:       "signalwire" | "retell";
-  retellAgentId:      string;
+  voiceRuntime:       "signalwire";
 };
 
 export default function ClientSettingsPage() {
@@ -42,7 +41,6 @@ export default function ClientSettingsPage() {
     voiceNumber:        "",
     connectionMethod:   "forwarding",
     voiceRuntime:       "signalwire",
-    retellAgentId:      "",
   });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
@@ -73,8 +71,7 @@ export default function ClientSettingsPage() {
             businessHours:      data.businessHours    ?? "",
             voiceNumber:        data.voiceNumber      ?? "",
             connectionMethod:   data.connectionMethod ?? "forwarding",
-            voiceRuntime:       (data.voiceRuntime === "retell" ? "retell" : "signalwire") as "signalwire" | "retell",
-            retellAgentId:      data.retellAgentId    ?? "",
+            voiceRuntime:       "signalwire",
           });
         }
       } catch {
@@ -90,11 +87,6 @@ export default function ClientSettingsPage() {
     e.preventDefault();
     setSaving(true);
     setError(null);
-    if (form.retellAgentId.trim() && form.voiceRuntime !== "retell") {
-      setError("Retell Agent ID is set but Voice Runtime is not 'Retell AI'. Either switch the runtime to Retell AI or clear the agent ID.");
-      setSaving(false);
-      return;
-    }
     try {
       const token = await getToken();
       const res = await fetch(`${API_URL}/api/v1/tenants/settings`, {
@@ -248,31 +240,10 @@ export default function ClientSettingsPage() {
 
             <FormField
               label="Voice runtime"
-              hint="SignalWire Direct uses built-in TwiML voice. Retell AI enables natural conversational voice powered by Retell."
+              hint="SignalWire is the active voice provider for QYRO."
             >
-              <select
-                className="input"
-                value={form.voiceRuntime}
-                onChange={(e) => setForm({ ...form, voiceRuntime: e.target.value as "signalwire" | "retell" })}
-              >
-                <option value="signalwire">SignalWire Direct</option>
-                <option value="retell">Retell AI</option>
-              </select>
+              <input className="input" value="SignalWire" readOnly />
             </FormField>
-
-            {form.voiceRuntime === "retell" && (
-              <FormField
-                label="Retell Agent ID"
-                hint="Find this in your Retell dashboard → Agents."
-              >
-                <input
-                  className="input"
-                  value={form.retellAgentId}
-                  onChange={(e) => setForm({ ...form, retellAgentId: e.target.value })}
-                  placeholder="agent_xxxxxxxxxxxx"
-                />
-              </FormField>
-            )}
 
             <div className="flex items-start gap-3 rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5">
               <input
