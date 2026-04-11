@@ -113,6 +113,10 @@ function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/$/, "").toLowerCase();
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function validateWidgetOrigin(req: Request, tenant: { metadata: unknown }): string | null {
   const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
   const allowedOrigins = parseAllowedOrigins(meta).map(normalizeOrigin);
@@ -915,6 +919,10 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       res.status(400).json({ error: "INVALID_INPUT", message: "tenantId is required" });
       return;
     }
+    if (!isUuid(tenantIdFromBody)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "tenantId must be a valid UUID" });
+      return;
+    }
 
     // Validate tenantId exists in DB
     const tenant = await db.query.tenants.findFirst({
@@ -1035,6 +1043,10 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
     const tenantIdFromBody = String(req.body?.tenantId ?? "").trim();
     if (!tenantIdFromBody) {
       res.status(400).json({ error: "INVALID_INPUT", message: "tenantId is required" });
+      return;
+    }
+    if (!isUuid(tenantIdFromBody)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "tenantId must be a valid UUID" });
       return;
     }
 
