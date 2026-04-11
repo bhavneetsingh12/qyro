@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useClerk } from "@clerk/nextjs";
 import { ArrowRight, CheckCircle, PhoneCall, Users, Loader2, Check } from "lucide-react";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 
@@ -648,6 +648,7 @@ function StepDone({
 export default function OnboardingPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const { signOut } = useClerk();
 
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -812,13 +813,20 @@ export default function OnboardingPage() {
   return (
     <main className="min-h-screen bg-[#F7F6F2] flex flex-col items-center justify-start px-4 py-12">
       {/* Quiet exit link */}
-      <div className="w-full max-w-xl mb-2 flex justify-start">
+      <div className="w-full max-w-xl mb-2 flex items-center justify-between gap-3">
         <a
           href="/"
           className="inline-flex items-center gap-1 text-xs text-stone-400 hover:text-stone-600 transition-colors"
         >
           ← Back to qyro.us
         </a>
+        <button
+          type="button"
+          onClick={() => signOut({ redirectUrl: "/" })}
+          className="text-xs font-medium text-stone-500 hover:text-stone-900 transition-colors"
+        >
+          Sign out
+        </button>
       </div>
 
       <div className="w-full max-w-xl">
