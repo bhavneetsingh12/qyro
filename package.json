@@ -17,6 +17,9 @@
     "test:retell-phase-d": "tsx scripts/test-retell-phase-d.ts"
     ,
     "worker:reply-triage": "pnpm --filter @qyro/workers run worker:reply-triage"
+    ,
+    "worker:outreach": "pnpm --filter @qyro/workers run worker:outreach",
+    "worker:research": "pnpm --filter @qyro/workers run worker:research"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
