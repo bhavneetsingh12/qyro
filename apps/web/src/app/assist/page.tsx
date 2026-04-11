@@ -113,7 +113,7 @@ export default function AssistPage() {
               href="/sign-up"
               className="text-sm font-semibold px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
             >
-              Start free trial
+              Get started
             </Link>
           </div>
         </div>
@@ -142,7 +142,7 @@ export default function AssistPage() {
               href="/sign-up"
               className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition-colors shadow-sm"
             >
-              Start free trial
+              Get started
               <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
             <Link
@@ -152,7 +152,6 @@ export default function AssistPage() {
               Book a demo
             </Link>
           </div>
-          <p className="mt-3 text-xs text-stone-400">No credit card required</p>
         </div>
       </section>
 
@@ -219,12 +218,13 @@ export default function AssistPage() {
           <p className="text-stone-500 text-center text-sm mb-12">No setup fees. Bring your own number. Cancel anytime.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {ASSIST_PRICING.tiers.map((tier) => (
-              <div
+              <Link
                 key={tier.key}
-                className={`rounded-2xl p-7 flex flex-col relative ${
+                href={`/sign-up?plan=assist-${tier.key}`}
+                className={`rounded-2xl p-7 flex flex-col relative cursor-pointer transition-all hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${
                   tier.popular
-                    ? "border-2 border-amber-400 bg-white shadow-sm"
-                    : "border border-stone-200 bg-[#FAFAF8]"
+                    ? "border-2 border-amber-400 bg-white shadow-sm hover:border-amber-500"
+                    : "border border-stone-200 bg-[#FAFAF8] hover:border-stone-400"
                 }`}
               >
                 {tier.popular && (
@@ -248,8 +248,7 @@ export default function AssistPage() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={`/sign-up?plan=assist-${tier.key}`}
+                <div
                   className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
                     tier.popular
                       ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
@@ -258,11 +257,8 @@ export default function AssistPage() {
                 >
                   Get started with {tier.label}
                   <ArrowRight size={13} strokeWidth={2.5} />
-                </Link>
-                <p className="text-xs text-stone-400 text-center mt-2">
-                  14-day free trial, then ${tier.price}/month
-                </p>
-              </div>
+                </div>
+              </Link>
             ))}
           </div>
           <div className="mt-8 text-center space-y-1.5">
@@ -300,14 +296,14 @@ export default function AssistPage() {
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-stone-900">Ready to stop missing calls?</h2>
           <p className="mt-4 text-stone-500 text-base">
-            14-day free trial. No credit card required.
+            No setup fees. No long-term contracts. Cancel anytime.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href="/sign-up"
               className="inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
             >
-              Start free trial
+              Get started
               <ArrowRight size={14} strokeWidth={2.5} />
             </Link>
             <Link

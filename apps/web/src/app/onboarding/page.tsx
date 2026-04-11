@@ -286,14 +286,12 @@ function StepBusinessInfo({
 // ─── Step 2: Choose plan ──────────────────────────────────────────────────────
 
 function StepPlan({
-  onSelectTrial,
   onSubscribe,
   onBack,
   subscribing,
   subscribingPlan,
   preSelectedPlan,
 }: {
-  onSelectTrial: () => void;
   onSubscribe: (plan: PlanKey) => void;
   onBack: () => void;
   subscribing: boolean;
@@ -304,22 +302,25 @@ function StepPlan({
     <div>
       <h1 className="text-2xl font-bold text-stone-900 mb-1">Choose your plan</h1>
       <p className="text-sm text-stone-500 mb-7">
-        Start with a free 14-day trial or subscribe now. No contract, cancel anytime.
+        No contract. Cancel anytime.
       </p>
 
-      <div className="grid grid-cols-1 gap-3 mb-6">
+      <div className="grid grid-cols-1 gap-3 mb-4">
         {ASSIST_PLANS.map((plan) => {
           const isPreSelected = preSelectedPlan === plan.key;
           const isHighlighted = plan.highlight || isPreSelected;
           return (
-          <div
+          <button
             key={plan.key}
-            className={`relative rounded-2xl border-2 p-5 transition-all ${
+            type="button"
+            disabled={subscribing}
+            onClick={() => onSubscribe(plan.key)}
+            className={`relative rounded-2xl border-2 p-5 text-left transition-all cursor-pointer disabled:cursor-not-allowed hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${
               isPreSelected
                 ? "border-stone-900 bg-stone-50 ring-2 ring-stone-900 ring-offset-2"
                 : plan.highlight
-                ? "border-amber-400 bg-amber-50"
-                : "border-stone-200 bg-white"
+                ? "border-amber-400 bg-amber-50 hover:border-amber-500"
+                : "border-stone-200 bg-white hover:border-stone-400"
             }`}
           >
             {isPreSelected && (
@@ -350,44 +351,29 @@ function StepPlan({
                 </ul>
               </div>
 
-              <button
-                type="button"
-                disabled={subscribing}
-                onClick={() => onSubscribe(plan.key)}
-                className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              <div
+                className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold ${
                   isHighlighted
-                    ? "bg-amber-500 text-white hover:bg-amber-600"
-                    : "bg-stone-900 text-white hover:bg-stone-800"
+                    ? "bg-amber-500 text-white"
+                    : "bg-stone-900 text-white"
                 }`}
               >
                 {subscribing && subscribingPlan === plan.key ? (
                   <><Loader2 size={12} className="animate-spin" /> Redirecting…</>
                 ) : (
-                  "Subscribe"
+                  "Get started"
                 )}
-              </button>
+              </div>
             </div>
-          </div>
+          </button>
           );
         })}
       </div>
 
-      <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 flex items-center justify-between gap-4 mb-6">
-        <div>
-          <p className="text-sm font-semibold text-stone-800">Not ready to commit?</p>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Start free for 14 days — no credit card required.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onSelectTrial}
-          disabled={subscribing}
-          className="shrink-0 px-4 py-2 rounded-xl border border-stone-300 text-xs font-semibold text-stone-700 hover:bg-white transition-colors disabled:opacity-50"
-        >
-          Start free trial
-        </button>
-      </div>
+      <p className="text-xs text-stone-400 text-center mb-6">
+        Not ready to subscribe?{" "}
+        <a href="/contact" className="text-amber-600 hover:underline">Talk to us first →</a>
+      </p>
 
       <button
         type="button"
@@ -724,6 +710,16 @@ export default function OnboardingPage() {
 
   return (
     <main className="min-h-screen bg-[#F7F6F2] flex flex-col items-center justify-start px-4 py-12">
+      {/* Quiet exit link */}
+      <div className="w-full max-w-xl mb-2 flex justify-start">
+        <a
+          href="/"
+          className="inline-flex items-center gap-1 text-xs text-stone-400 hover:text-stone-600 transition-colors"
+        >
+          ← Back to qyro.us
+        </a>
+      </div>
+
       <div className="w-full max-w-xl">
         {/* Brand */}
         <div className="flex justify-center mb-10">
@@ -760,7 +756,6 @@ export default function OnboardingPage() {
 
           {step === 2 && (
             <StepPlan
-              onSelectTrial={() => setStep(3)}
               onSubscribe={checkoutForPlan}
               onBack={() => setStep(1)}
               subscribing={subscribing}
