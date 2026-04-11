@@ -38,6 +38,19 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Existing plaintext rows remain readable through a compatibility path.
   - Decryption now occurs at secret read sites rather than exposing raw stored values.
 
+### pending - chore: add one-off backfill for legacy tenant integration secrets
+- Request summary:
+  - Add a safe operational command to encrypt existing plaintext rows in `tenant_integration_secrets` after the shared key is deployed.
+- Files changed:
+  - `scripts/backfill-tenant-secrets.ts`
+  - `package.json`
+  - `docs/ARCHITECTURE.md`
+  - `docs/ENVIRONMENTS.md`
+- Key behavior changes:
+  - Added `pnpm backfill:tenant-secrets` as a dry-run scanner for plaintext rows.
+  - Added `pnpm backfill:tenant-secrets --apply` to encrypt only legacy plaintext fields while leaving already-encrypted values untouched.
+  - Added optional `--tenant <tenantId>` targeting for narrower rollouts if needed.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

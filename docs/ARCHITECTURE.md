@@ -198,7 +198,7 @@ Key tables:
 
 These are the highest-value remaining architecture tasks:
 
-1. Backfill any legacy plaintext rows in `tenant_integration_secrets` so all stored values are encrypted at rest.
+1. Run the one-off `pnpm backfill:tenant-secrets --apply` command in each deployed environment so legacy plaintext rows in `tenant_integration_secrets` are encrypted at rest.
 2. Route naming is inconsistent between `/api/*` and `/api/v1/*`.
 3. Test coverage is still thin relative to platform risk.
 4. Build artifacts and generated files can drift away from `src/` and confuse review.

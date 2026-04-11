@@ -187,6 +187,6 @@ morning cron:    node apps/crons/dist/morning-digest.js
 
 Still worth doing:
 
-1. Backfill legacy plaintext `tenant_integration_secrets` rows after setting `TENANT_INTEGRATION_SECRET_KEY`.
+1. Run `pnpm backfill:tenant-secrets` first, then `pnpm backfill:tenant-secrets --apply` after reviewing the dry-run output.
 2. Add environment validation for more provider keys at startup.
 3. Add a documented secret-rotation procedure per provider.
