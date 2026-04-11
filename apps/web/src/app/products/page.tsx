@@ -17,16 +17,23 @@ export default async function ProductsPage() {
       if (res.ok) {
         const body = await res.json();
 
+        // Master admin always goes to ops dashboard, never onboarding
         if (body.isMasterAdmin === true) redirect("/qx-ops");
-        if (body.onboardingComplete === false) redirect("/onboarding");
 
         const access = body.productAccess ?? { lead: false, assist: false };
+
+        // If the tenant already has product access they've effectively onboarded —
+        // send them to their dashboard regardless of the onboarding_complete flag.
+        // This handles existing tenants created before the onboarding flow was built.
         if (access.assist) redirect("/client/dashboard");
         if (access.lead) redirect("/internal/dashboard");
+
+        // Only redirect to onboarding if they genuinely have no access yet
+        if (body.onboardingComplete === false) redirect("/onboarding");
       }
     }
   } catch {
-    // Fall through to onboarding on API error
+    // Fall through to onboarding on API error (only for non-authed or broken state)
   }
 
   redirect("/onboarding");
