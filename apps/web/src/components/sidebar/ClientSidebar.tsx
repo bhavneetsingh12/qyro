@@ -44,7 +44,13 @@ function Logo() {
   );
 }
 
-export default function ClientSidebar({ canSwitchToLead = false }: { canSwitchToLead?: boolean }) {
+export default function ClientSidebar({
+  canSwitchToLead = false,
+  showLeadUpgrade = false,
+}: {
+  canSwitchToLead?: boolean;
+  showLeadUpgrade?: boolean;
+}) {
   const pathname = usePathname();
   const { signOut } = useClerk();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -89,6 +95,16 @@ export default function ClientSidebar({ canSwitchToLead = false }: { canSwitchTo
                 Switch to QYRO Lead
               </Link>
             </>
+          )}
+          {showLeadUpgrade && (
+            <Link
+              href="/products?upgrade=lead"
+              onClick={onLinkClick}
+              className="sidebar-link"
+            >
+              <ArrowLeftRight size={16} strokeWidth={1.75} />
+              Add QYRO Lead
+            </Link>
           )}
           <button
             onClick={() => signOut({ redirectUrl: "/" })}

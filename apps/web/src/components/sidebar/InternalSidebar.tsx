@@ -32,17 +32,25 @@ function Logo() {
   );
 }
 
-export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist = false }: { approvalCount?: number; canSwitchToAssist?: boolean }) {
+export default function InternalSidebar({
+  approvalCount = 0,
+  canSwitchToAssist = false,
+  showAssistUpgrade = false,
+}: {
+  approvalCount?: number;
+  canSwitchToAssist?: boolean;
+  showAssistUpgrade?: boolean;
+}) {
   const pathname = usePathname();
   const { signOut } = useClerk();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navItems: NavItem[] = [
     { href: "/internal/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/internal/leads",     label: "Leads",     icon: Users },
+    { href: "/internal/leads", label: "Leads", icon: Users },
     { href: "/internal/campaigns", label: "Campaigns", icon: Megaphone },
     { href: "/internal/approvals", label: "Approvals", icon: CheckSquare, badge: approvalCount },
-    { href: "/internal/team",      label: "Team",      icon: UsersRound },
+    { href: "/internal/team", label: "Team", icon: UsersRound },
   ];
 
   function NavLinks({ onLinkClick }: { onLinkClick?: () => void }) {
@@ -83,7 +91,17 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
               </Link>
             </>
           )}
-          <Link href="/internal/settings" onClick={onLinkClick} className={clsx("sidebar-link", pathname?.startsWith("/internal/settings") && "sidebar-link-active")}>
+          {showAssistUpgrade && (
+            <Link href="/products?upgrade=assist" onClick={onLinkClick} className="sidebar-link">
+              <ArrowLeftRight size={16} strokeWidth={1.75} />
+              Add QYRO Assist
+            </Link>
+          )}
+          <Link
+            href="/internal/settings"
+            onClick={onLinkClick}
+            className={clsx("sidebar-link", pathname?.startsWith("/internal/settings") && "sidebar-link-active")}
+          >
             <Settings size={16} strokeWidth={1.75} />
             Settings
           </Link>
@@ -101,7 +119,6 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
 
   return (
     <>
-      {/* Mobile top bar — fixed, only visible below md */}
       <div className="fixed top-0 left-0 right-0 z-40 flex items-center gap-3 px-4 h-14 bg-[#F5F4F1] border-b border-[#E8E6E1] md:hidden">
         <button
           onClick={() => setMobileOpen(true)}
@@ -113,7 +130,6 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
         <Logo />
       </div>
 
-      {/* Mobile drawer overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div
@@ -139,7 +155,6 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
         </div>
       )}
 
-      {/* Desktop sidebar — hidden below md */}
       <aside className="hidden md:flex w-56 shrink-0 flex-col h-screen bg-[#F5F4F1] border-r border-[#E8E6E1]">
         <div className="px-5 py-5 border-b border-[#E8E6E1]">
           <Logo />

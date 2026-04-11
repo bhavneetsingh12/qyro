@@ -12,7 +12,11 @@ type ProductAccess = {
   assist: boolean;
 };
 
-export default async function ProductsPage() {
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams?: { upgrade?: string };
+}) {
   const { userId, getToken } = await auth();
   if (!userId) redirect("/sign-in");
 
@@ -22,6 +26,8 @@ export default async function ProductsPage() {
   let productAccess: ProductAccess = { lead: false, assist: false };
   let onboardingComplete = false;
   let isMasterAdmin = false;
+  const upgradeIntent = String(searchParams?.upgrade ?? "").trim().toLowerCase();
+  const forceHub = upgradeIntent === "lead" || upgradeIntent === "assist" || upgradeIntent === "bundle";
 
   try {
     const res = await fetch(`${API_URL}/api/v1/tenants/settings`, {
@@ -40,11 +46,14 @@ export default async function ProductsPage() {
   }
 
   if (isMasterAdmin) redirect("/qx-ops");
-  if (productAccess.lead && !productAccess.assist) redirect("/internal/dashboard");
-  if (productAccess.assist && !productAccess.lead) redirect("/client/dashboard");
+  if (!forceHub && productAccess.lead && !productAccess.assist) redirect("/internal/dashboard");
+  if (!forceHub && productAccess.assist && !productAccess.lead) redirect("/client/dashboard");
   if (!productAccess.lead && !productAccess.assist) {
     redirect(onboardingComplete ? "/onboarding" : "/onboarding");
   }
+
+  const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");
+  const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
 
   return (
     <main className="min-h-screen bg-[#F7F6F2] px-4 py-10 sm:px-6">
@@ -65,10 +74,21 @@ export default async function ProductsPage() {
           </Link>
         </div>
 
+        {forceHub && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-sm font-semibold text-amber-800">Add another QYRO product</p>
+            <p className="mt-1 text-sm text-amber-700">
+              Unlock the second workspace to run the full lead-to-call workflow from one account.
+            </p>
+          </div>
+        )}
+
         <div className="grid gap-5 md:grid-cols-2">
           <Link
             href="/internal/dashboard"
-            className="group rounded-3xl border border-stone-200 bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+            className={`group rounded-3xl bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] ${
+              highlightLead ? "border-2 border-amber-400" : "border border-stone-200 hover:border-amber-400"
+            }`}
           >
             <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500 shadow-sm">
               <Users size={20} className="text-white" strokeWidth={2} />
@@ -78,9 +98,15 @@ export default async function ProductsPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">QYRO Lead</p>
                 <h1 className="mt-2 text-2xl font-bold tracking-tight text-stone-900">Build and qualify pipeline</h1>
               </div>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                Live
-              </span>
+              {productAccess.lead ? (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                  Active
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                  Available
+                </span>
+              )}
             </div>
             <p className="mt-4 text-sm leading-relaxed text-stone-500">
               Discover prospects, run research, manage outreach approvals, and push selected leads into the outbound call pipeline.
@@ -91,14 +117,16 @@ export default async function ProductsPage() {
               <li>Campaign drafting and approval workflows</li>
             </ul>
             <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-stone-900">
-              Open Lead workspace
+              {productAccess.lead ? "Open Lead workspace" : "See Lead details"}
               <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </div>
           </Link>
 
           <Link
             href="/client/dashboard"
-            className="group rounded-3xl border border-stone-200 bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:border-stone-900 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+            className={`group rounded-3xl bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] ${
+              highlightAssist ? "border-2 border-stone-900" : "border border-stone-200 hover:border-stone-900"
+            }`}
           >
             <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-900 shadow-sm">
               <PhoneCall size={20} className="text-white" strokeWidth={2} />
@@ -108,9 +136,15 @@ export default async function ProductsPage() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">QYRO Assist</p>
                 <h1 className="mt-2 text-2xl font-bold tracking-tight text-stone-900">Run conversations and calls</h1>
               </div>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                Live
-              </span>
+              {productAccess.assist ? (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                  Active
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                  Available
+                </span>
+              )}
             </div>
             <p className="mt-4 text-sm leading-relaxed text-stone-500">
               Review conversations, manage outbound call operations, track escalations, and warm prospects before human follow-up.
@@ -121,7 +155,7 @@ export default async function ProductsPage() {
               <li>Warm-lead follow-up and handoff visibility</li>
             </ul>
             <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-stone-900">
-              Open Assist workspace
+              {productAccess.assist ? "Open Assist workspace" : "See Assist details"}
               <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </div>
           </Link>
