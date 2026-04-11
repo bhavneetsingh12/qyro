@@ -417,6 +417,13 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
       });
       return;
     }
+    if (!tenantAccess.assist) {
+      res.status(403).json({
+        error: "ACCESS_BLOCK",
+        message: "Assist access is required to queue outbound calls",
+      });
+      return;
+    }
 
     if (tenantMeta.outbound_voice_enabled === false) {
       res.status(403).json({

@@ -34,6 +34,11 @@ type Campaign = {
   active: boolean;
 };
 
+type ProductAccess = {
+  lead: boolean;
+  assist: boolean;
+};
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -73,6 +78,7 @@ export default async function LeadsPage({
 
   let leads: Lead[] = [];
   let activeOutreachCampaigns: Campaign[] = [];
+  let productAccess: ProductAccess = { lead: true, assist: false };
   let fetchError = false;
 
   if (token || bypassAuth) {
@@ -102,6 +108,15 @@ export default async function LeadsPage({
         const campaignsData = await campaignsRes.json();
         const allCampaigns: Campaign[] = campaignsData.data ?? [];
         activeOutreachCampaigns = allCampaigns.filter((c) => c.active && (c.channel === "email" || c.channel === "sms"));
+      }
+
+      const settingsRes = await fetch(`${API_URL}/api/v1/tenants/settings`, {
+        headers,
+        cache: "no-store",
+      });
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        productAccess = settingsData.productAccess ?? productAccess;
       }
     } catch {
       fetchError = true;
@@ -152,6 +167,50 @@ export default async function LeadsPage({
             </button>
           </form>
           <LeadsRefresher />
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-[14px] border border-[#E8E6E1] bg-white px-5 py-4 shadow-[0_1px_4px_rgba(0,0,0,0.04)]">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-stone-900">Lead to Assist handoff</p>
+            <p className="mt-1 text-sm text-stone-500">
+              Research and approve prospects here, then send the selected records into Assist for outbound calls and warm follow-up.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {productAccess.assist ? (
+              <>
+                <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                  Assist active
+                </span>
+                <Link
+                  href="/client/outbound-pipeline"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#E8E6E1] text-stone-700 hover:bg-stone-50 transition-colors"
+                >
+                  Open Assist pipeline
+                </Link>
+                <Link
+                  href="/client/call-control"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#E8E6E1] text-stone-700 hover:bg-stone-50 transition-colors"
+                >
+                  Open call control
+                </Link>
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
+                  Assist not active
+                </span>
+                <Link
+                  href="/products?upgrade=assist"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
+                >
+                  Unlock Assist
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -340,7 +399,10 @@ export default async function LeadsPage({
             </table>
           </div>
               <div className="px-4 py-3 border-t border-[#F0EEE9] bg-[#FCFBF8] flex items-center justify-between">
-                <span className="text-xs text-stone-500">Selected leads. Only rows with a valid phone number can be queued for calls.</span>
+                <span className="text-xs text-stone-500">
+                  Selected leads. Only rows with a valid phone number can be queued for calls.
+                  {!productAccess.assist ? " Unlock QYRO Assist to run outbound calling from these leads." : ""}
+                </span>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
                   <PendingSubmitButton
                     idleLabel="Research Selected"
@@ -348,13 +410,22 @@ export default async function LeadsPage({
                     className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-60"
                   />
 
-                  <button
-                    type="submit"
-                    formAction={runOutboundBatchAction}
-                    className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors"
-                  >
-                    Queue Calls Selected
-                  </button>
+                  {productAccess.assist ? (
+                    <button
+                      type="submit"
+                      formAction={runOutboundBatchAction}
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                    >
+                      Send to Assist Calls
+                    </button>
+                  ) : (
+                    <Link
+                      href="/products?upgrade=assist"
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors"
+                    >
+                      Unlock Assist for Calls
+                    </Link>
+                  )}
 
                   {activeOutreachCampaigns.length > 0 ? (
                     <>

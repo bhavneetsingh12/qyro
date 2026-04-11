@@ -72,6 +72,17 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Public pricing pages now reserve guided setup for Pro tiers instead of sending users into unsupported direct-checkout paths.
   - The outbound pipeline cancel action now matches the backend API route shape.
 
+### pending - fix: gate outbound call queueing behind Assist and surface upgrade CTAs from Lead
+- Request summary:
+  - Make the Lead -> Assist handoff explicit so outbound calling is only available when Assist access exists, while giving Lead-only tenants a clear upgrade path.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(internal)/internal/leads/page.tsx`
+- Key behavior changes:
+  - `POST /api/v1/assist/outbound-calls/enqueue` now requires both Lead and Assist access before queueing calls.
+  - Lead workspace batch actions now show `Send to Assist Calls` only when Assist is active.
+  - Lead-only tenants now see an `Unlock Assist for Calls` CTA that routes to the product hub upgrade path.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals
@@ -310,3 +321,18 @@ Purpose: running log of all changes made in this workspace session series so fol
   - key behavior changes
   - validation steps run
   - commit hash (once committed)
+
+### 2026-04-11 - launch hardening in progress
+- `packages/queue/src/workers/outboundCallWorker.ts`
+  - Outbound calling-hours enforcement now prefers a best-effort prospect timezone inferred from lead address before falling back to the tenant timezone.
+  - Audit logs for outside-calling-hours skips now record the effective timezone, the timezone source, and the stored prospect address.
+- `apps/api/src/routes/assist.ts`
+  - Local hardening still restricts Lead -> Assist outbound enqueue so it requires both Lead and Assist access.
+- `apps/web/src/app/(internal)/internal/leads/page.tsx`
+  - Local Lead workspace changes now expose the Assist handoff when Assist is active and show an upgrade path when it is not.
+- `apps/web/src/app/products/page.tsx`
+  - Local product cards now send users without access to the public product details page instead of a protected dashboard.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

@@ -54,6 +54,8 @@ export default async function ProductsPage({
 
   const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");
   const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
+  const leadHref = productAccess.lead ? "/internal/dashboard" : "/lead";
+  const assistHref = productAccess.assist ? "/client/dashboard" : "/assist";
 
   return (
     <main className="min-h-screen bg-[#F7F6F2] px-4 py-10 sm:px-6">
@@ -85,7 +87,7 @@ export default async function ProductsPage({
 
         <div className="grid gap-5 md:grid-cols-2">
           <Link
-            href="/internal/dashboard"
+            href={leadHref}
             className={`group rounded-3xl bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] ${
               highlightLead ? "border-2 border-amber-400" : "border border-stone-200 hover:border-amber-400"
             }`}
@@ -123,7 +125,7 @@ export default async function ProductsPage({
           </Link>
 
           <Link
-            href="/client/dashboard"
+            href={assistHref}
             className={`group rounded-3xl bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(0,0,0,0.06)] ${
               highlightAssist ? "border-2 border-stone-900" : "border border-stone-200 hover:border-stone-900"
             }`}
