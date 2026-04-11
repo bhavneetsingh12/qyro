@@ -72,7 +72,7 @@ export const ASSIST_PRICING = {
 
 export const LEAD_PRICING = {
   currency: "USD",
-  comingSoon: true,
+  availableNow: true,
   tiers: [
     {
       key: "starter" as AssistPlan,

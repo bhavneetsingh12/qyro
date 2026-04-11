@@ -79,7 +79,38 @@ const ASSIST_PLANS = [
   },
 ] as const;
 
-type PlanKey = (typeof ASSIST_PLANS)[number]["key"];
+const LEAD_PLANS = [
+  {
+    key: "starter" as const,
+    name: "Starter",
+    price: "$299",
+    period: "/mo",
+    features: [
+      "500 leads per month",
+      "Lead discovery and enrichment",
+      "AI research and scoring",
+      "Approval workflow",
+      "CSV export",
+    ],
+    highlight: false,
+  },
+  {
+    key: "growth" as const,
+    name: "Growth",
+    price: "$599",
+    period: "/mo",
+    features: [
+      "2,000 leads per month",
+      "Everything in Starter",
+      "Multi-campaign management",
+      "Team collaboration",
+      "Assist handoff ready",
+    ],
+    highlight: true,
+  },
+] as const;
+
+type PlanKey = "starter" | "growth";
 type ProductType = "assistant" | "lead_engine";
 
 type FormState = {
@@ -154,19 +185,25 @@ function StepProduct({
           <p className="text-xs font-semibold text-amber-600 mt-3">From $297/mo</p>
         </button>
 
-        {/* QYRO Lead — coming soon */}
-        <div className="relative rounded-2xl border-2 border-stone-100 bg-stone-50 p-6 opacity-60 cursor-not-allowed">
-          <div className="h-10 w-10 rounded-xl bg-amber-400 flex items-center justify-center mb-4 shadow-sm opacity-60">
+        {/* QYRO Lead */}
+        <button
+          type="button"
+          onClick={() => onChange("lead_engine")}
+          className={`text-left rounded-2xl border-2 p-6 transition-all ${
+            value === "lead_engine"
+              ? "border-amber-400 bg-amber-50"
+              : "border-stone-200 bg-white hover:border-stone-300"
+          }`}
+        >
+          <div className="h-10 w-10 rounded-xl bg-amber-500 flex items-center justify-center mb-4 shadow-sm">
             <Users size={18} className="text-white" strokeWidth={2} />
           </div>
-          <h2 className="text-base font-bold text-stone-400">QYRO Lead</h2>
-          <p className="text-sm text-stone-400 mt-1 leading-relaxed">
-            AI lead engine for agencies and sales teams — sourcing, research, outreach.
+          <h2 className="text-base font-bold text-stone-900">QYRO Lead</h2>
+          <p className="text-sm text-stone-500 mt-1 leading-relaxed">
+            AI lead engine for agencies and sales teams — discover, research, approve, and hand off warm prospects to Assist.
           </p>
-          <span className="absolute top-4 right-4 text-xs font-semibold bg-stone-200 text-stone-500 px-2.5 py-1 rounded-full">
-            Coming soon
-          </span>
-        </div>
+          <p className="text-xs font-semibold text-amber-600 mt-3">From $299/mo</p>
+        </button>
       </div>
 
       <button
@@ -286,27 +323,33 @@ function StepBusinessInfo({
 // ─── Step 2: Choose plan ──────────────────────────────────────────────────────
 
 function StepPlan({
+  productType,
   onSubscribe,
   onBack,
   subscribing,
   subscribingPlan,
   preSelectedPlan,
 }: {
+  productType: ProductType;
   onSubscribe: (plan: PlanKey) => void;
   onBack: () => void;
   subscribing: boolean;
   subscribingPlan: PlanKey | null;
   preSelectedPlan: PlanKey | null;
 }) {
+  const plans = productType === "lead_engine" ? LEAD_PLANS : ASSIST_PLANS.filter((plan) => plan.key !== "pro");
+  const title = productType === "lead_engine" ? "Choose your Lead plan" : "Choose your Assist plan";
+  const description = productType === "lead_engine"
+    ? "Launch QYRO Lead now and feed approved prospects into Assist for outbound calling."
+    : "No contract. Cancel anytime.";
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-stone-900 mb-1">Choose your plan</h1>
-      <p className="text-sm text-stone-500 mb-7">
-        No contract. Cancel anytime.
-      </p>
+      <h1 className="text-2xl font-bold text-stone-900 mb-1">{title}</h1>
+      <p className="text-sm text-stone-500 mb-7">{description}</p>
 
       <div className="grid grid-cols-1 gap-3 mb-4">
-        {ASSIST_PLANS.map((plan) => {
+        {plans.map((plan) => {
           const isPreSelected = preSelectedPlan === plan.key;
           const isHighlighted = plan.highlight || isPreSelected;
           return (
@@ -390,6 +433,7 @@ function StepPlan({
 // ─── Step 3: AI setup ─────────────────────────────────────────────────────────
 
 function StepAiSetup({
+  productType,
   form,
   businessName,
   onChange,
@@ -397,6 +441,7 @@ function StepAiSetup({
   onBack,
   saving,
 }: {
+  productType: ProductType;
   form: Pick<FormState, "businessDescription" | "services" | "greeting">;
   businessName: string;
   onChange: (field: keyof typeof form, value: string) => void;
@@ -405,18 +450,23 @@ function StepAiSetup({
   saving: boolean;
 }) {
   const displayName = businessName.trim() || "your business";
+  const isLead = productType === "lead_engine";
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-stone-900 mb-1">Set up your AI assistant</h1>
+      <h1 className="text-2xl font-bold text-stone-900 mb-1">
+        {isLead ? "Set up your lead engine" : "Set up your AI assistant"}
+      </h1>
       <p className="text-sm text-stone-500 mb-7">
-        Help your AI sound exactly like {displayName}.
+        {isLead
+          ? `Teach QYRO how to position ${displayName}, qualify prospects, and hand warm leads into Assist.`
+          : `Help your AI sound exactly like ${displayName}.`}
       </p>
 
       <div className="space-y-5 mb-8">
         <div>
           <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-            What does your business do?
+            {isLead ? "How should QYRO describe your business?" : "What does your business do?"}
           </label>
           <textarea
             rows={3}
@@ -425,12 +475,16 @@ function StepAiSetup({
             onChange={(e) => onChange("businessDescription", e.target.value)}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none"
           />
-          <p className="text-xs text-stone-400 mt-1">2–3 sentences. The AI uses this to answer caller questions.</p>
+          <p className="text-xs text-stone-400 mt-1">
+            {isLead
+              ? "2–3 sentences. QYRO uses this when researching and framing outreach."
+              : "2–3 sentences. The AI uses this to answer caller questions."}
+          </p>
         </div>
 
         <div>
           <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-            Services you offer
+            {isLead ? "Ideal services or offers to lead with" : "Services you offer"}
           </label>
           <textarea
             rows={3}
@@ -439,12 +493,16 @@ function StepAiSetup({
             onChange={(e) => onChange("services", e.target.value)}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none"
           />
-          <p className="text-xs text-stone-400 mt-1">Comma-separated list of what you offer.</p>
+          <p className="text-xs text-stone-400 mt-1">
+            {isLead
+              ? "Comma-separated list of services QYRO should emphasize in research and messaging."
+              : "Comma-separated list of what you offer."}
+          </p>
         </div>
 
         <div>
           <label className="block text-xs font-semibold text-stone-600 mb-1.5">
-            Greeting message
+            {isLead ? "Opening angle or positioning line" : "Greeting message"}
           </label>
           <input
             type="text"
@@ -453,7 +511,11 @@ function StepAiSetup({
             onChange={(e) => onChange("greeting", e.target.value)}
             className="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent"
           />
-          <p className="text-xs text-stone-400 mt-1">What the AI says when a caller connects.</p>
+          <p className="text-xs text-stone-400 mt-1">
+            {isLead
+              ? "A short positioning line QYRO can reuse when warming prospects for follow-up."
+              : "What the AI says when a caller connects."}
+          </p>
         </div>
       </div>
 
@@ -491,8 +553,17 @@ function StepAiSetup({
 
 // ─── Step 4: Done ─────────────────────────────────────────────────────────────
 
-function StepDone({ businessName, onGoToDashboard }: { businessName: string; onGoToDashboard: () => void }) {
+function StepDone({
+  businessName,
+  productType,
+  onGoToDashboard,
+}: {
+  businessName: string;
+  productType: ProductType;
+  onGoToDashboard: () => void;
+}) {
   const displayName = businessName.trim() || "Your account";
+  const isLead = productType === "lead_engine";
 
   return (
     <div>
@@ -501,33 +572,61 @@ function StepDone({ businessName, onGoToDashboard }: { businessName: string; onG
       </div>
       <h1 className="text-2xl font-bold text-stone-900 mb-1">{displayName} is ready!</h1>
       <p className="text-sm text-stone-500 mb-8">
-        Your AI assistant is set up. Here&apos;s how to activate it.
+        {isLead
+          ? "Your Lead workspace is ready. Here’s how to start generating and warming pipeline."
+          : "Your AI assistant is set up. Here&apos;s how to activate it."}
       </p>
 
       <div className="space-y-4 mb-8">
         <div className="rounded-xl border border-stone-200 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-2">Step 1</p>
-          <h3 className="text-sm font-bold text-stone-900 mb-1">Forward your business number</h3>
+          <h3 className="text-sm font-bold text-stone-900 mb-1">
+            {isLead ? "Find and approve your first leads" : "Forward your business number"}
+          </h3>
           <p className="text-sm text-stone-500 leading-relaxed">
-            Go to your carrier settings and forward calls to your QYRO number. You&apos;ll find your QYRO number in{" "}
-            <span className="font-medium text-stone-700">Settings → Voice</span>.
+            {isLead ? (
+              <>
+                Open <span className="font-medium text-stone-700">Lead → Find Leads</span>, research a few prospects,
+                and approve the ones you want to move forward with.
+              </>
+            ) : (
+              <>
+                Go to your carrier settings and forward calls to your QYRO number. You&apos;ll find your QYRO number in{" "}
+                <span className="font-medium text-stone-700">Settings → Voice</span>.
+              </>
+            )}
           </p>
         </div>
 
         <div className="rounded-xl border border-stone-200 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-2">Step 2</p>
-          <h3 className="text-sm font-bold text-stone-900 mb-1">Make a test call</h3>
+          <h3 className="text-sm font-bold text-stone-900 mb-1">
+            {isLead ? "Push selected leads into outbound calls" : "Make a test call"}
+          </h3>
           <p className="text-sm text-stone-500 leading-relaxed">
-            Call your business number and let the AI pick up. Check the call transcript in your dashboard to see how it went.
+            {isLead
+              ? "Queue approved leads into the outbound calling pipeline so Assist can warm them up before you step in."
+              : "Call your business number and let the AI pick up. Check the call transcript in your dashboard to see how it went."}
           </p>
         </div>
 
         <div className="rounded-xl border border-stone-200 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 mb-2">Step 3</p>
-          <h3 className="text-sm font-bold text-stone-900 mb-1">Manage your plan</h3>
+          <h3 className="text-sm font-bold text-stone-900 mb-1">
+            {isLead ? "Switch to Assist when you want call operations" : "Manage your plan"}
+          </h3>
           <p className="text-sm text-stone-500 leading-relaxed">
-            View or upgrade your subscription from{" "}
-            <span className="font-medium text-stone-700">Settings → Billing</span> at any time.
+            {isLead ? (
+              <>
+                Use <span className="font-medium text-stone-700">Products</span> or billing to unlock both products and
+                move from lead generation into live Assist call handling.
+              </>
+            ) : (
+              <>
+                View or upgrade your subscription from{" "}
+                <span className="font-medium text-stone-700">Settings → Billing</span> at any time.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -568,7 +667,7 @@ export default function OnboardingPage() {
     greeting: "",
   });
 
-  // On mount: check for plan intent from pricing CTAs (?plan=assist-starter stored in localStorage)
+  // On mount: check for plan intent from pricing CTAs (?plan=assist-starter / lead-starter stored in localStorage)
   // and handle return from Stripe checkout (?subscribed=true in URL).
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -594,17 +693,18 @@ export default function OnboardingPage() {
     // Check for plan intent stored by PlanCapture on sign-up page
     try {
       const planIntent = localStorage.getItem("qyro_plan_intent");
-      if (planIntent && planIntent.startsWith("assist-")) {
-        const planKey = planIntent.replace("assist-", "") as PlanKey;
-        const validKeys: PlanKey[] = ["starter", "growth", "pro"];
-        if (validKeys.includes(planKey)) {
+      const [productIntent, planValue] = (planIntent ?? "").split("-");
+      const planKey = planValue as PlanKey;
+        const validKeys: PlanKey[] = ["starter", "growth"];
+        if ((productIntent === "assist" || productIntent === "lead") && validKeys.includes(planKey)) {
           setPreSelectedPlan(planKey);
-          // Auto-select QYRO Assist and skip the product selection step
-          setForm((prev) => ({ ...prev, productType: "assistant" }));
+          setForm((prev) => ({
+            ...prev,
+            productType: productIntent === "lead" ? "lead_engine" : "assistant",
+          }));
           setStep(1);
           localStorage.removeItem("qyro_plan_intent");
         }
-      }
     } catch {
       // ignore localStorage errors
     }
@@ -634,6 +734,7 @@ export default function OnboardingPage() {
 
       const token = await getToken();
       const origin = window.location.origin;
+      const billingProduct = form.productType === "lead_engine" ? "lead" : "assist";
       const res = await fetch(`${API_URL}/api/v1/billing/checkout-session`, {
         method: "POST",
         headers: {
@@ -641,7 +742,7 @@ export default function OnboardingPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          product: "assist",
+          product: billingProduct,
           plan,
           successUrl: `${origin}/onboarding?subscribed=true`,
           cancelUrl: `${origin}/onboarding`,
@@ -757,6 +858,7 @@ export default function OnboardingPage() {
           {step === 2 && (
             <StepPlan
               onSubscribe={checkoutForPlan}
+              productType={form.productType ?? "assistant"}
               onBack={() => setStep(1)}
               subscribing={subscribing}
               subscribingPlan={subscribingPlan}
@@ -766,6 +868,7 @@ export default function OnboardingPage() {
 
           {step === 3 && (
             <StepAiSetup
+              productType={form.productType ?? "assistant"}
               form={form}
               businessName={form.name}
               onChange={(field, value) => updateField(field, value)}
@@ -776,7 +879,11 @@ export default function OnboardingPage() {
           )}
 
           {step === 4 && (
-            <StepDone businessName={form.name} onGoToDashboard={goToDashboard} />
+            <StepDone
+              businessName={form.name}
+              productType={form.productType ?? "assistant"}
+              onGoToDashboard={goToDashboard}
+            />
           )}
         </div>
 

@@ -51,6 +51,27 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Added `pnpm backfill:tenant-secrets --apply` to encrypt only legacy plaintext fields while leaving already-encrypted values untouched.
   - Added optional `--tenant <tenantId>` targeting for narrower rollouts if needed.
 
+### pending - feat: align Lead and Assist as live products for launch
+- Request summary:
+  - Make both products feel intentionally live for launch, with Lead feeding Assist for outbound calling and warm-lead workflows.
+- Files changed:
+  - `apps/web/src/app/products/page.tsx`
+  - `apps/web/src/app/onboarding/page.tsx`
+  - `apps/web/src/app/lead/page.tsx`
+  - `apps/web/src/app/assist/page.tsx`
+  - `apps/web/src/app/(client)/client/outbound-pipeline/page.tsx`
+  - `apps/web/src/components/auth/PlanCapture.tsx`
+  - `apps/web/src/components/sidebar/InternalSidebar.tsx`
+  - `apps/web/src/components/sidebar/ClientSidebar.tsx`
+  - `apps/web/src/config/pricing.ts`
+  - `apps/api/src/routes/pricing.ts`
+- Key behavior changes:
+  - Lead is no longer presented as coming soon in public pricing and onboarding flows.
+  - `/products` now acts as a real workspace selector when a tenant has both Lead and Assist access.
+  - Onboarding now supports both Assist and Lead plan intents and routes billing by the selected product.
+  - Public pricing pages now reserve guided setup for Pro tiers instead of sending users into unsupported direct-checkout paths.
+  - The outbound pipeline cancel action now matches the backend API route shape.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

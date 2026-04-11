@@ -72,10 +72,16 @@ export default function InternalSidebar({ approvalCount = 0, canSwitchToAssist =
 
         <div className="px-3 py-4 border-t border-[#E8E6E1] space-y-0.5">
           {canSwitchToAssist && (
-            <Link href="/client/dashboard" onClick={onLinkClick} className="sidebar-link">
-              <ArrowLeftRight size={16} strokeWidth={1.75} />
-              Switch to QYRO Assist
-            </Link>
+            <>
+              <Link href="/products" onClick={onLinkClick} className="sidebar-link">
+                <ArrowLeftRight size={16} strokeWidth={1.75} />
+                Workspace Hub
+              </Link>
+              <Link href="/client/dashboard" onClick={onLinkClick} className="sidebar-link">
+                <ArrowLeftRight size={16} strokeWidth={1.75} />
+                Switch to QYRO Assist
+              </Link>
+            </>
           )}
           <Link href="/internal/settings" onClick={onLinkClick} className={clsx("sidebar-link", pathname?.startsWith("/internal/settings") && "sidebar-link-active")}>
             <Settings size={16} strokeWidth={1.75} />

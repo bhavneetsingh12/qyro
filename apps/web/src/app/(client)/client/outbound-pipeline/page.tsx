@@ -184,7 +184,7 @@ export default function OutboundPipelinePage() {
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      await fetch(`${API_URL}/api/v1/assist/outbound-calls/attempt/${attemptId}/cancel`, {
+      await fetch(`${API_URL}/api/v1/assist/outbound-calls/cancel/${attemptId}`, {
         method: "POST",
         headers,
       });

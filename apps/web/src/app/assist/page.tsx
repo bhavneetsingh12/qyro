@@ -215,13 +215,14 @@ export default function AssistPage() {
         <div className="max-w-5xl mx-auto">
           <p className="text-xs font-semibold uppercase tracking-widest text-stone-400 text-center mb-2">Pricing</p>
           <h2 className="text-3xl font-bold text-stone-900 text-center mb-3">Simple, transparent pricing</h2>
-          <p className="text-stone-500 text-center text-sm mb-12">No setup fees. Bring your own number. Cancel anytime.</p>
+          <p className="text-stone-500 text-center text-sm mb-12">Starter and Growth are available now. Pro is available through guided setup.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {ASSIST_PRICING.tiers.map((tier) => (
-              <Link
+            {ASSIST_PRICING.tiers.map((tier) => {
+              const isDirectCheckout = tier.key === "starter" || tier.key === "growth";
+              return (
+              <div
                 key={tier.key}
-                href={`/sign-up?plan=assist-${tier.key}`}
-                className={`rounded-2xl p-7 flex flex-col relative cursor-pointer transition-all hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${
+                className={`rounded-2xl p-7 flex flex-col relative transition-all hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${
                   tier.popular
                     ? "border-2 border-amber-400 bg-white shadow-sm hover:border-amber-500"
                     : "border border-stone-200 bg-[#FAFAF8] hover:border-stone-400"
@@ -248,18 +249,29 @@ export default function AssistPage() {
                     </li>
                   ))}
                 </ul>
-                <div
-                  className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
-                    tier.popular
-                      ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
-                      : "border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white"
-                  }`}
-                >
-                  Get started with {tier.label}
-                  <ArrowRight size={13} strokeWidth={2.5} />
-                </div>
-              </Link>
-            ))}
+                {isDirectCheckout ? (
+                  <Link
+                    href={`/sign-up?plan=assist-${tier.key}`}
+                    className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
+                      tier.popular
+                        ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
+                        : "border border-stone-900 text-stone-900 hover:bg-stone-900 hover:text-white"
+                    }`}
+                  >
+                    Get started with {tier.label}
+                    <ArrowRight size={13} strokeWidth={2.5} />
+                  </Link>
+                ) : (
+                  <Link
+                    href="/contact"
+                    className="inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl border border-stone-300 text-stone-700 hover:bg-white transition-colors"
+                  >
+                    Talk to sales
+                  </Link>
+                )}
+              </div>
+            );
+            })}
           </div>
           <div className="mt-8 text-center space-y-1.5">
             <p className="text-xs text-stone-400">

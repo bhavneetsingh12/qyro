@@ -107,7 +107,7 @@ router.get("/v1/pricing", (_req: Request, res: Response) => {
       },
       lead: {
         currency: "USD",
-        comingSoon: true,
+        availableNow: true,
         tiers: LEAD_TIERS,
       },
     },

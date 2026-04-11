@@ -71,14 +71,24 @@ export default function ClientSidebar({ canSwitchToLead = false }: { canSwitchTo
 
         <div className="px-3 py-4 border-t border-[#E8E6E1]">
           {canSwitchToLead && (
-            <Link
-              href="/internal/dashboard"
-              onClick={onLinkClick}
-              className="sidebar-link"
-            >
-              <ArrowLeftRight size={16} strokeWidth={1.75} />
-              Switch to QYRO Lead
-            </Link>
+            <>
+              <Link
+                href="/products"
+                onClick={onLinkClick}
+                className="sidebar-link"
+              >
+                <ArrowLeftRight size={16} strokeWidth={1.75} />
+                Workspace Hub
+              </Link>
+              <Link
+                href="/internal/dashboard"
+                onClick={onLinkClick}
+                className="sidebar-link"
+              >
+                <ArrowLeftRight size={16} strokeWidth={1.75} />
+                Switch to QYRO Lead
+              </Link>
+            </>
           )}
           <button
             onClick={() => signOut({ redirectUrl: "/" })}
