@@ -179,7 +179,7 @@ Key tables:
 | Table | Purpose |
 |---|---|
 | `tenants` | Tenant identity, voice number, metadata, state flags |
-| `tenant_integration_secrets` | Tenant provider credentials |
+| `tenant_integration_secrets` | Tenant provider credentials, stored encrypted at the application layer |
 | `users` | Tenant users and roles |
 | `tenant_subscriptions` | Stripe-backed access state |
 | `prospects_raw` | Lead inputs |
@@ -198,7 +198,7 @@ Key tables:
 
 These are the highest-value remaining architecture tasks:
 
-1. `tenant_integration_secrets` are separated from metadata but still plaintext at rest.
+1. Backfill any legacy plaintext rows in `tenant_integration_secrets` so all stored values are encrypted at rest.
 2. Route naming is inconsistent between `/api/*` and `/api/v1/*`.
 3. Test coverage is still thin relative to platform risk.
 4. Build artifacts and generated files can drift away from `src/` and confuse review.

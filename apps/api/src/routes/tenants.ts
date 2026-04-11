@@ -7,7 +7,7 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, tenantIntegrationSecrets, tenantSubscriptions, tenants, users } from "@qyro/db";
+import { db, decryptSecret, encryptSecret, tenantIntegrationSecrets, tenantSubscriptions, tenants, users } from "@qyro/db";
 import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
 const router: ExpressRouter = Router();
@@ -20,6 +20,15 @@ function maskApiKey(value: string): string {
   if (!value) return "";
   if (value.length <= 8) return "*".repeat(value.length);
   return `${value.slice(0, 4)}${"*".repeat(value.length - 8)}${value.slice(-4)}`;
+}
+
+function readSecretValue(...candidates: Array<string | null | undefined>): string {
+  for (const candidate of candidates) {
+    const text = String(candidate ?? "").trim();
+    if (!text) continue;
+    return decryptSecret(text) ?? "";
+  }
+  return "";
 }
 
 function requireTenantManager(req: Request, res: Response): boolean {
@@ -51,12 +60,19 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
     const integrationSecrets = await db.query.tenantIntegrationSecrets.findFirst({
       where: eq(tenantIntegrationSecrets.tenantId, req.tenantId),
     });
-    const calendarApiKey = integrationSecrets?.calendarApiKey
-      ?? (meta.calendarApiKey as string)
-      ?? (meta.calendar_api_key as string)
-      ?? "";
-    const apolloApiKey = integrationSecrets?.apolloApiKey ?? (meta.apolloApiKey as string) ?? "";
-    const hunterApiKey = integrationSecrets?.hunterApiKey ?? (meta.hunterApiKey as string) ?? "";
+    const calendarApiKey = readSecretValue(
+      integrationSecrets?.calendarApiKey,
+      meta.calendarApiKey as string,
+      meta.calendar_api_key as string,
+    );
+    const apolloApiKey = readSecretValue(
+      integrationSecrets?.apolloApiKey,
+      meta.apolloApiKey as string,
+    );
+    const hunterApiKey = readSecretValue(
+      integrationSecrets?.hunterApiKey,
+      meta.hunterApiKey as string,
+    );
     const subscription = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, req.tenantId),
     });
@@ -259,13 +275,13 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
 
     const secretPatch: Record<string, string> = {};
     if (calendarApiKey !== undefined && calendarApiKey.trim().length > 0) {
-      secretPatch.calendarApiKey = calendarApiKey.trim();
+      secretPatch.calendarApiKey = encryptSecret(calendarApiKey.trim());
     }
     if (apolloApiKey !== undefined && apolloApiKey.trim().length > 0) {
-      secretPatch.apolloApiKey = apolloApiKey.trim();
+      secretPatch.apolloApiKey = encryptSecret(apolloApiKey.trim());
     }
     if (hunterApiKey !== undefined && hunterApiKey.trim().length > 0) {
-      secretPatch.hunterApiKey = hunterApiKey.trim();
+      secretPatch.hunterApiKey = encryptSecret(hunterApiKey.trim());
     }
 
     await db

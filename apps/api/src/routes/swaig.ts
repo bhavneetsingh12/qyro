@@ -20,7 +20,7 @@
 import { Router, type Request, type Response, type Router as ExpressRouter } from "express";
 import OpenAI from "openai";
 import { and, desc, eq } from "drizzle-orm";
-import { db } from "@qyro/db";
+import { db, decryptSecret } from "@qyro/db";
 import {
   appointments,
   auditLogs,
@@ -373,7 +373,13 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
     // ── Provider switch ────────────────────────────────────────────────────────
 
     if (provider === "calcom") {
-      const apiKey = String(secretRow?.calendarApiKey ?? meta.calendarApiKey ?? meta.calendar_api_key ?? process.env.CAL_API_KEY ?? "");
+      const apiKey = String(
+        decryptSecret(secretRow?.calendarApiKey)
+        ?? decryptSecret(meta.calendarApiKey as string | undefined)
+        ?? decryptSecret(meta.calendar_api_key as string | undefined)
+        ?? process.env.CAL_API_KEY
+        ?? "",
+      );
       const eventTypeId = String(meta.calendarEventTypeId ?? meta.calendar_event_type_id ?? process.env.CAL_EVENT_TYPE_ID ?? "");
 
       if (apiKey && eventTypeId) {

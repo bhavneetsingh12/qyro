@@ -23,6 +23,21 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Railway cron services are treated as the active scheduling path instead of n8n.
   - `CLAUDE.md` is trimmed to collaboration/session memory instead of acting as a second architecture spec.
 
+### pending - feat: encrypt tenant integration secrets at the application layer
+- Request summary:
+  - Encrypt `tenant_integration_secrets` values at rest while keeping reads backward-compatible with existing plaintext rows.
+- Files changed:
+  - `packages/db/src/secrets.ts`
+  - `packages/db/src/index.ts`
+  - `apps/api/src/routes/tenants.ts`
+  - `apps/api/src/routes/swaig.ts`
+  - `packages/agents/src/agents/emailEnrichment.ts`
+  - `docs/ENVIRONMENTS.md`
+- Key behavior changes:
+  - New writes to `tenant_integration_secrets` are AES-GCM encrypted using `TENANT_INTEGRATION_SECRET_KEY`.
+  - Existing plaintext rows remain readable through a compatibility path.
+  - Decryption now occurs at secret read sites rather than exposing raw stored values.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

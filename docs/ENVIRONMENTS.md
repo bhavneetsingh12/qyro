@@ -111,6 +111,15 @@ INTERNAL_TENANT_ID
 
 `WEBHOOK_SECRET` is used by cron-triggered webhook routes.
 
+## 11.5 Tenant secret encryption
+
+```text
+TENANT_INTEGRATION_SECRET_KEY
+```
+
+Used to encrypt and decrypt values stored in `tenant_integration_secrets`.
+This must be set consistently per environment once encrypted rows exist.
+
 ## 12. Web and CORS
 
 ```text
@@ -178,6 +187,6 @@ morning cron:    node apps/crons/dist/morning-digest.js
 
 Still worth doing:
 
-1. Encrypt `tenant_integration_secrets` values at rest.
+1. Backfill legacy plaintext `tenant_integration_secrets` rows after setting `TENANT_INTEGRATION_SECRET_KEY`.
 2. Add environment validation for more provider keys at startup.
 3. Add a documented secret-rotation procedure per provider.

@@ -2,7 +2,7 @@
 // This is a minimal next-step implementation for Phase 1.
 // It supports a mock fallback and provider-based flow via env vars.
 
-import { db, tenantIntegrationSecrets, tenants } from "@qyro/db";
+import { db, decryptSecret, tenantIntegrationSecrets, tenants } from "@qyro/db";
 import { eq } from "drizzle-orm";
 
 export type EmailEnrichmentResult = {
@@ -39,8 +39,8 @@ async function getTenantEnrichmentSettings(tenantId: string): Promise<Enrichment
 
   return {
     provider: provider === "apollo" || provider === "hunter" ? provider : "mock",
-    apolloApiKey: integrationSecrets?.apolloApiKey ?? (typeof meta.apolloApiKey === "string" ? meta.apolloApiKey : null),
-    hunterApiKey: integrationSecrets?.hunterApiKey ?? (typeof meta.hunterApiKey === "string" ? meta.hunterApiKey : null),
+    apolloApiKey: decryptSecret(integrationSecrets?.apolloApiKey ?? (typeof meta.apolloApiKey === "string" ? meta.apolloApiKey : null)),
+    hunterApiKey: decryptSecret(integrationSecrets?.hunterApiKey ?? (typeof meta.hunterApiKey === "string" ? meta.hunterApiKey : null)),
     monthlyLimit: Number(meta.enrichmentMonthlyLimit ?? 2500),
     monthlyUsed: Number(meta.enrichmentMonthlyUsed ?? 0),
   };
