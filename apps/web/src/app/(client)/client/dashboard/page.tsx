@@ -35,6 +35,16 @@ function getSessionTypeLabel(sessionType: string): string {
   return "Website chat";
 }
 
+const ESCALATION_REASON_LABELS: Record<string, string> = {
+  booking_callback_required: "Booking callback needed",
+  booking_fallback:          "Booking follow-up needed",
+  booking_error:             "Booking error",
+  blackout_block:            "Blocked availability",
+  customer_request:          "Customer requested agent",
+  high_risk:                 "High-risk message",
+  unrecognized_intent:       "Unrecognized intent",
+};
+
 function getSessionSubLabel(sessionType: string): string {
   if (sessionType === "missed_call_sms") return "Missed call follow-up";
   if (sessionType === "voice_inbound") return "Inbound voice";
@@ -245,7 +255,9 @@ export default async function ClientDashboardPage() {
           <ul className="divide-y divide-[#F0EEE9]">
             {escalations.map((item) => {
               const customer = item.prospectName || item.prospectPhone || "Unknown customer";
-              const reason = item.escalationReason || "escalation requested";
+              const reason = item.escalationReason
+                ? (ESCALATION_REASON_LABELS[item.escalationReason] ?? item.escalationReason.replace(/_/g, " "))
+                : "Escalation requested";
               return (
                 <li key={item.id} className="px-5 py-3 grid grid-cols-1 md:grid-cols-4 gap-2 md:gap-4 items-center">
                   <p className="text-xs text-stone-500">{formatDateTime(item.createdAt)}</p>

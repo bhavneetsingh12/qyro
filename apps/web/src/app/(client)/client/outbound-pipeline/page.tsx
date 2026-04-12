@@ -39,6 +39,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; Icon: React.
   failed:    { label: "Failed",    color: "text-red-600 bg-red-50 border-red-200",        Icon: AlertCircle },
   dnd:       { label: "DND",       color: "text-stone-500 bg-stone-100 border-stone-200", Icon: Ban },
   voicemail: { label: "Voicemail", color: "text-purple-600 bg-purple-50 border-purple-200", Icon: Voicemail },
+  canceled:  { label: "Canceled",  color: "text-stone-500 bg-stone-100 border-stone-200",  Icon: Ban },
 };
 
 const OUTCOME_LABELS: Record<string, string> = {

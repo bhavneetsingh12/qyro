@@ -376,11 +376,12 @@ Goals:
 - let humans and AI use the same system
 
 Tasks:
-1. Add manual booking UI in Assist
-2. Add blackout / vacation / closure UI
-3. Add provider/staff-level availability rules
-4. Sync manual changes to the external provider
-5. Prevent AI booking during QYRO-managed blackout periods
+1. ✅ Shared booking execution service (`packages/agents/src/bookingService.ts`)
+2. ✅ Blackout/vacation blocks — `blackout_blocks` table + API CRUD + UI tab
+3. ✅ Manual booking from QYRO — `POST /api/appointments/manual` + UI modal
+4. ✅ AI booking blocked during active blackout blocks
+5. ✅ Provider writeback — blackout blocks push busy events to Google Calendar; manual bookings write to provider if `supportsDirectBooking`; Cal.com block writeback not supported (no native API)
+6. Add provider/staff-level availability rules (future)
 
 ### Phase 4: launch hardening
 
@@ -411,10 +412,10 @@ This gives customers immediate value without pretending that every calendar inte
 
 Build in this order:
 
-1. Shared booking service
-2. Canonical voice-path decision and consolidation
-3. Google availability fix
-4. Tenant booking-mode support
-5. Manual booking + blackout controls in Assist
-6. UI wording cleanup and clearer operational states
+1. ✅ Shared booking service — `packages/agents/src/bookingService.ts`
+2. ✅ Manual booking + blackout controls in Assist — API + UI
+3. ✅ Provider writeback — manual bookings + blackout blocks sync to external calendar
+4. Canonical voice-path decision and consolidation
+5. Google availability fix
+6. UI wording cleanup and clearer operational states (ongoing)
 

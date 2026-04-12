@@ -126,6 +126,72 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Moved SWAIG `business-info` AI execution onto the shared agent runner so quota, usage logging, and model governance are consistent with the rest of Assist.
   - Cleaned up Assist UI language: "Widget" now presents as "Website Chat", several raw call outcomes are translated into business-readable text, billing CTAs are less misleading, and the products hub back-link is contextual to the active workspace.
 
+## 2026-04-12
+
+### pending - feat: shared booking execution service, manual bookings, and blackout blocks
+
+- Request summary:
+  - Eliminate the duplicate booking brains in chat and SWAIG voice by extracting a shared `executeBooking()` service.
+  - Add a `blackout_blocks` table so staff can mark periods when AI booking is blocked.
+  - Add a manual booking API endpoint and interactive Bookings UI with an availability blocks tab.
+- Files changed:
+  - `packages/db/migrations/0016_blackout_blocks.sql`
+  - `packages/db/src/schema.ts`
+  - `packages/agents/src/bookingService.ts`
+  - `packages/agents/src/index.ts`
+  - `packages/agents/package.json`
+  - `packages/agents/src/agents/clientAssistant.ts`
+  - `apps/api/src/routes/swaig.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(client)/client/bookings/page.tsx`
+  - `docs/ASSIST_OPERATIONS.md`
+- Key behavior changes:
+  - New `executeBooking()` in `packages/agents/src/bookingService.ts` is the single execution path for all channels (chat, voice_swaig, voice_turn, manual).
+  - Service resolves tenant config, checks blackout blocks, runs direct_booking / booking_link_sms / callback_only, persists appointment, returns channel-appropriate reply.
+  - Manual bookings (channel: "manual") skip the blackout check so staff can override.
+  - `swaig.ts /book-appointment` now delegates to `executeBooking()` — removed `bookCalCom()`, `sendSignalWireSms()`, and the inline provider switch block.
+  - `clientAssistant.ts` booking_intent block now delegates to `executeBooking()` after slot discovery. Also handles the "no prospect yet" case explicitly before attempting booking.
+  - New `blackout_blocks` table with tenant-scoped range index for efficient overlap queries.
+  - `appointments` table gains nullable `source` and `created_by` columns.
+  - New API routes: `POST /api/appointments/manual`, `PATCH /api/appointments/:id`, `GET/POST/DELETE /api/v1/assist/blackout-blocks`.
+  - Bookings page converted to interactive client component with Appointments tab (list + "Schedule appointment" modal) and Availability Blocks tab (form + list with delete).
+- Validation run:
+  - `pnpm -s -r typecheck`: pass (no output)
+- Priority order coverage:
+  - ✅ Priority 1 — shared booking execution service
+  - ✅ Priority 2 — manual booking UI + blackout/vacation block management
+  - ✅ Priority 3 — provider writeback (QYRO → external calendar) — see entry below
+  - ✅ Priority 4 — fallback chain explicit in service (`direct_booking` → `booking_link_sms` → `callback_only`)
+  - ❌ Priority 5 — Assist UX hardening on bookings/approvals/outbound pipeline — not started
+
+### pending - feat: provider writeback for manual bookings and blackout blocks
+
+- Request summary:
+  - Wire external calendar sync so QYRO-side changes propagate to the provider.
+  - Manual bookings should write to the provider regardless of configured `bookingMode`.
+  - Blackout blocks should push a busy event to the provider calendar on create, and remove it on delete.
+- Files changed:
+  - `packages/agents/src/calendars/types.ts`
+  - `packages/agents/src/calendars/googleCalendar.ts`
+  - `packages/db/migrations/0016_blackout_blocks.sql`
+  - `packages/db/src/schema.ts`
+  - `packages/agents/src/bookingService.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `docs/ASSIST_OPERATIONS.md`
+- Key behavior changes:
+  - `CalendarAdapter` interface gains optional `createBlock(params)` and `cancelBlock(blockId)` methods.
+  - `GoogleCalendarAdapter` implements both — `createBlock` posts an opaque busy event (no attendees, no invite), `cancelBlock` delegates to `cancelBooking`.
+  - Cal.com does not implement `createBlock`; writeback silently skips for Cal.com tenants.
+  - `blackout_blocks` table gains `provider_block_id` column to track the external event ID.
+  - `POST /api/v1/assist/blackout-blocks` calls `attemptBlackoutWriteback()` before insert; stores the returned provider event ID on the row.
+  - `DELETE /api/v1/assist/blackout-blocks/:id` calls `attemptBlackoutCancelWriteback()` if the row has a `provider_block_id`. Writeback failure is non-blocking.
+  - `executeBooking()` with `channel: "manual"` now has a dedicated path: always attempts provider write if `supportsDirectBooking`, then saves locally regardless of `bookingMode`. No SMS is sent for manual channel.
+  - Two new exports from `bookingService.ts`: `attemptBlackoutWriteback` and `attemptBlackoutCancelWriteback`.
+- Validation run:
+  - `pnpm -s -r typecheck`: pass (no output)
+- Priority order coverage:
+  - ✅ Priority 3 — provider writeback complete for Google Calendar; Cal.com block writeback deferred (no suitable API)
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

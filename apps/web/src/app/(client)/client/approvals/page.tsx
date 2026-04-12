@@ -13,6 +13,14 @@ type PendingMessage = {
   createdAt: string;
 };
 
+const CHANNEL_LABELS: Record<string, string> = {
+  chat:         "Website chat",
+  voice_swaig:  "AI voice",
+  voice_turn:   "AI voice",
+  voice_inbound: "Inbound call",
+  sms:          "SMS",
+};
+
 export default function ClientApprovalsPage() {
   const { getToken } = useAuth();
   const [rows, setRows] = useState<PendingMessage[]>([]);
@@ -72,7 +80,7 @@ export default function ClientApprovalsPage() {
             <div key={row.id} className="bg-white border border-[#E8E6E1] rounded-[12px] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs text-stone-500 uppercase tracking-wide">{row.channel}</p>
+                  <p className="text-xs text-stone-500 uppercase tracking-wide">{CHANNEL_LABELS[row.channel] ?? row.channel}</p>
                   <p className="text-sm text-stone-800 mt-1 whitespace-pre-wrap">{row.messageText || "(empty)"}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

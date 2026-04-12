@@ -53,10 +53,31 @@ export type CreateBookingParams = {
   timeZone?: string;
 };
 
+// Params for creating a calendar-side block (busy/unavailable period).
+// Not all providers support this — check `adapter.createBlock` before calling.
+export type CreateBlockParams = {
+  calendarId?: string;
+  startAt: string;
+  endAt: string;
+  label: string;
+  notes?: string;
+  timeZone?: string;
+};
+
+export type Block = {
+  id: string;
+  startAt: string;
+  endAt: string;
+};
+
 export interface CalendarAdapter {
   getAvailableSlots(params: GetAvailableSlotsParams): Promise<Slot[]>;
   getProviders(): Promise<Provider[]>;
   createBooking(params: CreateBookingParams): Promise<Booking>;
   cancelBooking(bookingId: string): Promise<void>;
   getBooking(bookingId: string): Promise<Booking>;
+  /** Create a busy/blocked event on the provider calendar. Optional — not all providers support it. */
+  createBlock?(params: CreateBlockParams): Promise<Block>;
+  /** Remove a busy/blocked event from the provider calendar. Optional. */
+  cancelBlock?(blockId: string): Promise<void>;
 }

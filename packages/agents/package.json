@@ -40,6 +40,11 @@
       "require": "./dist/assistBooking.js",
       "default": "./dist/assistBooking.js"
     },
+    "./bookingService": {
+      "types": "./src/bookingService.ts",
+      "require": "./dist/bookingService.js",
+      "default": "./dist/bookingService.js"
+    },
     "./compact": {
       "types": "./src/compact.ts",
       "require": "./dist/compact.js",

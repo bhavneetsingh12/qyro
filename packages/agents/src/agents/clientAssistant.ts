@@ -2,12 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "@qyro/db";
 import { redis } from "@qyro/queue";
-import { appointments, assistantSessions, promptVersions, tenants } from "@qyro/db";
+import { assistantSessions, promptVersions, tenants } from "@qyro/db";
 import { and, desc, eq } from "drizzle-orm";
 import { runCompletion, runStructuredCompletion, type AgentResult } from "../runner";
 import { type AgentName } from "../budget";
 import { compactHistory, shouldCompact } from "../compact";
-import { getCalendarAdapterForConfig, resolveTenantBookingConfig } from "../assistBooking";
+import { resolveTenantBookingConfig } from "../assistBooking";
+import { executeBooking } from "../bookingService";
 import { runQA } from "./qa";
 
 const AGENT: AgentName = "client_assistant";
@@ -285,79 +286,68 @@ export async function runClientAssistant(
   let escalationReason: string | undefined = escalate ? intentResult.data.reason : undefined;
 
   if (intentResult.data.intent === "booking_intent") {
-    try {
-      const bookingConfig = await resolveTenantBookingConfig({ tenant });
-      const bookingTimeZone = bookingConfig.timezone ?? process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles";
+    if (!input.prospectId) {
+      // No prospect identity yet — escalate so a team member can follow up
+      escalate = true;
+      escalationReason = "booking_no_prospect";
+      reply = "I'd be happy to help you schedule. Could you share your name and phone number so we can get you booked?";
+    } else {
+      try {
+        const bookingConfig = await resolveTenantBookingConfig({ tenant });
+        const bookingTimeZone = bookingConfig.timezone ?? process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles";
 
-      if (bookingConfig.bookingMode === "booking_link_sms" && bookingConfig.bookingUrl) {
-        reply = `You can book your appointment here: ${bookingConfig.bookingUrl}`;
-      } else if (bookingConfig.bookingMode === "callback_only" || !bookingConfig.supportsDirectBooking) {
-        escalate = true;
-        escalationReason = bookingConfig.bookingMode === "callback_only"
-          ? "booking_callback_required"
-          : "booking_unavailable";
-        reply = "I can help with your appointment request, and a team member will follow up to confirm the best time.";
-      } else {
-        const adapter = getCalendarAdapterForConfig(bookingConfig);
-        if (!adapter || !bookingConfig.supportsAvailabilityLookup) {
-          escalate = true;
-          escalationReason = "booking_availability_unavailable";
-          reply = "I can capture your appointment request, and a team member will confirm the time with you shortly.";
-        } else {
-          const startAt = new Date().toISOString();
-          const endAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-          const slots = await adapter.getAvailableSlots({ startAt, endAt, timeZone: bookingTimeZone });
+        // For direct_booking: discover an available slot first so the service
+        // can create the booking at a known time.
+        let slotStart: Date | null = null;
+        let slotEnd: Date | null = null;
 
-          if (slots.length === 0) {
-            escalate = true;
-            escalationReason = "no_available_slots";
-            reply = "I could not find an available slot right now. A team member will follow up to schedule you.";
-          } else {
-            const chosenSlot = slots[0];
-            const booking = await adapter.createBooking({
-              startAt: chosenSlot.startAt,
-              endAt: chosenSlot.endAt,
-              providerId: chosenSlot.providerId,
-              calendarId: chosenSlot.calendarId,
-              name: input.contactName ?? tenantMeta.bookingName ?? "Website Visitor",
-              email: input.contactEmail ?? tenantMeta.bookingEmail ?? "no-reply@qyro.local",
-              notes: input.contactPhone ? `Customer phone: ${input.contactPhone}` : undefined,
-              timeZone: bookingTimeZone,
-            });
-            bookingId = booking.id;
-            reply = `You are booked for ${new Date(chosenSlot.startAt).toLocaleString("en-US", { timeZone: bookingTimeZone })}. If you need to reschedule, let me know.`;
-
-            if (input.prospectId) {
-              await db.insert(appointments).values({
-                tenantId: input.tenantId,
-                prospectId: input.prospectId,
-                calBookingUid: booking.id,
-                startAt: new Date(booking.startAt || chosenSlot.startAt),
-                endAt: new Date(booking.endAt || chosenSlot.endAt),
-                status: "confirmed",
-                notes: `Booked via QYRO Assist chat (${bookingConfig.provider}).`,
-              });
+        if (bookingConfig.bookingMode === "direct_booking" && bookingConfig.supportsAvailabilityLookup) {
+          const { getCalendarAdapterForConfig } = await import("../assistBooking");
+          const adapter = getCalendarAdapterForConfig(bookingConfig);
+          if (adapter) {
+            const windowStart = new Date().toISOString();
+            const windowEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+            const slots = await adapter.getAvailableSlots({ startAt: windowStart, endAt: windowEnd, timeZone: bookingTimeZone });
+            if (slots.length > 0) {
+              slotStart = new Date(slots[0].startAt);
+              slotEnd = new Date(slots[0].endAt);
             }
           }
         }
-      }
 
-      if (input.prospectId && !bookingId && intentResult.data.intent === "booking_intent") {
-        const now = new Date();
-        await db.insert(appointments).values({
-          tenantId: input.tenantId,
-          prospectId: input.prospectId,
-          startAt: now,
-          endAt: now,
-          status: "proposed",
-          notes: `Booking request captured via QYRO Assist (${escalationReason ?? "pending_review"}).`,
-        });
+        if (bookingConfig.bookingMode === "direct_booking" && !slotStart) {
+          // No slot found or lookup not supported — fall back to callback
+          escalate = true;
+          escalationReason = "no_available_slots";
+          reply = "I could not find an available slot right now. A team member will follow up to schedule you.";
+        } else {
+          const chosenStart = slotStart ?? new Date(Date.now() + 24 * 60 * 60 * 1000);
+          const chosenEnd = slotEnd ?? new Date(chosenStart.getTime() + 60 * 60 * 1000);
+
+          const result = await executeBooking({
+            tenantId: input.tenantId,
+            prospectId: input.prospectId,
+            callerName: input.contactName ?? tenantMeta.bookingName ?? "Website Visitor",
+            callerPhone: input.contactPhone ?? "",
+            callerEmail: input.contactEmail ?? tenantMeta.bookingEmail,
+            startAt: chosenStart,
+            endAt: chosenEnd,
+            channel: "chat",
+          });
+
+          reply = result.aiResponse;
+          bookingId = result.calBookingUid ?? result.appointmentId;
+          if (result.escalate) {
+            escalate = true;
+            escalationReason = result.escalationReason;
+          }
+        }
+      } catch (err) {
+        escalate = true;
+        escalationReason = "booking_error";
+        reply = "I ran into an issue while scheduling. A team member will follow up to complete your booking.";
+        console.error("[clientAssistant] booking flow failed:", err);
       }
-    } catch (err) {
-      escalate = true;
-      escalationReason = "booking_error";
-      reply = "I ran into an issue while scheduling. A team member will follow up to complete your booking.";
-      console.error("[clientAssistant] booking flow failed:", err);
     }
   } else {
     const replyResult = await generateReply({

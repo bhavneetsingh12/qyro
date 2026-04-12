@@ -122,7 +122,7 @@ export default function ClientCallsPage() {
             <option value="">All</option>
             <option value="completed">Completed</option>
             <option value="in_progress">In progress</option>
-            <option value="no-answer">No answer</option>
+            <option value="no_answer">No answer</option>
             <option value="busy">Busy</option>
             <option value="failed">Failed</option>
             <option value="answered">Answered</option>

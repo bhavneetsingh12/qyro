@@ -13,9 +13,14 @@ import { verifyWidgetToken } from "../lib/widgetAuth";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries } from "@qyro/db";
-import { eq, and, desc, sql, inArray, or, gte } from "drizzle-orm";
+import { assistantSessions, appointments, blackoutBlocks, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries } from "@qyro/db";
+import { eq, and, desc, sql, inArray, or, gte, lte } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
+import {
+  executeBooking,
+  attemptBlackoutWriteback,
+  attemptBlackoutCancelWriteback,
+} from "@qyro/agents/bookingService";
 import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 
@@ -1380,6 +1385,316 @@ router.get("/analytics", rateLimit("general"), async (req: Request, res: Respons
         },
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/appointments/manual ──────────────────────────────────────────
+// Staff creates a manual booking from the Assist portal.
+// Requires role: owner | admin | operator.
+
+router.post("/appointments/manual", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const userId = req.userId;
+
+    if (!OUTBOUND_CONTROL_ROLES.has(req.userRole)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions" });
+      return;
+    }
+
+    const body = req.body as {
+      prospectId?: string;
+      callerName?: string;
+      callerPhone?: string;
+      callerEmail?: string;
+      service?: string;
+      startAt?: string;
+      endAt?: string;
+      notes?: string;
+    };
+
+    const callerName = String(body.callerName ?? "").trim() || "Unknown";
+    const callerPhone = normalizePhone(body.callerPhone ?? "");
+    const callerEmail = String(body.callerEmail ?? "").trim() || undefined;
+    const service = String(body.service ?? "").trim() || undefined;
+    const notes = String(body.notes ?? "").trim() || undefined;
+
+    if (!body.startAt) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "startAt is required" });
+      return;
+    }
+
+    const startAt = new Date(body.startAt);
+    if (isNaN(startAt.getTime())) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "startAt is not a valid date" });
+      return;
+    }
+
+    const endAt = body.endAt
+      ? new Date(body.endAt)
+      : new Date(startAt.getTime() + 60 * 60 * 1000);
+
+    if (isNaN(endAt.getTime()) || endAt <= startAt) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "endAt must be a valid date after startAt" });
+      return;
+    }
+
+    // Find or create prospect
+    let prospectId = String(body.prospectId ?? "").trim();
+    if (!prospectId) {
+      if (!callerPhone && !callerEmail) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "prospectId or callerPhone/callerEmail is required" });
+        return;
+      }
+      const prospect = await getOrCreateProspect({
+        tenantId,
+        name: callerName,
+        phone: callerPhone || undefined,
+        email: callerEmail,
+      });
+      prospectId = prospect.id;
+    } else {
+      // Verify the provided prospectId belongs to this tenant
+      const prospect = await db.query.prospectsRaw.findFirst({
+        where: and(eq(prospectsRaw.id, prospectId), eq(prospectsRaw.tenantId, tenantId)),
+      });
+      if (!prospect) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Prospect not found" });
+        return;
+      }
+    }
+
+    const result = await executeBooking({
+      tenantId,
+      prospectId,
+      callerName,
+      callerPhone,
+      callerEmail,
+      service,
+      startAt,
+      endAt,
+      channel: "manual",
+      notes,
+      createdBy: userId,
+    });
+
+    if (result.status === "error") {
+      res.status(500).json({ error: "BOOKING_ERROR", message: "Booking failed — check server logs" });
+      return;
+    }
+
+    logAudit({
+      req,
+      tenantId,
+      userId,
+      action: "appointments.create_manual",
+      resourceType: "appointment",
+      resourceId: result.appointmentId,
+    });
+
+    res.status(201).json({ data: { appointmentId: result.appointmentId, status: result.status } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/appointments/:id ─────────────────────────────────────────────
+// Update appointment status (confirm, cancel, complete).
+
+router.patch("/appointments/:id", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const appointmentId = req.params.id;
+    const status = String(req.body?.status ?? "").trim();
+
+    const allowed = ["confirmed", "cancelled", "completed", "no_show"];
+    if (!allowed.includes(status)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: `status must be one of: ${allowed.join(", ")}` });
+      return;
+    }
+
+    const [updated] = await db
+      .update(appointments)
+      .set({ status })
+      .where(and(eq(appointments.tenantId, tenantId), eq(appointments.id, appointmentId)))
+      .returning({ id: appointments.id, status: appointments.status });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Appointment not found" });
+      return;
+    }
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "appointments.status_update",
+      resourceType: "appointment",
+      resourceId: updated.id,
+      after: { status },
+    });
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/blackout-blocks ──────────────────────────────────────
+
+router.get("/v1/assist/blackout-blocks", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), MAX_PAGE_SIZE);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+
+    // Optional: only return upcoming/active blocks by default
+    const includeExpired = req.query.expired === "true";
+    const now = new Date();
+
+    const rows = await db
+      .select({
+        id: blackoutBlocks.id,
+        label: blackoutBlocks.label,
+        startAt: blackoutBlocks.startAt,
+        endAt: blackoutBlocks.endAt,
+        notes: blackoutBlocks.notes,
+        createdAt: blackoutBlocks.createdAt,
+      })
+      .from(blackoutBlocks)
+      .where(
+        includeExpired
+          ? eq(blackoutBlocks.tenantId, tenantId)
+          : and(eq(blackoutBlocks.tenantId, tenantId), gte(blackoutBlocks.endAt, now)),
+      )
+      .orderBy(blackoutBlocks.startAt)
+      .limit(limit)
+      .offset(offset);
+
+    res.json({ data: rows, limit, offset });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/blackout-blocks ─────────────────────────────────────
+
+router.post("/v1/assist/blackout-blocks", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const userId = req.userId;
+
+    if (!OUTBOUND_CONTROL_ROLES.has(req.userRole)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions" });
+      return;
+    }
+
+    const label = String(req.body?.label ?? "").trim();
+    const notes = String(req.body?.notes ?? "").trim() || undefined;
+
+    if (!label) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "label is required" });
+      return;
+    }
+    if (!req.body?.startAt || !req.body?.endAt) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "startAt and endAt are required" });
+      return;
+    }
+
+    const startAt = new Date(req.body.startAt as string);
+    const endAt = new Date(req.body.endAt as string);
+
+    if (isNaN(startAt.getTime()) || isNaN(endAt.getTime())) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "startAt and endAt must be valid dates" });
+      return;
+    }
+    if (endAt <= startAt) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "endAt must be after startAt" });
+      return;
+    }
+
+    // Fire writeback to external calendar (non-blocking — failure is logged, not surfaced)
+    const providerBlockId = await attemptBlackoutWriteback({
+      tenantId,
+      label,
+      startAt,
+      endAt,
+      notes,
+    }).catch(() => null);
+
+    const [block] = await db
+      .insert(blackoutBlocks)
+      .values({ tenantId, label, startAt, endAt, notes, providerBlockId, createdBy: userId })
+      .returning({
+        id: blackoutBlocks.id,
+        label: blackoutBlocks.label,
+        startAt: blackoutBlocks.startAt,
+        endAt: blackoutBlocks.endAt,
+        notes: blackoutBlocks.notes,
+        providerBlockId: blackoutBlocks.providerBlockId,
+        createdAt: blackoutBlocks.createdAt,
+      });
+
+    logAudit({
+      req,
+      tenantId,
+      userId,
+      action: "blackout_blocks.create",
+      resourceType: "blackout_block",
+      resourceId: block.id,
+      after: { label, startAt, endAt, providerBlockId },
+    });
+
+    res.status(201).json({ data: block });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── DELETE /api/v1/assist/blackout-blocks/:id ───────────────────────────────
+
+router.delete("/v1/assist/blackout-blocks/:id", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const blockId = req.params.id;
+
+    if (!OUTBOUND_CONTROL_ROLES.has(req.userRole)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions" });
+      return;
+    }
+
+    const [deleted] = await db
+      .delete(blackoutBlocks)
+      .where(and(eq(blackoutBlocks.tenantId, tenantId), eq(blackoutBlocks.id, blockId)))
+      .returning({ id: blackoutBlocks.id, providerBlockId: blackoutBlocks.providerBlockId });
+
+    if (!deleted) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Blackout block not found" });
+      return;
+    }
+
+    // Fire cancel writeback if this block was synced to an external calendar
+    if (deleted.providerBlockId) {
+      void attemptBlackoutCancelWriteback({
+        tenantId,
+        providerBlockId: deleted.providerBlockId,
+      }).catch((err) =>
+        console.warn("[assist/blackout-blocks] cancel writeback failed:", err),
+      );
+    }
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "blackout_blocks.delete",
+      resourceType: "blackout_block",
+      resourceId: deleted.id,
+    });
+
+    res.json({ data: { deleted: true } });
   } catch (err) {
     next(err);
   }

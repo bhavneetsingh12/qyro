@@ -255,9 +255,31 @@ export const appointments = pgTable("appointments", {
   startAt:        timestamp("start_at").notNull(),
   endAt:          timestamp("end_at").notNull(),
   status:         text("status").notNull().default("proposed"),
+  // "chat" | "voice_swaig" | "voice_turn" | "manual"
+  source:         text("source"),
   notes:          text("notes"),
+  createdBy:      uuid("created_by").references(() => users.id),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 });
+
+// ─── Blackout blocks ──────────────────────────────────────────────────────────
+// Staff-managed periods during which AI booking is blocked.
+// Manual bookings (channel === "manual") skip this check.
+
+export const blackoutBlocks = pgTable("blackout_blocks", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  label:           text("label").notNull(),
+  startAt:         timestamp("start_at").notNull(),
+  endAt:           timestamp("end_at").notNull(),
+  notes:           text("notes"),
+  providerBlockId: text("provider_block_id"),   // external calendar event ID for writeback
+  createdBy:       uuid("created_by").references(() => users.id),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantIdx:  index("blackout_blocks_tenant_idx").on(t.tenantId),
+  rangeIdx:   index("blackout_blocks_range_idx").on(t.tenantId, t.startAt, t.endAt),
+}));
 
 // ─── Client assistant sessions ────────────────────────────────────────────────
 

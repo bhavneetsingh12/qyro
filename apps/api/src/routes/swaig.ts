@@ -19,16 +19,14 @@
 
 import { Router, type Request, type Response, type Router as ExpressRouter } from "express";
 import { and, desc, eq } from "drizzle-orm";
-import { db, decryptSecret } from "@qyro/db";
-import { normalizeBookingMode, normalizeCalendarProvider } from "@qyro/agents/assistBooking";
+import { db } from "@qyro/db";
+import { executeBooking } from "@qyro/agents/bookingService";
 import { runCompletion } from "@qyro/agents/runner";
 import {
-  appointments,
   auditLogs,
   messageAttempts,
   promptVersions,
   prospectsRaw,
-  tenantIntegrationSecrets,
   tenants,
 } from "@qyro/db";
 import { logAudit } from "../lib/auditLog";
@@ -144,83 +142,6 @@ async function findOrCreateProspect(
   return created?.id ?? null;
 }
 
-async function sendSignalWireSms(params: {
-  from: string;
-  to: string;
-  body: string;
-}): Promise<string | null> {
-  const projectId = process.env.SIGNALWIRE_PROJECT_ID;
-  const token = process.env.SIGNALWIRE_API_TOKEN;
-  const spaceUrl = process.env.SIGNALWIRE_SPACE_URL;
-
-  if (!projectId || !token || !spaceUrl) {
-    console.error("[swaig/sms] SignalWire env vars not configured");
-    return null;
-  }
-
-  const url = `https://${spaceUrl}/api/laml/2010-04-01/Accounts/${projectId}/Messages.json`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${projectId}:${token}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ From: params.from, To: params.to, Body: params.body }).toString(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.error(`[swaig/sms] SignalWire SMS failed ${response.status}: ${text}`);
-    return null;
-  }
-
-  const data = (await response.json()) as { sid?: string };
-  return data.sid ?? null;
-}
-
-async function bookCalCom(params: {
-  apiKey: string;
-  eventTypeId: string;
-  startAt: string;
-  endAt: string;
-  name: string;
-  email: string;
-  notes?: string;
-}): Promise<{ uid: string; startAt: string; endAt: string } | null> {
-  const response = await fetch(
-    `https://api.cal.com/v1/bookings?apiKey=${encodeURIComponent(params.apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        eventTypeId: params.eventTypeId,
-        start: params.startAt,
-        responses: { name: params.name, email: params.email },
-        timeZone: process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles",
-        language: "en",
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    console.warn(`[swaig/cal] Cal.com booking failed ${response.status}`);
-    return null;
-  }
-
-  const data = (await response.json()) as {
-    uid?: string;
-    startTime?: string;
-    endTime?: string;
-  };
-
-  if (!data.uid) return null;
-  return {
-    uid: data.uid,
-    startAt: data.startTime ?? params.startAt,
-    endAt: data.endTime ?? params.endAt,
-  };
-}
 
 // ─── Route: business-info ─────────────────────────────────────────────────────
 // Expected args: { question: string }
@@ -327,7 +248,10 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
   try {
     const prospectId = await findOrCreateProspect(tenant.id, phoneNumber, callerName);
     if (!prospectId) {
-      res.json({ response: "I'm sorry, I wasn't able to save your booking. Please call back and we'll get you scheduled." } satisfies SwaigResponse);
+      res.json({
+        response:
+          "I'm sorry, I wasn't able to save your booking. Please call back and we'll get you scheduled.",
+      } satisfies SwaigResponse);
       return;
     }
 
@@ -344,135 +268,43 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
       : rawDate;
     const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
 
-    const dateStr = startAt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-    const timeStr = startAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-
-    const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
-    const provider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
-    const bookingMode = normalizeBookingMode(meta.bookingMode ?? meta.booking_mode, provider);
-    const fromPhone = tenant.voiceNumber ?? null;
-    const secretRow = await db.query.tenantIntegrationSecrets.findFirst({
-      where: eq(tenantIntegrationSecrets.tenantId, tenant.id),
+    const result = await executeBooking({
+      tenantId: tenant.id,
+      prospectId,
+      callerName,
+      callerPhone: phoneNumber,
+      service: service || undefined,
+      startAt,
+      endAt,
+      channel: "voice_swaig",
+      notes: `Caller: ${callerName} (${phoneNumber}).`,
     });
-
-    let calBookingUid: string | null = null;
-    let appointmentStatus = "pending_confirmation";
-    let aiResponse = "";
-
-    // ── Provider switch ────────────────────────────────────────────────────────
-
-    if (bookingMode === "direct_booking" && provider === "cal_com") {
-      const apiKey = String(
-        decryptSecret(secretRow?.calendarApiKey)
-        ?? decryptSecret(meta.calendarApiKey as string | undefined)
-        ?? decryptSecret(meta.calendar_api_key as string | undefined)
-        ?? process.env.CAL_API_KEY
-        ?? "",
-      );
-      const eventTypeId = String(meta.calendarEventTypeId ?? meta.calendar_event_type_id ?? process.env.CAL_EVENT_TYPE_ID ?? "");
-
-      if (apiKey && eventTypeId) {
-        const calResult = await bookCalCom({
-          apiKey,
-          eventTypeId,
-          startAt: startAt.toISOString(),
-          endAt: endAt.toISOString(),
-          name: callerName,
-          email: `${phoneNumber.replace(/\D/g, "")}@placeholder.qyro.us`,
-          notes: `Booked via voice call. Service: ${service || "not specified"}.`,
-        }).catch((err) => {
-          console.warn("[swaig/book-appointment] Cal.com failed:", err);
-          return null;
-        });
-
-        if (calResult) {
-          calBookingUid = calResult.uid;
-          appointmentStatus = "proposed";
-          aiResponse = `I've booked your ${service || "appointment"} for ${dateStr} at ${timeStr}. You'll receive a confirmation shortly. Is there anything else I can help you with?`;
-        }
-      }
-
-      // If Cal.com failed or unconfigured, fall through to SMS callback below
-      if (!aiResponse) {
-        console.warn(`[swaig/book-appointment] Cal.com not configured or failed for tenant ${tenant.id} — using SMS callback`);
-      }
-    }
-
-    if (bookingMode === "booking_link_sms" && (provider === "calendly" || provider === "acuity" || provider === "square_appointments") && !aiResponse) {
-      const bookingUrl = String(meta.calendarBookingUrl ?? meta.calendar_booking_url ?? "");
-
-      if (bookingUrl && fromPhone && phoneNumber) {
-        const smsBody = `Hi ${callerName}! Book your ${service || "appointment"} here: ${bookingUrl}\nReply STOP to opt out.`;
-        await sendSignalWireSms({ from: fromPhone, to: phoneNumber, body: smsBody }).catch((err) =>
-          console.warn("[swaig/book-appointment] booking-url SMS failed:", err),
-        );
-        appointmentStatus = "pending_confirmation";
-        aiResponse = `I've sent you a text with a link to schedule your ${service || "appointment"}. Is there anything else I can help you with?`;
-      }
-    }
-
-    // Default: SMS callback flow — works for any business regardless of calendar software
-    if (!aiResponse) {
-      const escalationPhone = tenant.escalationContactPhone;
-
-      if (fromPhone && escalationPhone) {
-        const businessSms =
-          `New appointment request: ${callerName} wants ${service || "an appointment"} on ${dateStr} at ${timeStr}. ` +
-          `Call them back at ${phoneNumber} to confirm.`;
-        await sendSignalWireSms({ from: fromPhone, to: escalationPhone, body: businessSms }).catch((err) =>
-          console.warn("[swaig/book-appointment] business SMS failed:", err),
-        );
-      }
-
-      if (fromPhone && phoneNumber) {
-        const callerSms =
-          `Hi ${callerName}! We've received your appointment request for ${service || "your service"} on ${dateStr}. ` +
-          `We'll call you back to confirm. Reply STOP to opt out.`;
-        await sendSignalWireSms({ from: fromPhone, to: phoneNumber, body: callerSms }).catch((err) =>
-          console.warn("[swaig/book-appointment] caller SMS failed:", err),
-        );
-      }
-
-      appointmentStatus = "pending_confirmation";
-      aiResponse = "I've sent your appointment request. Someone from our team will call you back to confirm. Is there anything else I can help you with?";
-    }
-
-    // ── Persist ────────────────────────────────────────────────────────────────
-
-    const [appt] = await db
-      .insert(appointments)
-      .values({
-        tenantId: tenant.id,
-        prospectId,
-        calBookingUid,
-        startAt,
-        endAt,
-        status: appointmentStatus,
-        notes: [
-          `Booked via SWAIG voice call (provider: ${provider}, mode: ${bookingMode}).`,
-          service ? `Service: ${service}.` : "",
-          `Caller: ${callerName} (${phoneNumber}).`,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      })
-      .returning({ id: appointments.id });
 
     logAudit({
       req,
       tenantId: tenant.id,
       action: "appointments.create_via_swaig",
       resourceType: "appointment",
-      resourceId: appt?.id,
+      resourceId: result.appointmentId,
     });
 
     res.json({
-      response: aiResponse,
-      action: [{ set_meta_data: { appointment_booked: true, appointment_id: appt?.id } }],
+      response: result.aiResponse,
+      action: [
+        {
+          set_meta_data: {
+            appointment_booked: result.status === "booked",
+            appointment_id: result.appointmentId,
+          },
+        },
+      ],
     } satisfies SwaigResponse);
   } catch (err) {
     console.error("[swaig/book-appointment] error:", err);
-    res.json({ response: "I'm sorry, something went wrong while booking. Please call back and we'll get you taken care of." } satisfies SwaigResponse);
+    res.json({
+      response:
+        "I'm sorry, something went wrong while booking. Please call back and we'll get you taken care of.",
+    } satisfies SwaigResponse);
   }
 });
 
