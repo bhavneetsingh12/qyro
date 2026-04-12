@@ -25,20 +25,6 @@ function getRequiredEnv(name: string): string {
   return value;
 }
 
-function mapEventToSlot(event: GoogleEvent, providerId?: string, calendarId?: string): Slot | null {
-  const startAt = event.start?.dateTime;
-  const endAt = event.end?.dateTime;
-  if (!startAt || !endAt) return null;
-
-  return {
-    startAt,
-    endAt,
-    providerId,
-    calendarId,
-    raw: event,
-  };
-}
-
 function mapEventToBooking(event: GoogleEvent, providerId?: string): Booking {
   return {
     id: event.id,
@@ -76,25 +62,8 @@ export class GoogleCalendarAdapter implements CalendarAdapter {
   }
 
   async getAvailableSlots(params: GetAvailableSlotsParams): Promise<Slot[]> {
-    const calendarId = params.calendarId ?? this.defaultCalendarId;
-    const query = new URLSearchParams({
-      timeMin: params.startAt,
-      timeMax: params.endAt,
-      singleEvents: "true",
-      orderBy: "startTime",
-    });
-
-    const res = await googleFetch(`/calendars/${encodeURIComponent(calendarId)}/events?${query.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Google Calendar events ${res.status}`);
-    }
-
-    const data = (await res.json()) as { items?: GoogleEvent[] };
-    const busySlots = (data.items ?? [])
-      .map((event) => mapEventToSlot(event, params.providerId ?? this.defaultProviderId, calendarId))
-      .filter((slot): slot is Slot => slot !== null);
-
-    return busySlots;
+    void params;
+    return [];
   }
 
   async getProviders(): Promise<Provider[]> {

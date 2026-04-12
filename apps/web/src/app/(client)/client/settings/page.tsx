@@ -32,7 +32,7 @@ export default function ClientSettingsPage() {
     approvedServices:   "",
     bookingLink:        "",
     emailFromName:      "",
-    calendarProvider:   "cal_com",
+    calendarProvider:   "callback_only",
     providersList:      "",
     autoRespond:        false,
     autoSendMissedCall: false,
@@ -63,7 +63,7 @@ export default function ClientSettingsPage() {
             approvedServices:   data.approvedServices ?? "",
             bookingLink:        data.bookingLink      ?? "",
             emailFromName:      data.emailFromName    ?? "",
-            calendarProvider:   data.calendarProvider ?? "cal_com",
+            calendarProvider:   data.calendarProvider ?? "callback_only",
             providersList:      data.providersList    ?? "",
             autoRespond:        !!data.autoRespond,
             autoSendMissedCall: !!data.autoSendMissedCall,
@@ -188,6 +188,7 @@ export default function ClientSettingsPage() {
                 value={form.calendarProvider}
                 onChange={(e) => setForm({ ...form, calendarProvider: e.target.value })}
               >
+                <option value="callback_only">Call back to confirm</option>
                 <option value="cal_com">Cal.com</option>
                 <option value="google_calendar">Google Calendar</option>
               </select>

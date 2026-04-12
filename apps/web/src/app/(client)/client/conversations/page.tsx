@@ -12,6 +12,19 @@ type Session = {
   prospectPhone: string | null;
 };
 
+function getSessionTypeLabel(sessionType: string): string {
+  if (sessionType === "missed_call_sms") return "Missed call";
+  if (sessionType === "voice_inbound") return "Inbound call";
+  if (sessionType === "voice_outbound") return "Outbound call";
+  return "Website chat";
+}
+
+function getProspectLabel(session: Session): string {
+  if (session.prospectName?.trim()) return session.prospectName;
+  if (session.prospectPhone?.trim()) return session.prospectPhone;
+  return session.sessionType === "website_widget" ? "Website visitor" : "Unknown caller";
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -90,7 +103,7 @@ export default async function ConversationsPage() {
                   {/* Prospect */}
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-stone-800 truncate">
-                      {s.prospectName ?? "Unknown"}
+                      {getProspectLabel(s)}
                     </p>
                     {s.prospectPhone && (
                       <p className="text-xs text-stone-400 mt-0.5 truncate">{s.prospectPhone}</p>
@@ -103,7 +116,7 @@ export default async function ConversationsPage() {
                       ? "bg-rose-50 text-rose-600"
                       : "bg-amber-50 text-amber-700"
                   }`}>
-                    {s.sessionType === "missed_call_sms" ? "Missed call" : "Widget"}
+                    {getSessionTypeLabel(s.sessionType)}
                   </span>
 
                   {/* Turn count */}

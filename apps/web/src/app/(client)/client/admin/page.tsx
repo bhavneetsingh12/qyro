@@ -10,7 +10,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "pr
 
 type Tab = "org" | "voice" | "ai" | "team" | "billing";
 
-type CalendarProvider = "callback_only" | "calcom" | "calendly" | "google" | "square_appointments" | "acuity";
+type CalendarProvider = "callback_only" | "cal_com" | "calendly" | "google_calendar" | "square_appointments" | "acuity";
+type BookingMode = "direct_booking" | "booking_link_sms" | "callback_only";
 
 type Settings = {
   name: string;
@@ -26,6 +27,7 @@ type Settings = {
   greetingScript: string;
   escalationPhrases: string;
   calendarProvider: CalendarProvider;
+  bookingMode: BookingMode;
   calendarApiKey: string;
   calendarBookingUrl: string;
   calendarEventTypeId: string;
@@ -146,11 +148,26 @@ function OrgTab({ settings, onChange, onSave, saving, saved, error }: {
             onChange={(e) => onChange({ calendarProvider: e.target.value as CalendarProvider, calendarApiKey: "", calendarBookingUrl: "", calendarEventTypeId: "" })}
           >
             <option value="callback_only">None — call back to confirm (default)</option>
-            <option value="calcom">Cal.com</option>
+            <option value="cal_com">Cal.com</option>
             <option value="calendly">Calendly</option>
-            <option value="google">Google Calendar</option>
+            <option value="google_calendar">Google Calendar</option>
             <option value="square_appointments">Square Appointments</option>
             <option value="acuity">Acuity Scheduling</option>
+          </select>
+        </Field>
+
+        <Field
+          label="Booking mode"
+          hint="Choose whether QYRO books instantly, sends a booking link, or captures the request for callback."
+        >
+          <select
+            className="input"
+            value={settings.bookingMode}
+            onChange={(e) => onChange({ bookingMode: e.target.value as BookingMode })}
+          >
+            <option value="direct_booking">Book instantly in calendar</option>
+            <option value="booking_link_sms">Send booking link</option>
+            <option value="callback_only">Call back to confirm</option>
           </select>
         </Field>
 
@@ -158,7 +175,7 @@ function OrgTab({ settings, onChange, onSave, saving, saved, error }: {
           <Field
             label="API key / access token"
             hint={
-              settings.calendarProvider === "calcom"
+              settings.calendarProvider === "cal_com"
                 ? "Cal.com API key from Settings → Developer → API Keys."
                 : settings.calendarProvider === "calendly"
                   ? "Calendly personal access token from app.calendly.com → Integrations → API & Webhooks."
@@ -190,7 +207,7 @@ function OrgTab({ settings, onChange, onSave, saving, saved, error }: {
           </Field>
         )}
 
-        {settings.calendarProvider === "calcom" && (
+        {settings.calendarProvider === "cal_com" && (
           <Field
             label="Event type ID"
             hint="Numeric ID from your Cal.com event type URL, e.g. 123456."
@@ -579,6 +596,7 @@ const DEFAULT_SETTINGS: Settings = {
   greetingScript: "",
   escalationPhrases: "",
   calendarProvider: "callback_only",
+  bookingMode: "callback_only",
   calendarApiKey: "",
   calendarBookingUrl: "",
   calendarEventTypeId: "",
@@ -630,6 +648,7 @@ export default function ClientAdminPage() {
             greetingScript:        String(d.greetingScript ?? ""),
             escalationPhrases:     String(d.escalationPhrases ?? ""),
             calendarProvider:      (d.calendarProvider as CalendarProvider) ?? "callback_only",
+            bookingMode:           (d.bookingMode as BookingMode) ?? "callback_only",
             calendarApiKey:        "",
             calendarBookingUrl:    String(d.calendarBookingUrl ?? ""),
             calendarEventTypeId:   String(d.calendarEventTypeId ?? ""),

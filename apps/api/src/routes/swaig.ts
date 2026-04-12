@@ -18,9 +18,10 @@
 // 3. to / call_to number looked up against tenants.voice_number
 
 import { Router, type Request, type Response, type Router as ExpressRouter } from "express";
-import OpenAI from "openai";
 import { and, desc, eq } from "drizzle-orm";
 import { db, decryptSecret } from "@qyro/db";
+import { normalizeBookingMode, normalizeCalendarProvider } from "@qyro/agents/assistBooking";
+import { runCompletion } from "@qyro/agents/runner";
 import {
   appointments,
   auditLogs,
@@ -178,18 +179,6 @@ async function sendSignalWireSms(params: {
   return data.sid ?? null;
 }
 
-// ─── Calendar provider helpers ────────────────────────────────────────────────
-
-function normalizeCalendarProvider(raw: unknown): string {
-  const s = String(raw ?? "").trim().toLowerCase().replace(/[.\s-]/g, "_");
-  if (s === "calcom" || s === "cal_com") return "calcom";
-  if (s === "google" || s === "google_calendar") return "google";
-  if (s === "calendly") return "calendly";
-  if (s === "square" || s === "square_appointments") return "square";
-  if (s === "acuity") return "acuity";
-  return "callback_only";
-}
-
 async function bookCalCom(params: {
   apiKey: string;
   eventTypeId: string;
@@ -284,18 +273,17 @@ router.post("/business-info", async (req: Request, res: Response) => {
       .filter(Boolean)
       .join("\n\n");
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: question },
-      ],
-      max_tokens: 150,
-      temperature: 0.3,
-    });
+    const completion = await runCompletion(
+      {
+        tenantId: tenant.id,
+        agentName: "client_assistant",
+        runId: str(payload.call_id) || undefined,
+      },
+      [{ role: "user", content: question }],
+      systemPrompt,
+    );
 
-    const answer = completion.choices[0]?.message?.content?.trim() ?? "";
+    const answer = completion.ok ? completion.data.trim() : "";
     res.json({
       response:
         answer ||
@@ -361,6 +349,7 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
 
     const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
     const provider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
+    const bookingMode = normalizeBookingMode(meta.bookingMode ?? meta.booking_mode, provider);
     const fromPhone = tenant.voiceNumber ?? null;
     const secretRow = await db.query.tenantIntegrationSecrets.findFirst({
       where: eq(tenantIntegrationSecrets.tenantId, tenant.id),
@@ -372,7 +361,7 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
 
     // ── Provider switch ────────────────────────────────────────────────────────
 
-    if (provider === "calcom") {
+    if (bookingMode === "direct_booking" && provider === "cal_com") {
       const apiKey = String(
         decryptSecret(secretRow?.calendarApiKey)
         ?? decryptSecret(meta.calendarApiKey as string | undefined)
@@ -409,7 +398,7 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
       }
     }
 
-    if ((provider === "calendly" || provider === "acuity") && !aiResponse) {
+    if (bookingMode === "booking_link_sms" && (provider === "calendly" || provider === "acuity" || provider === "square_appointments") && !aiResponse) {
       const bookingUrl = String(meta.calendarBookingUrl ?? meta.calendar_booking_url ?? "");
 
       if (bookingUrl && fromPhone && phoneNumber) {
@@ -460,7 +449,7 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
         endAt,
         status: appointmentStatus,
         notes: [
-          `Booked via SWAIG voice call (provider: ${provider}).`,
+          `Booked via SWAIG voice call (provider: ${provider}, mode: ${bookingMode}).`,
           service ? `Service: ${service}.` : "",
           `Caller: ${callerName} (${phoneNumber}).`,
         ]

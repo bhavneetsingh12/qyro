@@ -74,6 +74,22 @@ const DEFAULT_METRICS: MetricsState = {
   recent: [],
 };
 
+function formatOutcome(outcome: string | null): string {
+  if (!outcome) return "No outcome yet";
+  const labels: Record<string, string> = {
+    missing_prospect_phone: "Lead has no phone number",
+    missing_voice_number: "Assist voice number is not configured",
+    outside_calling_hours: "Waiting for local calling hours",
+    capacity_throttled: "Waiting for available dialing capacity",
+    paused_tenant: "Paused for this tenant",
+    paused_global: "Paused globally",
+    dial_failed_retry: "Dial failed, retry scheduled",
+    dial_failed: "Dial failed",
+    do_not_contact: "Do not contact",
+  };
+  return labels[outcome] ?? outcome.replace(/_/g, " ");
+}
+
 async function fetchWithToken<T>(url: string, token: string): Promise<T | null> {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -441,10 +457,10 @@ export default function ClientCallControlPage() {
                 {metrics.recent.map((row) => (
                   <li key={row.id} className="px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium text-stone-700">{row.status}</span>
+                      <span className="font-medium text-stone-700">{row.status.replace(/_/g, " ")}</span>
                       <span className="text-xs text-stone-400">{new Date(row.createdAt).toLocaleString()}</span>
                     </div>
-                    <p className="text-xs text-stone-500 mt-1">Outcome: {row.outcome ?? "-"}</p>
+                    <p className="text-xs text-stone-500 mt-1">Outcome: {formatOutcome(row.outcome)}</p>
                     <p className="text-xs text-stone-500">Attempts: {row.attemptCount}/{row.maxAttempts}</p>
                     <p className="text-xs text-stone-500">Next attempt: {row.nextAttemptAt ? new Date(row.nextAttemptAt).toLocaleString() : "-"}</p>
                   </li>

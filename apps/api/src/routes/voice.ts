@@ -374,11 +374,21 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
       }
     }
 
+    const prospect = session.prospectId
+      ? await db.query.prospectsRaw.findFirst({
+          where: and(eq(prospectsRaw.id, session.prospectId), eq(prospectsRaw.tenantId, session.tenantId)),
+        })
+      : null;
+
     const turn = await processTurn({
       tenantId: session.tenantId,
       sessionId: session.id,
       message: speech,
       history,
+      prospectId: prospect?.id,
+      contactName: prospect?.businessName ?? undefined,
+      contactEmail: prospect?.email ?? undefined,
+      contactPhone: prospect?.phone ?? undefined,
       runId: callSid || undefined,
     });
 

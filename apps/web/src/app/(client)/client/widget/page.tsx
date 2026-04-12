@@ -53,8 +53,8 @@ export default function WidgetPage() {
   return (
     <div className="p-8 max-w-2xl">
       <div>
-        <h1 className="text-xl font-semibold text-stone-900">Widget</h1>
-        <p className="text-sm text-stone-400 mt-0.5">Embed the QYRO Assist chat widget on your website</p>
+        <h1 className="text-xl font-semibold text-stone-900">Website Chat</h1>
+        <p className="text-sm text-stone-400 mt-0.5">Embed the QYRO Assist chat launcher on your website</p>
       </div>
 
       {loading ? (
@@ -120,7 +120,7 @@ export default function WidgetPage() {
           <div className="bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] p-6 space-y-4">
             <p className="text-sm font-semibold text-stone-800">Preview</p>
             <p className="text-xs text-stone-400">
-              This is how the widget button will appear in the corner of your website.
+              This is how the website chat launcher will appear in the corner of your website.
             </p>
 
             {/* Simulated widget button */}

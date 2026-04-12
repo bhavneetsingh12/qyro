@@ -33,7 +33,7 @@ const navItems = [
   { href: "/client/dashboard/analytics",label: "Analytics",          icon: BarChart3 },
   { href: "/client/outbound-pipeline",  label: "Outbound Pipeline",  icon: GitMerge },
   { href: "/client/approvals",          label: "Approvals",          icon: CheckSquare },
-  { href: "/client/widget",             label: "Widget",             icon: Code2 },
+  { href: "/client/widget",             label: "Website Chat",       icon: Code2 },
   { href: "/client/admin",             label: "Admin",              icon: ShieldCheck },
   { href: "/client/settings",           label: "Settings",           icon: Settings },
 ];

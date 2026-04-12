@@ -83,6 +83,49 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Lead workspace batch actions now show `Send to Assist Calls` only when Assist is active.
   - Lead-only tenants now see an `Unlock Assist for Calls` CTA that routes to the product hub upgrade path.
 
+### pending - docs: define Assist operations plan and calendar control strategy
+- Request summary:
+  - Create one canonical plan for how Assist chat, voice, booking, and calendar control should operate, including how QYRO should become the booking control plane while syncing to third-party calendar providers.
+- Files changed:
+  - `docs/ASSIST_OPERATIONS.md`
+  - `docs/ARCHITECTURE.md`
+- Key behavior changes:
+  - Added a canonical Assist operations document covering current runtime truth, known gaps, booking modes, calendar control strategy, and phased implementation order.
+  - Recorded the intended model where QYRO owns booking policy while external providers remain the calendar sync target and event system of record.
+  - Added an architecture rule that chat, voice, and booking should converge on shared orchestration services rather than separate channel-specific logic.
+
+### pending - feat: lay down shared Assist booking controls and clean up misleading Assist UX
+- Request summary:
+  - Start implementing the Assist operations plan by normalizing booking/calendar behavior, exposing booking mode in tenant settings, and cleaning up misleading Assist labels and copy.
+- Files changed:
+  - `packages/agents/src/assistBooking.ts`
+  - `packages/agents/src/agents/clientAssistant.ts`
+  - `packages/agents/src/agents/voiceAssistant.ts`
+  - `packages/agents/src/calendars/googleCalendar.ts`
+  - `packages/agents/src/index.ts`
+  - `packages/agents/package.json`
+  - `apps/api/src/routes/assist.ts`
+  - `apps/api/src/routes/swaig.ts`
+  - `apps/api/src/routes/tenants.ts`
+  - `apps/api/src/routes/voice.ts`
+  - `apps/web/src/app/(client)/client/admin/page.tsx`
+  - `apps/web/src/app/(client)/client/settings/page.tsx`
+  - `apps/web/src/app/(client)/client/conversations/page.tsx`
+  - `apps/web/src/app/(client)/client/dashboard/page.tsx`
+  - `apps/web/src/app/(client)/client/calls/page.tsx`
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+  - `apps/web/src/app/(client)/client/widget/page.tsx`
+  - `apps/web/src/components/sidebar/ClientSidebar.tsx`
+  - `apps/web/src/components/billing/BillingActions.tsx`
+  - `apps/web/src/app/products/page.tsx`
+- Key behavior changes:
+  - Added a shared Assist booking configuration resolver with normalized provider and booking-mode handling.
+  - Exposed booking mode through tenant settings so calendar behavior can be explicitly controlled per tenant.
+  - Updated chat and voice assistant flows to use the shared booking configuration and to fail closed into callback/escalation when direct booking is not safely available.
+  - Prevented unsafe Google availability auto-booking by failing closed instead of treating busy events as open slots.
+  - Moved SWAIG `business-info` AI execution onto the shared agent runner so quota, usage logging, and model governance are consistent with the rest of Assist.
+  - Cleaned up Assist UI language: "Widget" now presents as "Website Chat", several raw call outcomes are translated into business-readable text, billing CTAs are less misleading, and the products hub back-link is contextual to the active workspace.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

@@ -35,6 +35,11 @@
       "require": "./dist/agents/voiceAssistant.js",
       "default": "./dist/agents/voiceAssistant.js"
     },
+    "./assistBooking": {
+      "types": "./src/assistBooking.ts",
+      "require": "./dist/assistBooking.js",
+      "default": "./dist/assistBooking.js"
+    },
     "./compact": {
       "types": "./src/compact.ts",
       "require": "./dist/compact.js",

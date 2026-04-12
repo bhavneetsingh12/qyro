@@ -8,6 +8,7 @@
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, decryptSecret, encryptSecret, tenantIntegrationSecrets, tenantSubscriptions, tenants, users } from "@qyro/db";
+import { normalizeBookingMode, normalizeCalendarProvider } from "@qyro/agents/assistBooking";
 import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { getWidgetTokenVersion, issueWidgetToken } from "../lib/widgetAuth";
 
@@ -101,6 +102,8 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       ?? (meta.voiceNumber as string)
       ?? (meta.voice_number as string)
       ?? "";
+    const calendarProvider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
+    const bookingMode = normalizeBookingMode(meta.bookingMode ?? meta.booking_mode, calendarProvider);
     let widgetToken: { token: string; expiresAt: string; version: number } | null = null;
     try {
       widgetToken = issueWidgetToken({
@@ -117,7 +120,8 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       approvedServices: (meta.approvedServices as string) ?? "",
       bookingLink:      (meta.bookingLink as string) ?? "",
       emailFromName:    (meta.emailFromName as string) ?? "",
-      calendarProvider:    (meta.calendarProvider as string) ?? "callback_only",
+      calendarProvider,
+      bookingMode,
       hasCalendarApiKey:   !!calendarApiKey,
       calendarBookingUrl:  (meta.calendarBookingUrl as string) ?? "",
       calendarEventTypeId: (meta.calendarEventTypeId as string) ?? "",
@@ -178,6 +182,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       bookingLink,
       emailFromName,
       calendarProvider,
+      bookingMode,
       calendarApiKey,
       calendarBookingUrl,
       calendarEventTypeId,
@@ -206,6 +211,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       bookingLink?:      string;
       emailFromName?:    string;
       calendarProvider?: "cal_com" | "google_calendar" | "calendly" | "square_appointments" | "acuity" | "callback_only";
+      bookingMode?: "direct_booking" | "booking_link_sms" | "callback_only";
       calendarApiKey?: string;
       calendarBookingUrl?: string;
       calendarEventTypeId?: string;
@@ -240,13 +246,26 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
     }
 
     const existingMeta = (existing.metadata as Record<string, unknown>) ?? {};
+    const normalizedCalendarProvider = calendarProvider !== undefined
+      ? normalizeCalendarProvider(calendarProvider)
+      : normalizeCalendarProvider(existingMeta.calendarProvider ?? existingMeta.calendar_provider);
+    const normalizedBookingMode = bookingMode !== undefined
+      ? normalizeBookingMode(bookingMode, normalizedCalendarProvider)
+      : normalizeBookingMode(existingMeta.bookingMode ?? existingMeta.booking_mode, normalizedCalendarProvider);
 
     const updatedMeta: Record<string, unknown> = {
       ...existingMeta,
       ...(approvedServices !== undefined && { approvedServices }),
       ...(bookingLink      !== undefined && { bookingLink }),
       ...(emailFromName    !== undefined && { emailFromName }),
-      ...(calendarProvider    !== undefined && { calendarProvider }),
+      ...(calendarProvider    !== undefined && {
+        calendarProvider: normalizedCalendarProvider,
+        calendar_provider: normalizedCalendarProvider,
+      }),
+      ...(bookingMode        !== undefined && {
+        bookingMode: normalizedBookingMode,
+        booking_mode: normalizedBookingMode,
+      }),
       ...(calendarBookingUrl  !== undefined && { calendarBookingUrl }),
       ...(calendarEventTypeId !== undefined && { calendarEventTypeId }),
       ...(providersList       !== undefined && { providersList }),

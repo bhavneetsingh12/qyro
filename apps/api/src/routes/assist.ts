@@ -1059,6 +1059,10 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       message,
       history,
       sessionType: "website_widget",
+      prospectId: prospect.id,
+      contactName: contact.name,
+      contactEmail: contact.email,
+      contactPhone: contact.phone,
       runId: req.body?.runId ? String(req.body.runId) : undefined,
     });
 

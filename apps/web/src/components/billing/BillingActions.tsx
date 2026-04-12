@@ -95,7 +95,7 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
             disabled={loadingAction !== null}
             className="text-xs font-medium px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 disabled:opacity-60"
           >
-            {loadingAction === "lead" ? "Opening checkout..." : "Unlock QYRO Lead"}
+            {loadingAction === "lead" ? "Opening checkout..." : "Add QYRO Lead"}
           </button>
         )}
 
@@ -106,7 +106,7 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
             disabled={loadingAction !== null}
             className="text-xs font-medium px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 disabled:opacity-60"
           >
-            {loadingAction === "assist" ? "Opening checkout..." : "Unlock QYRO Assist"}
+            {loadingAction === "assist" ? "Opening checkout..." : "Add QYRO Assist"}
           </button>
         )}
 
@@ -117,7 +117,7 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
             disabled={loadingAction !== null}
             className="text-xs font-medium px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-60"
           >
-            {loadingAction === "bundle" ? "Opening checkout..." : "Unlock Both (Bundle)"}
+            {loadingAction === "bundle" ? "Opening checkout..." : "Add Both Products"}
           </button>
         ) : null}
 

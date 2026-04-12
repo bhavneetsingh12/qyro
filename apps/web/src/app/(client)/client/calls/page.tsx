@@ -30,7 +30,14 @@ function formatOutcomeLabel(outcome: string | null): string {
   if (!outcome) return "-";
   if (outcome === "missing_prospect_phone") return "lead missing phone";
   if (outcome === "missing_voice_number") return "assist voice number missing";
-  return outcome;
+  if (outcome === "missing_phone") return "phone configuration incomplete";
+  if (outcome === "outside_calling_hours") return "scheduled for local calling hours";
+  if (outcome === "capacity_throttled") return "waiting for outbound capacity";
+  if (outcome === "do_not_contact") return "do not contact";
+  if (outcome === "dial_failed_retry") return "dial failed, retry scheduled";
+  if (outcome === "dial_failed") return "dial failed";
+  if (outcome === "no_answer") return "no answer";
+  return outcome.replace(/_/g, " ");
 }
 
 function normalizeTurns(row: CallRow): Array<{ role: string; content: string; ts?: string }> {
@@ -113,14 +120,14 @@ export default function ClientCallsPage() {
             className="input"
           >
             <option value="">All</option>
-            <option value="completed">completed</option>
-            <option value="in_progress">in_progress</option>
-            <option value="no-answer">no-answer</option>
-            <option value="busy">busy</option>
-            <option value="failed">failed</option>
-            <option value="answered">answered</option>
-            <option value="missing_prospect_phone">missing_prospect_phone</option>
-            <option value="missing_voice_number">missing_voice_number</option>
+            <option value="completed">Completed</option>
+            <option value="in_progress">In progress</option>
+            <option value="no-answer">No answer</option>
+            <option value="busy">Busy</option>
+            <option value="failed">Failed</option>
+            <option value="answered">Answered</option>
+            <option value="missing_prospect_phone">Lead missing phone</option>
+            <option value="missing_voice_number">Assist voice number missing</option>
           </select>
         </div>
       </div>
@@ -150,7 +157,7 @@ export default function ClientCallsPage() {
                   <Fragment key={row.id}>
                     <tr className="border-t border-[#F0EFEA]">
                       <td className="px-4 py-3 text-stone-700">{new Date(row.createdAt).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-stone-700">{row.prospectName || "Unknown"}</td>
+                      <td className="px-4 py-3 text-stone-700">{row.prospectName || "Unknown customer"}</td>
                       <td className="px-4 py-3 text-stone-700">{formatOutcomeLabel(row.outcome)}</td>
                       <td className="px-4 py-3 text-stone-700">{formatDuration(row.durationSeconds ?? row.duration)}</td>
                       <td className="px-4 py-3">

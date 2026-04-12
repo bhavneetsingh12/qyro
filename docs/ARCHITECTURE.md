@@ -161,6 +161,8 @@ This path handles:
 
 Retell is not active, not routed, and should not be documented as current runtime.
 
+Operational guidance for how chat, voice, booking, and calendar control are intended to converge lives in `docs/ASSIST_OPERATIONS.md`.
+
 ## 7. Scheduling and Automation
 
 Scheduled operations are code-first and run via Railway cron services:
@@ -210,3 +212,4 @@ These are the highest-value remaining architecture tasks:
 3. New tenant-scoped features must use the tenant middleware and the shared DB client.
 4. New LLM calls must go through `packages/agents/src/runner.ts`.
 5. New scheduled behavior should use code-first cron services, not n8n.
+6. Chat, voice, and booking flows should converge on shared orchestration services rather than separate channel-specific logic.

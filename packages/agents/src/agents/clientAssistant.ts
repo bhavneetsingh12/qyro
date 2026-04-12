@@ -2,12 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "@qyro/db";
 import { redis } from "@qyro/queue";
-import { assistantSessions, promptVersions, tenants } from "@qyro/db";
+import { appointments, assistantSessions, promptVersions, tenants } from "@qyro/db";
 import { and, desc, eq } from "drizzle-orm";
 import { runCompletion, runStructuredCompletion, type AgentResult } from "../runner";
 import { type AgentName } from "../budget";
 import { compactHistory, shouldCompact } from "../compact";
-import { getCalendarAdapter } from "../calendars";
+import { getCalendarAdapterForConfig, resolveTenantBookingConfig } from "../assistBooking";
 import { runQA } from "./qa";
 
 const AGENT: AgentName = "client_assistant";
@@ -27,6 +27,10 @@ export type ClientAssistantInput = {
   message: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   sessionType?: "website_widget" | "missed_call_sms";
+  prospectId?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
   runId?: string;
 };
 
@@ -282,28 +286,72 @@ export async function runClientAssistant(
 
   if (intentResult.data.intent === "booking_intent") {
     try {
-      const adapter = getCalendarAdapter({ metadata: { calendar_provider: tenantMeta.calendar_provider } });
-      const startAt = new Date().toISOString();
-      const endAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-      const slots = await adapter.getAvailableSlots({ startAt, endAt, timeZone: process.env.DEFAULT_TIMEZONE });
+      const bookingConfig = await resolveTenantBookingConfig({ tenant });
+      const bookingTimeZone = bookingConfig.timezone ?? process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles";
 
-      if (slots.length === 0) {
+      if (bookingConfig.bookingMode === "booking_link_sms" && bookingConfig.bookingUrl) {
+        reply = `You can book your appointment here: ${bookingConfig.bookingUrl}`;
+      } else if (bookingConfig.bookingMode === "callback_only" || !bookingConfig.supportsDirectBooking) {
         escalate = true;
-        escalationReason = "no_available_slots";
-        reply = "I could not find an available slot right now. I can have a team member follow up to schedule you.";
+        escalationReason = bookingConfig.bookingMode === "callback_only"
+          ? "booking_callback_required"
+          : "booking_unavailable";
+        reply = "I can help with your appointment request, and a team member will follow up to confirm the best time.";
       } else {
-        const chosenSlot = slots[0];
-        const booking = await adapter.createBooking({
-          startAt: chosenSlot.startAt,
-          endAt: chosenSlot.endAt,
-          providerId: chosenSlot.providerId,
-          calendarId: chosenSlot.calendarId,
-          name: tenantMeta.bookingName ?? "Website Visitor",
-          email: tenantMeta.bookingEmail ?? "no-reply@qyro.local",
-          timeZone: process.env.DEFAULT_TIMEZONE,
+        const adapter = getCalendarAdapterForConfig(bookingConfig);
+        if (!adapter || !bookingConfig.supportsAvailabilityLookup) {
+          escalate = true;
+          escalationReason = "booking_availability_unavailable";
+          reply = "I can capture your appointment request, and a team member will confirm the time with you shortly.";
+        } else {
+          const startAt = new Date().toISOString();
+          const endAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+          const slots = await adapter.getAvailableSlots({ startAt, endAt, timeZone: bookingTimeZone });
+
+          if (slots.length === 0) {
+            escalate = true;
+            escalationReason = "no_available_slots";
+            reply = "I could not find an available slot right now. A team member will follow up to schedule you.";
+          } else {
+            const chosenSlot = slots[0];
+            const booking = await adapter.createBooking({
+              startAt: chosenSlot.startAt,
+              endAt: chosenSlot.endAt,
+              providerId: chosenSlot.providerId,
+              calendarId: chosenSlot.calendarId,
+              name: input.contactName ?? tenantMeta.bookingName ?? "Website Visitor",
+              email: input.contactEmail ?? tenantMeta.bookingEmail ?? "no-reply@qyro.local",
+              notes: input.contactPhone ? `Customer phone: ${input.contactPhone}` : undefined,
+              timeZone: bookingTimeZone,
+            });
+            bookingId = booking.id;
+            reply = `You are booked for ${new Date(chosenSlot.startAt).toLocaleString("en-US", { timeZone: bookingTimeZone })}. If you need to reschedule, let me know.`;
+
+            if (input.prospectId) {
+              await db.insert(appointments).values({
+                tenantId: input.tenantId,
+                prospectId: input.prospectId,
+                calBookingUid: booking.id,
+                startAt: new Date(booking.startAt || chosenSlot.startAt),
+                endAt: new Date(booking.endAt || chosenSlot.endAt),
+                status: "confirmed",
+                notes: `Booked via QYRO Assist chat (${bookingConfig.provider}).`,
+              });
+            }
+          }
+        }
+      }
+
+      if (input.prospectId && !bookingId && intentResult.data.intent === "booking_intent") {
+        const now = new Date();
+        await db.insert(appointments).values({
+          tenantId: input.tenantId,
+          prospectId: input.prospectId,
+          startAt: now,
+          endAt: now,
+          status: "proposed",
+          notes: `Booking request captured via QYRO Assist (${escalationReason ?? "pending_review"}).`,
         });
-        bookingId = booking.id;
-        reply = `You are booked for ${new Date(chosenSlot.startAt).toLocaleString("en-US", { timeZone: process.env.DEFAULT_TIMEZONE ?? "America/Los_Angeles" })}. If you need to reschedule, let me know.`;
       }
     } catch (err) {
       escalate = true;

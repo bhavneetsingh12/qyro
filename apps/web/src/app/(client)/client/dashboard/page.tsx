@@ -28,6 +28,20 @@ type Escalation = {
   prospectPhone: string | null;
 };
 
+function getSessionTypeLabel(sessionType: string): string {
+  if (sessionType === "missed_call_sms") return "Missed call";
+  if (sessionType === "voice_inbound") return "Inbound call";
+  if (sessionType === "voice_outbound") return "Outbound call";
+  return "Website chat";
+}
+
+function getSessionSubLabel(sessionType: string): string {
+  if (sessionType === "missed_call_sms") return "Missed call follow-up";
+  if (sessionType === "voice_inbound") return "Inbound voice";
+  if (sessionType === "voice_outbound") return "Outbound voice";
+  return "Website chat";
+}
+
 async function apiFetch<T>(path: string, token: string | null): Promise<{ data: T | null; error: boolean }> {
   if (!token) return { data: null, error: false };
   try {
@@ -89,7 +103,7 @@ export default async function ClientDashboardPage() {
     (s) => s.sessionType === "missed_call_sms" && new Date(s.createdAt).toDateString() === today
   ).length;
 
-  const faqResponses = sessions.filter(
+  const websiteChats = sessions.filter(
     (s) => s.sessionType === "website_widget" && new Date(s.createdAt).toDateString() === today
   ).length;
 
@@ -119,9 +133,9 @@ export default async function ClientDashboardPage() {
       bg: "bg-rose-50",
     },
     {
-      label: "FAQ responses today",
-      value: faqResponses,
-      sub: "website widget",
+      label: "Website chats today",
+      value: websiteChats,
+      sub: "from website chat",
       icon: Zap,
       accent: "text-violet-500",
       bg: "bg-violet-50",
@@ -186,7 +200,7 @@ export default async function ClientDashboardPage() {
                       ? "bg-rose-50 text-rose-600"
                       : "bg-amber-50 text-amber-700"
                   }`}>
-                    {s.sessionType === "missed_call_sms" ? "Missed call" : "Widget"}
+                    {getSessionTypeLabel(s.sessionType)}
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-stone-800 truncate">
@@ -194,12 +208,12 @@ export default async function ClientDashboardPage() {
                         href="/client/conversations"
                         className="hover:text-amber-700 transition-colors"
                       >
-                        {s.prospectName ?? s.prospectPhone ?? "Unknown customer"}
+                        {s.prospectName ?? s.prospectPhone ?? (s.sessionType === "website_widget" ? "Website visitor" : "Unknown customer")}
                       </Link>
                     </p>
                     <div className="mt-1 flex items-center gap-2">
                       <span className="text-xs text-stone-400">
-                        {s.sessionType === "missed_call_sms" ? "Missed call flow" : "Website widget"}
+                        {getSessionSubLabel(s.sessionType)}
                       </span>
                       {s.escalated && (
                         <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 shrink-0">

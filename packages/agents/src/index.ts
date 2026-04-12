@@ -8,3 +8,4 @@ export * from "./agents/booking";
 export * from "./agents/qa";
 export * from "./agents/clientAssistant";
 export * from "./agents/voiceAssistant";
+export * from "./assistBooking";

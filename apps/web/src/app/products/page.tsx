@@ -54,6 +54,12 @@ export default async function ProductsPage({
   const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
   const leadHref = productAccess.lead ? "/internal/dashboard" : "/lead";
   const assistHref = productAccess.assist ? "/client/dashboard" : "/assist";
+  const backHref = preferredWorkspace ?? "/";
+  const backLabel = preferredWorkspace === "/client/dashboard"
+    ? "Back to Assist"
+    : preferredWorkspace === "/internal/dashboard"
+      ? "Back to Lead"
+      : "Back to qyro.us";
 
   return (
     <main className="min-h-screen bg-[#F7F6F2] px-4 py-10 sm:px-6">
@@ -67,10 +73,10 @@ export default async function ProductsPage({
             </p>
           </div>
           <Link
-            href="/"
+            href={backHref}
             className="text-xs font-medium text-stone-500 transition-colors hover:text-stone-900"
           >
-            Back to qyro.us
+            {backLabel}
           </Link>
         </div>
 
