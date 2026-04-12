@@ -302,7 +302,7 @@ export async function runClientAssistant(
         let slotEnd: Date | null = null;
 
         if (bookingConfig.bookingMode === "direct_booking" && bookingConfig.supportsAvailabilityLookup) {
-          const { getCalendarAdapterForConfig } = await import("../assistBooking");
+          const { getCalendarAdapterForConfig } = await import("../assistBooking.js");
           const adapter = getCalendarAdapterForConfig(bookingConfig);
           if (adapter) {
             const windowStart = new Date().toISOString();
