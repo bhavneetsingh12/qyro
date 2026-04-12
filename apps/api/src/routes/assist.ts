@@ -177,6 +177,7 @@ async function getOrCreateProspect(params: {
       businessName: params.name || "Website Visitor",
       phone,
       email,
+      prospectTimezone: null,
       consentState: "unknown",
     })
     .returning();

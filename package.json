@@ -14,6 +14,7 @@
     "db:migrate": "pnpm --filter @qyro/db migrate",
     "db:studio": "pnpm --filter @qyro/db studio",
     "backfill:tenant-secrets": "tsx scripts/backfill-tenant-secrets.ts",
+    "backfill:prospect-timezones": "tsx scripts/backfill-prospect-timezones.ts",
     "migrate": "tsx infra/migrate.ts",
     "test:e2e": "tsx scripts/test-e2e.ts",
     "worker:reply-triage": "pnpm --filter @qyro/workers run worker:reply-triage",

@@ -12,7 +12,7 @@
 //   PATCH  /api/leads/messages/:messageId   — approve or revert a pending draft
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
-import { db } from "@qyro/db";
+import { db, inferProspectTimezone } from "@qyro/db";
 import { prospectsRaw, prospectsEnriched, messageAttempts, tenants } from "@qyro/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
@@ -55,6 +55,7 @@ router.get("/", rateLimit("heavy"), async (req: Request, res: Response, next: Ne
         domain:       prospectsRaw.domain,
         phone:        prospectsRaw.phone,
         email:        prospectsRaw.email,
+        prospectTimezone: prospectsRaw.prospectTimezone,
         source:       prospectsRaw.source,
         sourceType:   prospectsRaw.sourceType,
         consentState: prospectsRaw.consentState,
@@ -114,6 +115,7 @@ router.get("/export", rateLimit("export"), async (req: Request, res: Response, n
         domain:       prospectsRaw.domain,
         phone:        prospectsRaw.phone,
         email:        prospectsRaw.email,
+        prospectTimezone: prospectsRaw.prospectTimezone,
         source:       prospectsRaw.source,
         consentState: prospectsRaw.consentState,
         createdAt:    prospectsRaw.createdAt,
@@ -304,6 +306,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         phone:        phone?.trim()    || null,
         email:        email?.trim()    || null,
         address:      address?.trim()  || null,
+        prospectTimezone: inferProspectTimezone(address?.trim() || null),
         niche:        niche?.trim()    || null,
         consentState: "unknown",
       })

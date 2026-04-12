@@ -326,12 +326,28 @@ Purpose: running log of all changes made in this workspace session series so fol
 - `packages/queue/src/workers/outboundCallWorker.ts`
   - Outbound calling-hours enforcement now prefers a best-effort prospect timezone inferred from lead address before falling back to the tenant timezone.
   - Audit logs for outside-calling-hours skips now record the effective timezone, the timezone source, and the stored prospect address.
+- `packages/db/src/schema.ts`
+  - Added persisted `prospect_timezone` storage on raw prospects so dialing does not have to infer from address every time.
+- `packages/db/src/prospectTimezone.ts`
+  - Added a shared prospect timezone inference helper so ingest, API, and outbound calling use the same logic.
+- `packages/db/migrations/0015_prospect_timezone.sql`
+  - Added migration to create the new `prospect_timezone` column.
+- `packages/agents/src/agents/leadDiscovery.ts`
+  - Newly discovered leads now persist an inferred prospect timezone at insert time.
 - `apps/api/src/routes/assist.ts`
   - Local hardening still restricts Lead -> Assist outbound enqueue so it requires both Lead and Assist access.
+- `apps/api/src/routes/leads.ts`
+  - Lead list responses now include `prospectTimezone`, and manual lead creation now stores an inferred timezone when address is provided.
 - `apps/web/src/app/(internal)/internal/leads/page.tsx`
-  - Local Lead workspace changes now expose the Assist handoff when Assist is active and show an upgrade path when it is not.
+  - Local Lead workspace changes now expose the Assist handoff when Assist is active, show an upgrade path when it is not, and surface each lead's current dialing timezone state.
+- `apps/web/src/app/(internal)/internal/leads/[id]/page.tsx`
+  - Lead detail now shows the stored address and prospect timezone.
 - `apps/web/src/app/products/page.tsx`
   - Local product cards now send users without access to the public product details page instead of a protected dashboard.
+- `scripts/backfill-prospect-timezones.ts`
+  - Added a dry-run/apply backfill script for existing leads that do not yet have `prospect_timezone` populated.
+- `package.json`
+  - Added `pnpm backfill:prospect-timezones`.
 - Validation run:
   - pending after current edit set
 - Commit hash:

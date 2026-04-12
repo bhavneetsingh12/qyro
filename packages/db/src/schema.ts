@@ -100,6 +100,7 @@ export const prospectsRaw = pgTable("prospects_raw", {
   phone:          text("phone"),
   email:          text("email"),
   address:        text("address"),
+  prospectTimezone: text("prospect_timezone"),
   niche:          text("niche"),
   consentState:   text("consent_state").notNull().default("unknown"),
   researchSkipped: boolean("research_skipped").notNull().default(false),

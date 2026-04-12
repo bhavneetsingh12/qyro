@@ -15,6 +15,7 @@ type Lead = {
   domain: string | null;
   phone: string | null;
   email: string | null;  // Added email field
+  prospectTimezone: string | null;
   source: string;
   sourceType: string;
   consentState: string;
@@ -328,11 +329,16 @@ export default async function LeadsPage({
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {lead.phone ? (
-                        <span className="text-stone-500 font-mono text-xs tabular-nums">{lead.phone}</span>
-                      ) : (
-                        <span className="text-stone-300">—</span>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {lead.phone ? (
+                          <span className="text-stone-500 font-mono text-xs tabular-nums">{lead.phone}</span>
+                        ) : (
+                          <span className="text-stone-300">—</span>
+                        )}
+                        <span className="text-[11px] text-stone-400">
+                          {lead.prospectTimezone ?? "Timezone pending"}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 max-w-[210px]">
                       {lead.email ? (

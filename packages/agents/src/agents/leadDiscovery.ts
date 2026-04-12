@@ -5,7 +5,7 @@
 // Sources:  Google Places API (primary), Google Places API (enrichment)
 // Model:    cheap (gpt-4o-mini) — used only to parse niche/location into API query params
 
-import { db, prospectsRaw, tenants, doNotContact, auditLogs } from "@qyro/db";
+import { db, prospectsRaw, tenants, doNotContact, auditLogs, inferProspectTimezone } from "@qyro/db";
 import { eq, and, or, isNotNull } from "drizzle-orm";
 import { researchQueue, publishRealtimeEvent } from "@qyro/queue";
 import { runStructuredCompletion, type AgentResult } from "../runner";
@@ -383,6 +383,7 @@ type RawLeadInsert = {
   phone:        string | null;
   email:        string | null;  // Added email field
   address:      string | null;
+  prospectTimezone: string | null;
   niche:        string;
 };
 
@@ -411,6 +412,7 @@ async function insertRawLeads(leads: RawLeadInsert[]): Promise<InsertedLead[]> {
         phone:        l.phone,
         email:        l.email,  // Added email field
         address:      l.address,
+        prospectTimezone: l.prospectTimezone,
         niche:        l.niche,
         consentState: "unknown" as const,  // NEVER anything else on ingestion
         researchSkipped: false,
@@ -607,6 +609,7 @@ export async function runLeadDiscovery(
       phone:        c.phone,
       email:        c.email,  // Added email field
       address:      c.address,
+      prospectTimezone: inferProspectTimezone(c.address),
       niche,
     });
   }

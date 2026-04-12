@@ -16,6 +16,7 @@ type ProspectRaw = {
   phone: string | null;
   email: string | null;
   address: string | null;
+  prospectTimezone: string | null;
   niche: string | null;
   source: string;
   consentState: string;
@@ -170,6 +171,8 @@ export default async function LeadDetailPage({
           { label: "Source", value: lead.source },
           { label: "Phone",  value: lead.phone  ?? "—" },
           { label: "Email",  value: lead.email  ?? "—" },
+          { label: "Timezone", value: lead.prospectTimezone ?? "Pending inference" },
+          { label: "Address", value: lead.address ?? "—" },
         ].map(({ label, value }) => (
           <div
             key={label}
