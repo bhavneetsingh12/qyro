@@ -33,6 +33,33 @@ import { logAudit } from "../lib/auditLog";
 
 const router: ExpressRouter = Router();
 
+// ─── SMS helper ───────────────────────────────────────────────────────────────
+// Used by the callback-sms SWAIG function. Booking SMS is handled inside
+// bookingService.ts; this covers direct outbound SMS from SWAIG actions.
+
+async function sendSms(params: { from: string; to: string; body: string }): Promise<string | null> {
+  const projectId = process.env.SIGNALWIRE_PROJECT_ID;
+  const token = process.env.SIGNALWIRE_API_TOKEN;
+  const spaceUrl = process.env.SIGNALWIRE_SPACE_URL;
+  if (!projectId || !token || !spaceUrl) return null;
+  try {
+    const url = `https://${spaceUrl}/api/laml/2010-04-01/Accounts/${projectId}/Messages.json`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${projectId}:${token}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ From: params.from, To: params.to, Body: params.body }).toString(),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { sid?: string };
+    return data.sid ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SwaigPayload = {
@@ -424,7 +451,7 @@ router.post("/callback-sms", async (req: Request, res: Response) => {
       () => null,
     );
 
-    const sid = await sendSignalWireSms({
+    const sid = await sendSms({
       from: fromPhone,
       to: toPhone,
       body: messageText,

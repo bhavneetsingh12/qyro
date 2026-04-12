@@ -1533,7 +1533,6 @@ router.patch("/appointments/:id", async (req: Request, res: Response, next: Next
       action: "appointments.status_update",
       resourceType: "appointment",
       resourceId: updated.id,
-      after: { status },
     });
 
     res.json({ data: updated });
@@ -1644,7 +1643,6 @@ router.post("/v1/assist/blackout-blocks", async (req: Request, res: Response, ne
       action: "blackout_blocks.create",
       resourceType: "blackout_block",
       resourceId: block.id,
-      after: { label, startAt, endAt, providerBlockId },
     });
 
     res.status(201).json({ data: block });
