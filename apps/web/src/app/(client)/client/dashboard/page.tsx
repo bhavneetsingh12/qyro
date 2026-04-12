@@ -10,6 +10,8 @@ type Session = {
   sessionType: string;
   escalated: boolean;
   createdAt: string;
+  prospectName: string | null;
+  prospectPhone: string | null;
 };
 
 type Appointment = {
@@ -186,11 +188,26 @@ export default async function ClientDashboardPage() {
                   }`}>
                     {s.sessionType === "missed_call_sms" ? "Missed call" : "Widget"}
                   </span>
-                  {s.escalated && (
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 shrink-0">
-                      Escalated
-                    </span>
-                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-stone-800 truncate">
+                      <Link
+                        href="/client/conversations"
+                        className="hover:text-amber-700 transition-colors"
+                      >
+                        {s.prospectName ?? s.prospectPhone ?? "Unknown customer"}
+                      </Link>
+                    </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xs text-stone-400">
+                        {s.sessionType === "missed_call_sms" ? "Missed call flow" : "Website widget"}
+                      </span>
+                      {s.escalated && (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 shrink-0">
+                          Escalated
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 <p className="text-xs text-stone-400 shrink-0">{formatTime(s.createdAt)}</p>
               </li>

@@ -134,7 +134,19 @@ export default function ClientAnalyticsPage() {
       {loading ? (
         <div className="rounded-xl border border-[#E8E6E1] bg-white p-5 text-sm text-stone-500">Loading analytics...</div>
       ) : error ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">{error}</div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+          <p className="font-medium">{error}</p>
+          <p className="mt-1 text-rose-600">
+            This usually means the daily summary job has not run yet or the API was temporarily unavailable.
+          </p>
+        </div>
+      ) : rows.every((row) => row.newProspectsCount === 0 && row.callsHandledCount === 0 && row.appointmentsBookedCount === 0 && row.escalationsCount === 0) ? (
+        <div className="rounded-xl border border-[#E8E6E1] bg-white p-8 text-center">
+          <p className="text-sm font-medium text-stone-700">No analytics activity yet</p>
+          <p className="mt-1 text-sm text-stone-500">
+            Once Assist starts handling calls, bookings, or escalations, your 30-day charts will populate here.
+          </p>
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

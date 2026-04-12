@@ -72,7 +72,8 @@ export default async function BookingsPage() {
           </div>
         ) : appointments.length === 0 ? (
           <div className="px-5 py-10 text-center">
-            <p className="text-sm text-stone-400">No appointments yet. Your AI assistant will book them here.</p>
+            <p className="text-sm font-medium text-stone-700">No appointments yet</p>
+            <p className="mt-1 text-sm text-stone-400">Your AI assistant will place confirmed bookings here once scheduling is configured.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

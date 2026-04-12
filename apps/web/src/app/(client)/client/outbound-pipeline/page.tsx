@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import Link from "next/link";
 import { Phone, RefreshCw, Ban, Clock, CheckCircle2, AlertCircle, Loader2, Voicemail, Upload } from "lucide-react";
 import clsx from "clsx";
 
@@ -39,6 +40,24 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; Icon: React.
   dnd:       { label: "DND",       color: "text-stone-500 bg-stone-100 border-stone-200", Icon: Ban },
   voicemail: { label: "Voicemail", color: "text-purple-600 bg-purple-50 border-purple-200", Icon: Voicemail },
 };
+
+const OUTCOME_LABELS: Record<string, string> = {
+  missing_prospect_phone: "Lead has no phone number",
+  missing_voice_number: "Assist voice number is not configured",
+  missing_phone: "Phone configuration is incomplete",
+  outside_calling_hours: "Deferred for calling hours",
+  capacity_throttled: "Waiting for capacity",
+  paused_tenant: "Paused by tenant",
+  paused_global: "Paused globally",
+  dial_failed: "Dial failed",
+  dial_failed_retry: "Dial failed, retrying",
+  do_not_contact: "Blocked by do-not-contact",
+};
+
+function formatOutcome(outcome: string | null) {
+  if (!outcome) return "—";
+  return OUTCOME_LABELS[outcome] ?? outcome.replace(/_/g, " ");
+}
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? { label: status, color: "text-stone-500 bg-stone-100 border-stone-200", Icon: Clock };
@@ -260,6 +279,8 @@ export default function OutboundPipelinePage() {
 
   const active  = rows.filter(r => ["queued", "dialing", "ringing"].includes(r.status));
   const done    = rows.filter(r => !["queued", "dialing", "ringing"].includes(r.status));
+  const missingVoiceNumberCount = done.filter((row) => row.outcome === "missing_voice_number").length;
+  const missingProspectPhoneCount = done.filter((row) => row.outcome === "missing_prospect_phone" || row.outcome === "missing_phone").length;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
@@ -286,6 +307,28 @@ export default function OutboundPipelinePage() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>
+      )}
+
+      {(missingVoiceNumberCount > 0 || missingProspectPhoneCount > 0) && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <h2 className="text-sm font-semibold text-amber-900">Outbound troubleshooting</h2>
+          <div className="mt-2 space-y-1 text-sm text-amber-800">
+            {missingVoiceNumberCount > 0 && (
+              <p>
+                {missingVoiceNumberCount} recent attempt{missingVoiceNumberCount === 1 ? "" : "s"} failed because Assist does not have a valid outbound voice number saved yet. Set it in{" "}
+                <Link href="/client/settings" className="font-medium underline underline-offset-2">
+                  Settings
+                </Link>{" "}
+                before queuing new calls.
+              </p>
+            )}
+            {missingProspectPhoneCount > 0 && (
+              <p>
+                {missingProspectPhoneCount} recent attempt{missingProspectPhoneCount === 1 ? "" : "s"} failed because the lead record did not have a usable phone number. Review imported rows before sending them to Assist.
+              </p>
+            )}
+          </div>
+        </section>
       )}
 
       <section className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
@@ -439,7 +482,7 @@ export default function OutboundPipelinePage() {
                     </td>
                     <td className="px-4 py-3 text-stone-600 font-mono">{row.phone ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
-                    <td className="px-4 py-3 text-stone-500 capitalize">{row.outcome ?? "—"}</td>
+                    <td className="px-4 py-3 text-stone-500">{formatOutcome(row.outcome)}</td>
                     <td className="px-4 py-3 text-stone-600">{row.attemptCount} / {row.maxAttempts}</td>
                     <td className="px-4 py-3 text-stone-400">{fmt(row.lastAttemptAt)}</td>
                   </tr>

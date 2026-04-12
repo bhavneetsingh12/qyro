@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Save, CheckCircle } from "lucide-react";
+import Link from "next/link";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -130,6 +131,14 @@ export default function ClientSettingsPage() {
         </div>
       ) : (
         <form onSubmit={handleSave} className="mt-6 space-y-5">
+          <div className="rounded-[14px] border border-[#E8E6E1] bg-stone-50 px-4 py-3 text-sm text-stone-600">
+            <span className="font-medium text-stone-800">Quick setup lives here.</span> Advanced organization, AI behavior, team, and billing controls stay in{" "}
+            <Link href="/client/admin" className="font-medium text-amber-700 hover:text-amber-800">
+              Admin
+            </Link>
+            .
+          </div>
+
           <div className="bg-white border border-[#E8E6E1] rounded-[14px] shadow-[0_1px_4px_rgba(0,0,0,0.05)] p-6 space-y-5">
             <p className="text-sm font-semibold text-stone-800">Business profile</p>
 

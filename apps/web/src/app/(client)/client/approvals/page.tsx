@@ -60,7 +60,12 @@ export default function ClientApprovalsPage() {
       {loading ? (
         <div className="mt-6 text-sm text-stone-500">Loading...</div>
       ) : rows.length === 0 ? (
-        <div className="mt-6 text-sm text-stone-500">No pending messages.</div>
+        <div className="mt-6 rounded-[14px] border border-[#E8E6E1] bg-white px-5 py-10 text-center shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
+          <p className="text-sm font-medium text-stone-700">No pending messages</p>
+          <p className="mt-1 text-sm text-stone-500">
+            Assistant replies that require human approval will appear here before they are sent.
+          </p>
+        </div>
       ) : (
         <div className="mt-6 space-y-3">
           {rows.map((row) => (

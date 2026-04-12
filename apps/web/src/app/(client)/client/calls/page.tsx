@@ -26,6 +26,13 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
+function formatOutcomeLabel(outcome: string | null): string {
+  if (!outcome) return "-";
+  if (outcome === "missing_prospect_phone") return "lead missing phone";
+  if (outcome === "missing_voice_number") return "assist voice number missing";
+  return outcome;
+}
+
 function normalizeTurns(row: CallRow): Array<{ role: string; content: string; ts?: string }> {
   const raw = Array.isArray(row.transcriptJson) ? row.transcriptJson : [];
   const turns = raw
@@ -112,6 +119,8 @@ export default function ClientCallsPage() {
             <option value="busy">busy</option>
             <option value="failed">failed</option>
             <option value="answered">answered</option>
+            <option value="missing_prospect_phone">missing_prospect_phone</option>
+            <option value="missing_voice_number">missing_voice_number</option>
           </select>
         </div>
       </div>
@@ -142,7 +151,7 @@ export default function ClientCallsPage() {
                     <tr className="border-t border-[#F0EFEA]">
                       <td className="px-4 py-3 text-stone-700">{new Date(row.createdAt).toLocaleString()}</td>
                       <td className="px-4 py-3 text-stone-700">{row.prospectName || "Unknown"}</td>
-                      <td className="px-4 py-3 text-stone-700">{row.outcome || "-"}</td>
+                      <td className="px-4 py-3 text-stone-700">{formatOutcomeLabel(row.outcome)}</td>
                       <td className="px-4 py-3 text-stone-700">{formatDuration(row.durationSeconds ?? row.duration)}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-3">

@@ -337,14 +337,20 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   }
 
   const to = normalizePhone(prospect.phone);
-  const from = normalizePhone((tenantMeta.voice_number as string) ?? "");
+  const from = normalizePhone(
+    tenant?.voiceNumber
+      ?? (tenantMeta.voice_number as string | undefined)
+      ?? (tenantMeta.voiceNumber as string | undefined)
+      ?? "",
+  );
 
   if (!to || !from) {
+    const outcome = !to ? "missing_prospect_phone" : "missing_voice_number";
     await db
       .update(callAttempts)
       .set({
         status: "failed",
-        outcome: "missing_phone",
+        outcome,
       })
       .where(eq(callAttempts.id, attempt.id));
     emitCallStatusChange(tenantId, attempt.id, "failed");
