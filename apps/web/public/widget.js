@@ -3,9 +3,12 @@
   if (!script) return;
 
   var tenantId = script.getAttribute("data-tenant-id") || "";
+  var widgetToken = script.getAttribute("data-widget-token") || "";
   var primaryColor = script.getAttribute("data-primary-color") || "#F59E0B";
   var apiBase = script.getAttribute("data-api-base") || "";
   var endpoint = (apiBase ? apiBase.replace(/\/$/, "") : "") + "/api/v1/assist/chat";
+
+  if (!tenantId || !widgetToken || !endpoint) return;
 
   var SESSION_KEY = "qyro_assist_session_id";
   var sessionId = localStorage.getItem(SESSION_KEY) || "";
@@ -67,6 +70,7 @@
   async function postMessage(text) {
     var payload = {
       tenantId: tenantId,
+      widgetToken: widgetToken,
       sessionId: sessionId || undefined,
       message: text,
       history: history,

@@ -4,10 +4,35 @@ import { redirect } from "next/navigation";
 import { ArrowRight, PhoneCall, Users, BarChart3, Zap, Shield, Clock } from "lucide-react";
 import { QyroMark } from "@/components/brand/QyroBrand";
 import { ASSIST_PRICING } from "@/config/pricing";
+import { getPreferredWorkspace, normalizeProductAccess } from "@/lib/workspace";
+
+const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
 export default async function RootPage() {
-  const { userId } = await auth();
-  if (userId) redirect("/products");
+  const { userId, getToken } = await auth();
+  if (userId) {
+    const token = await getToken();
+    if (token) {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/tenants/settings`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (res.ok) {
+          const body = await res.json();
+          if (body.isMasterAdmin === true) redirect("/qx-ops");
+          const destination = getPreferredWorkspace({
+            productAccess: normalizeProductAccess(body.productAccess),
+            tenantType: String(body.tenantType ?? "").trim(),
+          });
+          if (destination) redirect(destination);
+        }
+      } catch {
+        // fall back to hub
+      }
+    }
+    redirect("/products");
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] text-stone-900">

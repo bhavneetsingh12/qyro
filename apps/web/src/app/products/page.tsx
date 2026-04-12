@@ -4,13 +4,9 @@ import { redirect } from "next/navigation";
 import { ArrowRight, PhoneCall, Users } from "lucide-react";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
 import BillingActions from "@/components/billing/BillingActions";
+import { getPreferredWorkspace, normalizeProductAccess, type ProductAccess } from "@/lib/workspace";
 
 const API_URL = process.env.API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
-
-type ProductAccess = {
-  lead: boolean;
-  assist: boolean;
-};
 
 export default async function ProductsPage({
   searchParams,
@@ -26,6 +22,7 @@ export default async function ProductsPage({
   let productAccess: ProductAccess = { lead: false, assist: false };
   let onboardingComplete = false;
   let isMasterAdmin = false;
+  let tenantType = "";
   const upgradeIntent = String(searchParams?.upgrade ?? "").trim().toLowerCase();
   const forceHub = upgradeIntent === "lead" || upgradeIntent === "assist" || upgradeIntent === "bundle";
 
@@ -39,17 +36,18 @@ export default async function ProductsPage({
       const body = await res.json();
       isMasterAdmin = body.isMasterAdmin === true;
       onboardingComplete = body.onboardingComplete !== false;
-      productAccess = body.productAccess ?? productAccess;
+      productAccess = normalizeProductAccess(body.productAccess);
+      tenantType = String(body.tenantType ?? "").trim();
     }
   } catch {
     // Fall through to onboarding below on unreachable API
   }
 
   if (isMasterAdmin) redirect("/qx-ops");
-  if (!forceHub && productAccess.lead && !productAccess.assist) redirect("/internal/dashboard");
-  if (!forceHub && productAccess.assist && !productAccess.lead) redirect("/client/dashboard");
+  const preferredWorkspace = getPreferredWorkspace({ productAccess, tenantType });
+  if (!forceHub && preferredWorkspace) redirect(preferredWorkspace);
   if (!productAccess.lead && !productAccess.assist) {
-    redirect(onboardingComplete ? "/onboarding" : "/onboarding");
+    redirect(onboardingComplete ? "/products?upgrade=bundle" : "/onboarding");
   }
 
   const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");

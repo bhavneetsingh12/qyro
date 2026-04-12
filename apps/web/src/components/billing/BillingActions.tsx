@@ -34,7 +34,11 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
         body: JSON.stringify({ product, plan: "starter" }),
       });
 
-      const body = (await res.json().catch(() => ({}))) as { data?: { url?: string }; message?: string; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { data?: { url?: string; destination?: string }; message?: string; error?: string };
+      if (res.status === 409 && body.data?.destination) {
+        window.location.href = body.data.destination;
+        return;
+      }
       if (!res.ok || !body.data?.url) {
         throw new Error(body.message ?? body.error ?? "Could not start checkout");
       }

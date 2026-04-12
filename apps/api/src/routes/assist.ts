@@ -9,6 +9,7 @@ import { Router, type Request, type Response, type NextFunction, type Router as 
 import { rateLimit } from "../middleware/rateLimit";
 import { logAudit } from "../lib/auditLog";
 import { triggerEscalationNotifications } from "../lib/escalation";
+import { verifyWidgetToken } from "../lib/widgetAuth";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
@@ -24,6 +25,9 @@ const OUTBOUND_CONTROL_ROLES = new Set(["owner", "admin", "operator"]);
 const PUBLIC_RATE_WINDOW_SEC = 60;
 const PUBLIC_RATE_LIMIT = 30;
 const CALL_ATTEMPTS_SCHEMA_TTL_MS = 60_000;
+const DEFAULT_WIDGET_DAILY_MESSAGE_LIMIT = 250;
+const DEFAULT_WIDGET_DAILY_MISSED_CALL_LIMIT = 25;
+const MISSED_CALL_PHONE_COOLDOWN_SEC = 30 * 60;
 
 type CallAttemptsSchemaMode = "modern" | "legacy";
 
@@ -94,8 +98,7 @@ async function getCallAttemptsSchemaMode(): Promise<CallAttemptsSchemaMode> {
 }
 
 function getRequestIp(req: Request): string {
-  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
-  return forwarded || req.ip || "unknown";
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 function parseAllowedOrigins(meta: Record<string, unknown>): string[] {
@@ -145,6 +148,70 @@ async function enforcePublicRateLimit(req: Request, tenantId: string): Promise<s
     return "Too many requests";
   }
   return null;
+}
+
+function getWidgetToken(req: Request): string {
+  return String(
+    req.headers["x-qyro-widget-token"]
+    ?? req.body?.widgetToken
+    ?? req.query.widgetToken
+    ?? "",
+  ).trim();
+}
+
+function getTenantMetadata(tenant: { metadata: unknown }): Record<string, unknown> {
+  return (tenant.metadata as Record<string, unknown> | null) ?? {};
+}
+
+function getPositiveInteger(meta: Record<string, unknown>, key: string, fallback: number): number {
+  const value = Number(meta[key] ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(Math.trunc(value), 50_000));
+}
+
+async function enforcePublicDailyBudget(params: {
+  tenantId: string;
+  bucket: "chat" | "missed_call";
+  limit: number;
+}): Promise<string | null> {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `rl:widget:${params.bucket}:day:${params.tenantId}:${day}`;
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, 86_400);
+  }
+  if (count > params.limit) {
+    return "This public assistant limit has been reached for today";
+  }
+  return null;
+}
+
+async function enforceMissedCallCooldown(tenantId: string, phone: string): Promise<string | null> {
+  if (!phone) return null;
+  const key = `rl:widget:missed-call:phone:${tenantId}:${phone}`;
+  const result = await redis.set(key, "1", "EX", MISSED_CALL_PHONE_COOLDOWN_SEC, "NX");
+  if (result !== "OK") {
+    return "A follow-up was already sent recently for this phone number";
+  }
+  return null;
+}
+
+function validateWidgetAccess(req: Request, tenant: { id: string; metadata: unknown }): string | null {
+  const widgetToken = getWidgetToken(req);
+  if (!widgetToken) {
+    return "Widget token is required";
+  }
+
+  const tokenCheck = verifyWidgetToken({
+    token: widgetToken,
+    tenantId: tenant.id,
+    metadata: tenant.metadata,
+  });
+  if (!tokenCheck.ok) {
+    return tokenCheck.message;
+  }
+
+  return validateWidgetOrigin(req, tenant);
 }
 
 async function getOrCreateProspect(params: {
@@ -941,15 +1008,26 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const originError = validateWidgetOrigin(req, tenant);
-    if (originError) {
-      res.status(403).json({ error: "FORBIDDEN", message: originError });
+    const widgetAccessError = validateWidgetAccess(req, tenant);
+    if (widgetAccessError) {
+      res.status(403).json({ error: "FORBIDDEN", message: widgetAccessError });
       return;
     }
 
     const rateLimitError = await enforcePublicRateLimit(req, tenant.id);
     if (rateLimitError) {
       res.status(429).json({ error: "RATE_LIMITED", message: rateLimitError });
+      return;
+    }
+
+    const tenantMeta = getTenantMetadata(tenant);
+    const publicBudgetError = await enforcePublicDailyBudget({
+      tenantId: tenant.id,
+      bucket: "chat",
+      limit: getPositiveInteger(tenantMeta, "widget_daily_message_limit", DEFAULT_WIDGET_DAILY_MESSAGE_LIMIT),
+    });
+    if (publicBudgetError) {
+      res.status(429).json({ error: "PUBLIC_LIMIT_REACHED", message: publicBudgetError });
       return;
     }
 
@@ -1067,9 +1145,9 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       return;
     }
 
-    const originError = validateWidgetOrigin(req, tenant);
-    if (originError) {
-      res.status(403).json({ error: "FORBIDDEN", message: originError });
+    const widgetAccessError = validateWidgetAccess(req, tenant);
+    if (widgetAccessError) {
+      res.status(403).json({ error: "FORBIDDEN", message: widgetAccessError });
       return;
     }
 
@@ -1088,7 +1166,30 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       return;
     }
 
-    const prospect = await getOrCreateProspect({ tenantId, name, phone });
+    const tenantMeta = getTenantMetadata(tenant);
+    const publicBudgetError = await enforcePublicDailyBudget({
+      tenantId,
+      bucket: "missed_call",
+      limit: getPositiveInteger(tenantMeta, "widget_daily_missed_call_limit", DEFAULT_WIDGET_DAILY_MISSED_CALL_LIMIT),
+    });
+    if (publicBudgetError) {
+      res.status(429).json({ error: "PUBLIC_LIMIT_REACHED", message: publicBudgetError });
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone || !normalizedPhone.startsWith("+") || normalizedPhone.length < 10) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "phone must be in E.164 format" });
+      return;
+    }
+
+    const cooldownError = await enforceMissedCallCooldown(tenantId, normalizedPhone);
+    if (cooldownError) {
+      res.status(429).json({ error: "RATE_LIMITED", message: cooldownError });
+      return;
+    }
+
+    const prospect = await getOrCreateProspect({ tenantId, name, phone: normalizedPhone });
 
     const [session] = await db
       .insert(assistantSessions)
@@ -1124,7 +1225,7 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
       if (fromNumber && projectId && apiToken && spaceUrl) {
         try {
           const form = new URLSearchParams();
-          form.set("To",   phone);
+          form.set("To",   normalizedPhone);
           form.set("From", fromNumber);
           form.set("Body", text);
 

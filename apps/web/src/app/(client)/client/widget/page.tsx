@@ -10,6 +10,7 @@ const WIDGET_SRC = "https://widget.qyro.ai/widget.js";
 export default function WidgetPage() {
   const { getToken } = useAuth();
   const [tenantId,   setTenantId]   = useState<string | null>(null);
+  const [widgetToken, setWidgetToken] = useState<string>("");
   const [tenantName, setTenantName] = useState<string>("");
   const [copied,     setCopied]     = useState(false);
   const [loading,    setLoading]    = useState(true);
@@ -25,6 +26,7 @@ export default function WidgetPage() {
         if (res.ok) {
           const data = await res.json();
           setTenantId(data.id);
+          setWidgetToken(String(data.widgetToken ?? ""));
           setTenantName(data.name ?? "");
         }
       } catch {
@@ -36,8 +38,8 @@ export default function WidgetPage() {
     load();
   }, [getToken]);
 
-  const snippet = tenantId
-    ? `<!-- QYRO Assist widget -->\n<script\n  src="${WIDGET_SRC}"\n  data-tenant="${tenantId}"\n  defer\n></script>`
+  const snippet = tenantId && widgetToken
+    ? `<!-- QYRO Assist widget -->\n<script\n  src="${WIDGET_SRC}"\n  data-tenant-id="${tenantId}"\n  data-widget-token="${widgetToken}"\n  data-api-base="${API_URL}"\n  defer\n></script>`
     : "";
 
   function handleCopy() {

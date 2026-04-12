@@ -57,6 +57,11 @@ async function provisionTenantForClerkUser(clerkUserId: string) {
   return { tenant, user };
 }
 
+function allowPublicTenantProvisioning(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  return String(process.env.ALLOW_PUBLIC_TENANT_PROVISIONING ?? "false").toLowerCase() === "true";
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -132,6 +137,13 @@ export const tenantMiddleware: RequestHandler = async (req, res, next) => {
     // tenant + owner user so authenticated routes can proceed.
     let resolvedUser = user;
     if (!resolvedUser) {
+      if (!allowPublicTenantProvisioning()) {
+        res.status(403).json({
+          error: "FORBIDDEN",
+          message: "Public tenant provisioning is disabled for this environment",
+        });
+        return;
+      }
       const provisioned = await provisionTenantForClerkUser(clerkUserId);
       resolvedUser = provisioned.user;
     }

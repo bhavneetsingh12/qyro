@@ -45,6 +45,9 @@ console.log("[api] 2. Env vars OK");
 const app: Express = express();
 const PORT = Number(process.env.PORT ?? 3001);
 
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
 // ─── Health check — registered FIRST so Railway can probe immediately ─────────
 // Must be before any middleware or DB calls so it always responds,
 // even if Clerk/DB/Redis is not yet initialised.
@@ -75,12 +78,31 @@ app.use(cors({
   credentials: true,
 }));
 
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  }
+  next();
+});
+
 // Parse URL-encoded bodies (SignalWire / Twilio cXML webhooks send this content type).
 // Must be registered BEFORE express.json() so that voice webhook requests are parsed
 // before validateSignalWireSignature reads req.body for HMAC computation.
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "50kb" }));
 
-app.use(express.json());
+app.use(express.json({
+  limit: "100kb",
+  verify: (req, _res, buf) => {
+    const originalUrl = (req as Request & { originalUrl?: string }).originalUrl ?? "";
+    if (originalUrl.startsWith("/webhooks/")) {
+      (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    }
+  },
+}));
 
 // Clerk session verification on all requests (attaches auth to req).
 app.use(clerkMiddleware());
@@ -123,7 +145,7 @@ app.use("/api/campaigns", requireClerkAuth, tenantMiddleware, rateLimit("general
 app.use("/api",           requireClerkAuth, tenantMiddleware, rateLimit("general"), assistRouter);
 app.use("/api/v1/tenants",requireClerkAuth, tenantMiddleware, rateLimit("general"), tenantsRouter);
 app.use("/api/v1/events", requireClerkAuth, tenantMiddleware, eventsRouter);
-app.use("/api",           requireClerkAuth, adminRouter);
+app.use("/api",           requireClerkAuth, rateLimitWithOptions("heavy", { failureMode: "fail-closed" }), adminRouter);
 app.use("/api",           requireClerkAuth, tenantMiddleware, rateLimit("general"), billingRouter);
 
 // ─── Global error handler ─────────────────────────────────────────────────────

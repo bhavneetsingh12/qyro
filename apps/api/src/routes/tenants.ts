@@ -9,6 +9,7 @@ import { Router, type Request, type Response, type NextFunction, type Router as 
 import { eq } from "drizzle-orm";
 import { db, decryptSecret, encryptSecret, tenantIntegrationSecrets, tenantSubscriptions, tenants, users } from "@qyro/db";
 import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
+import { getWidgetTokenVersion, issueWidgetToken } from "../lib/widgetAuth";
 
 const router: ExpressRouter = Router();
 
@@ -100,6 +101,15 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       ?? (meta.voiceNumber as string)
       ?? (meta.voice_number as string)
       ?? "";
+    let widgetToken: { token: string; expiresAt: string; version: number } | null = null;
+    try {
+      widgetToken = issueWidgetToken({
+        tenantId: tenant.id,
+        metadata: meta,
+      });
+    } catch {
+      widgetToken = null;
+    }
 
     res.json({
       id:               tenant.id,
@@ -148,6 +158,10 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       showBillingStatus: !isMasterAdmin,
       onboardingComplete: meta.onboarding_complete === false ? false : true,
       tenantType: (meta.tenant_type as string) ?? "",
+      widgetToken: widgetToken?.token ?? "",
+      widgetTokenExpiresAt: widgetToken?.expiresAt ?? null,
+      widgetTokenVersion: widgetToken?.version ?? getWidgetTokenVersion(meta),
+      widgetSecurityConfigured: Boolean(widgetToken),
     });
   } catch (err) {
     next(err);
@@ -409,6 +423,50 @@ router.patch("/settings/missed-call-auto-send", async (req: Request, res: Respon
       .where(eq(tenants.id, req.tenantId));
 
     res.json({ ok: true, autoSendMissedCall: enabled });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/tenants/settings/widget-token/rotate ───────────────────────
+
+router.post("/settings/widget-token/rotate", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!requireTenantManager(req, res)) return;
+
+    const tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, req.tenantId),
+    });
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant not found" });
+      return;
+    }
+
+    const meta = (tenant.metadata as Record<string, unknown>) ?? {};
+    const nextMeta = {
+      ...meta,
+      widget_token_version: getWidgetTokenVersion(meta) + 1,
+    };
+
+    await db
+      .update(tenants)
+      .set({
+        metadata: nextMeta,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenants.id, req.tenantId));
+
+    const widgetToken = issueWidgetToken({
+      tenantId: tenant.id,
+      metadata: nextMeta,
+    });
+
+    res.json({
+      ok: true,
+      widgetToken: widgetToken.token,
+      widgetTokenExpiresAt: widgetToken.expiresAt,
+      widgetTokenVersion: widgetToken.version,
+    });
   } catch (err) {
     next(err);
   }

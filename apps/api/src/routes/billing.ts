@@ -1,6 +1,8 @@
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, tenantSubscriptions, tenants, users } from "@qyro/db";
+import { redis } from "@qyro/queue";
+import { resolveTenantBaseAccess } from "../lib/entitlements";
 
 // Stripe's module shape varies by TS moduleInterop settings; runtime require is safest here.
 const Stripe = require("stripe") as any;
@@ -93,6 +95,12 @@ function applySubscriptionStatus(access: ProductAccess, status: string): Product
     return { lead: false, assist: false };
   }
   return access;
+}
+
+function accessIncludes(current: ProductAccess, requested: ProductAccess): boolean {
+  const leadCovered = requested.lead ? current.lead : true;
+  const assistCovered = requested.assist ? current.assist : true;
+  return leadCovered && assistCovered;
 }
 
 function toDate(value?: number | null): Date | null {
@@ -241,6 +249,27 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
     const existing = await db.query.tenantSubscriptions.findFirst({
       where: eq(tenantSubscriptions.tenantId, tenantId),
     });
+    const currentAccess = resolveTenantBaseAccess(tenant.metadata, existing);
+    const requestedAccess = resolveAccessFromPriceId(resolvedPriceId);
+    if (accessIncludes(currentAccess, requestedAccess)) {
+      const tenantType = String((tenant.metadata as Record<string, unknown> | null)?.tenant_type ?? "").trim();
+      const destination = requestedAccess.assist && !requestedAccess.lead
+        ? "/client/dashboard"
+        : requestedAccess.lead && !requestedAccess.assist
+          ? "/internal/dashboard"
+          : tenantType === "assistant"
+            ? "/client/dashboard"
+            : "/internal/dashboard";
+
+      res.status(409).json({
+        error: "ALREADY_SUBSCRIBED",
+        message: "This workspace is already active for your account",
+        data: {
+          destination,
+        },
+      });
+      return;
+    }
 
     // Fetch user email to pre-fill on checkout
     const tenantUser = await db.query.users.findFirst({
@@ -360,13 +389,21 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
       return;
     }
 
-    const rawBody = (req as unknown as Record<string, unknown>).rawBody as Buffer | undefined;
+    const rawBody =
+      ((req as unknown as Record<string, unknown>).rawBody as Buffer | undefined)
+      ?? (Buffer.isBuffer(req.body) ? req.body : undefined);
     if (!rawBody) {
       res.status(400).json({ error: "BAD_REQUEST", message: "Missing raw request body" });
       return;
     }
 
     const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    const replayKey = `stripe:webhook:event:${event.id}`;
+    const replayResult = await redis.set(replayKey, "1", "EX", 7 * 24 * 60 * 60, "NX");
+    if (replayResult !== "OK") {
+      res.json({ received: true, duplicate: true });
+      return;
+    }
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as any;

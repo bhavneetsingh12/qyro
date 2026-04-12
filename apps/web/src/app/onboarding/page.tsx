@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { ArrowRight, CheckCircle, PhoneCall, Users, Loader2, Check } from "lucide-react";
 import { QyroBrandLockup } from "@/components/brand/QyroBrand";
+import { getPreferredWorkspace, hasAnyProductAccess, normalizeProductAccess } from "@/lib/workspace";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -711,6 +712,42 @@ export default function OnboardingPage() {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function routeExistingCustomer() {
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const res = await fetch(`${API_URL}/api/v1/tenants/settings`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+
+        const body = await res.json();
+        const productAccess = normalizeProductAccess(body.productAccess);
+        if (!hasAnyProductAccess(productAccess)) return;
+
+        const destination = getPreferredWorkspace({
+          productAccess,
+          tenantType: String(body.tenantType ?? "").trim(),
+        });
+        if (!destination || cancelled) return;
+
+        router.replace(destination);
+      } catch {
+        // ignore routing preflight errors
+      }
+    }
+
+    void routeExistingCustomer();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, router]);
+
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -750,15 +787,21 @@ export default function OnboardingPage() {
         }),
       });
 
+      const body = await res.json().catch(() => ({})) as {
+        data?: { url?: string; destination?: string };
+        message?: string;
+      };
+      if (res.status === 409 && body.data?.destination) {
+        window.location.href = body.data.destination;
+        return;
+      }
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error(
-          (body as { message?: string }).message ?? "Failed to start checkout — please try again.",
+          body.message ?? "Failed to start checkout — please try again.",
         );
       }
 
-      const body = await res.json();
-      const url = (body as { data?: { url?: string } }).data?.url;
+      const url = body.data?.url;
       if (!url) throw new Error("No checkout URL returned.");
 
       window.location.href = url;

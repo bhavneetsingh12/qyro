@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import { createHmac } from "node:crypto";
 
 const API_URL = process.env.API_URL;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
@@ -13,12 +14,20 @@ if (!WEBHOOK_SECRET) {
   process.exit(1);
 }
 
+const rawBody = "";
+const timestamp = String(Date.now());
+const signature = createHmac("sha256", WEBHOOK_SECRET)
+  .update(`${timestamp}.${rawBody}`, "utf8")
+  .digest("hex");
+
 const response = await fetch(`${API_URL}/webhooks/nightly/ingest`, {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "x-webhook-secret": WEBHOOK_SECRET,
+    "x-webhook-timestamp": timestamp,
+    "x-webhook-signature": signature,
   },
+  body: rawBody,
 });
 
 if (!response.ok) {

@@ -107,9 +107,13 @@ EMAIL_ENRICHER_API_KEY
 ```text
 WEBHOOK_SECRET
 INTERNAL_TENANT_ID
+WIDGET_SIGNING_SECRET
+ALLOW_PUBLIC_TENANT_PROVISIONING
 ```
 
-`WEBHOOK_SECRET` is used by cron-triggered webhook routes.
+`WEBHOOK_SECRET` is used to HMAC-sign cron-triggered webhook routes.
+`WIDGET_SIGNING_SECRET` signs public Assist widget tokens. If omitted, the API falls back to `TENANT_INTEGRATION_SECRET_KEY`, but a dedicated value is recommended.
+`ALLOW_PUBLIC_TENANT_PROVISIONING=true` is required in production if you want first-login Clerk users to automatically create starter tenants.
 
 ## 11.5 Tenant secret encryption
 

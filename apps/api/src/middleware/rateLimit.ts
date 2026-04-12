@@ -44,8 +44,7 @@ const TIER_WINDOWS: Record<RateLimitTier, RateLimitWindow[]> = {
 };
 
 function getRequestIp(req: Parameters<RequestHandler>[0]): string {
-  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim();
-  return forwarded || (req as any).ip || "unknown";
+  return (req as any).ip || (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress || "unknown";
 }
 
 async function logRateLimitHit(tenantId: string, endpoint: string, limitType: string, ip: string) {
@@ -66,7 +65,7 @@ export function rateLimit(tier: RateLimitTier): RequestHandler {
 
 export function rateLimitWithOptions(tier: RateLimitTier, options: RateLimitOptions): RequestHandler {
   return async (req, res, next) => {
-    const failureMode = options.failureMode ?? "fail-open";
+    const failureMode = options.failureMode ?? (process.env.NODE_ENV === "production" ? "fail-closed" : "fail-open");
     const scope = options.scope ?? "tenant";
 
     const tenantId: string | undefined = (req as any).tenantId;

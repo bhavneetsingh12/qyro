@@ -1,11 +1,12 @@
 // Inbound webhook routes (Stripe and internal scheduled ops)
-// Internal ops webhooks are protected by WEBHOOK_SECRET (with legacy fallback support).
+// Internal ops webhooks are signed with WEBHOOK_SECRET using timestamped HMAC.
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db, tenants, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
 import { outreachQueue, redis } from "@qyro/queue";
+import { verifyInternalWebhookSignature } from "../lib/webhookAuth";
 
 const router: ExpressRouter = Router();
 
@@ -49,17 +50,28 @@ function intentCounterKeys(tenantId: string, day: string) {
 	};
 }
 
-function ensureInternalSecret(req: Request, res: Response): boolean {
-	const expected = process.env.WEBHOOK_SECRET;
-	if (!expected) {
-		res.status(500).json({ error: "CONFIG_ERROR", message: "WEBHOOK_SECRET not configured" });
+async function ensureInternalSecret(req: Request, res: Response): Promise<boolean> {
+	const timestamp = String(req.header("x-webhook-timestamp") ?? "").trim();
+	const signature = String(req.header("x-webhook-signature") ?? "").trim();
+	const rawBody = ((req as unknown as { rawBody?: Buffer }).rawBody ?? Buffer.from("")).toString("utf8");
+
+	const verified = verifyInternalWebhookSignature({
+		timestamp,
+		rawBody,
+		providedSignature: signature,
+	});
+	if (!verified.ok) {
+		res.status(401).json({ error: "UNAUTHORIZED", message: verified.message });
 		return false;
 	}
-	const provided = req.header("x-webhook-secret") ?? req.header("x-internal-webhook-secret");
-	if (!provided || provided !== expected) {
-		res.status(401).json({ error: "UNAUTHORIZED", message: "Invalid internal webhook secret" });
+
+	const replayKey = `webhook:replay:${timestamp}:${signature}`;
+	const replayResult = await redis.set(replayKey, "1", "EX", 5 * 60, "NX");
+	if (replayResult !== "OK") {
+		res.status(409).json({ error: "REPLAY_DETECTED", message: "Webhook signature has already been used" });
 		return false;
 	}
+
 	return true;
 }
 
@@ -146,7 +158,7 @@ async function queueOutreachDrafts(params: {
 // Triggered by the nightly Railway cron service. Runs discovery and optional outreach drafting.
 router.post("/nightly/ingest", async (req: Request, res: Response, next: NextFunction) => {
 	try {
-		if (!ensureInternalSecret(req, res)) return;
+		if (!await ensureInternalSecret(req, res)) return;
 
 		const { runs } = req.body as { runs?: NightlyRun[] };
 		if (!Array.isArray(runs) || runs.length === 0) {
@@ -229,7 +241,7 @@ router.post("/nightly/ingest", async (req: Request, res: Response, next: NextFun
 // Triggered by the morning Railway cron service to summarize overnight pipeline health.
 router.post("/morning/digest", async (req: Request, res: Response, next: NextFunction) => {
 	try {
-		if (!ensureInternalSecret(req, res)) return;
+		if (!await ensureInternalSecret(req, res)) return;
 
 		let { runs } = req.body as { runs?: MorningDigestRun[] };
 		if (!Array.isArray(runs) || runs.length === 0) {
