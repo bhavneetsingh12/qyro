@@ -652,221 +652,35 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending
 
 ### 2026-04-12
+## 2026-04-12 Single-Pass Completion Snapshot
 
-### pending - feat: add operator actions for compliance review queue in Assist Call Control
-- Request summary:
-  - Move to the next implementation chunk without waiting by making the compliance queue operational, not read-only.
-- Files changed:
-  - `apps/web/src/app/(client)/client/call-control/page.tsx`
-- Key behavior changes:
-  - Added per-decision operator actions in the Compliance Review Queue:
-    - `Block Contact` writes a suppression via `POST /api/v1/assist/compliance/suppressions`.
-    - `Record Consent` writes consent evidence via `POST /api/v1/assist/compliance/consent`.
-  - Added inline action notices so operators immediately see success/failure and know next steps.
-  - Successful actions remove handled decisions from the local queue and trigger a refresh for queue/report consistency.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
+### done - compliance queue is operational and lifecycle-safe
+- `0b8bada` feat: add compliance queue operator actions
+- `46ec708` feat: add compliance decision resolution workflow
+- `4a50357` feat: add resolved compliance queue view
+- `713b87e` feat: allow reopening resolved compliance decisions
+- `00fcd95` hardening: enforce compliance resolve/reopen state rules
+- `24839e4` test: add compliance transition policy unit coverage
 
-### pending - feat: add inbound revocation ingestion endpoint for compliance suppressions
-- Request summary:
-  - Continue autonomous backlog execution by adding a single ingestion path for inbound STOP/opt-out/revocation events.
-- Files changed:
-  - `apps/api/src/routes/assist.ts`
-- Key behavior changes:
-  - Added `POST /api/v1/assist/compliance/inbound-events`.
-  - Endpoint evaluates inbound event text/disposition and applies suppression + consent revocation when opt-out intent is detected.
-  - Supports channel-aware suppression typing (`verbal_optout` for voice, `stop_reply` for sms/chat).
-  - If a prospect is identified, pending outbound attempts are moved to `dnd` with `do_not_contact` outcome.
-  - Non-opt-out events are explicitly ignored with a structured response.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
+### done - inbound opt-out/revocation compliance path is wired
+- `272abab` feat: add inbound compliance revocation ingestion
+- `68fd600` test: harden inbound opt-out detection paths
 
-### pending - test: harden inbound opt-out detection with shared logic + unit tests
-- Request summary:
-  - Continue autonomous hardening by protecting STOP/revocation behavior with deterministic tests and removing route-level regex drift.
-- Files changed:
-  - `apps/api/src/lib/optOut.ts`
-  - `apps/api/src/lib/optOut.test.ts`
-  - `apps/api/src/routes/assist.ts`
-  - `apps/api/src/routes/voice.ts`
-  - `package.json`
-- Key behavior changes:
-  - Added shared opt-out helpers:
-    - `isOptOutText(...)`
-    - `isOptOutDisposition(...)`
-    - `resolveInboundSuppressionType(...)`
-  - Replaced duplicated route regex logic with shared helper usage in both Assist and Voice routes.
-  - Added focused tests for phrase/disposition detection and suppression-type resolution.
-  - Added new opt-out test file to `pnpm test:hardening`.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
+### done - daily compliance operations telemetry and alerts are wired
+- `429672d` ops: add compliance telemetry to morning digest
+- `7ef9e95` ops: add compliance alert signals to morning digest
+- `addddb8` test: harden compliance digest alert logic
+- `0e2df78` ops: add stale compliance queue SLA alerting
 
-### pending - feat: add compliance decision resolution lifecycle (open vs resolved)
-- Request summary:
-  - Continue autonomous hardening by making compliance queue items explicitly resolvable so operators can clear and audit actions over time.
-- Files changed:
-  - `packages/db/migrations/0019_compliance_decision_resolution.sql`
-  - `packages/db/src/schema.ts`
-  - `apps/api/src/routes/assist.ts`
-  - `apps/web/src/app/(client)/client/call-control/page.tsx`
-- Key behavior changes:
-  - Added resolution fields on `compliance_decisions`:
-    - `resolved_at`
-    - `resolved_by`
-    - `resolution_action`
-    - `resolution_note`
-  - `GET /api/v1/assist/compliance/decisions` now supports real open/resolved behavior:
-    - `decision=open` returns unresolved BLOCK/MANUAL_REVIEW only.
-    - `decision=resolved` returns resolved BLOCK/MANUAL_REVIEW records.
-  - Added `POST /api/v1/assist/compliance/decisions/:id/resolve` for operator workflow.
-  - Call Control actions (`Block Contact`, `Record Consent`) now resolve decisions after applying the action, and a new `Dismiss` action resolves false alarms without suppression/consent writes.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
+### done - baseline validation for all chunks above
+- `pnpm test:hardening`: pass
+- `pnpm build`: pass
+- `pnpm migrate`: pass for `0019_compliance_decision_resolution.sql`
 
-### pending - ops: include compliance health metrics in morning digest webhook
-- Request summary:
-  - Continue autonomous delivery by adding daily compliance telemetry into the existing scheduled digest workflow.
-- Files changed:
-  - `apps/api/src/routes/webhooks.ts`
-- Key behavior changes:
-  - `/webhooks/morning/digest` now returns per-tenant and aggregate compliance metrics for the digest lookback window:
-    - `complianceAllow`
-    - `complianceBlock`
-    - `complianceManualReview`
-    - `complianceOpen` (current unresolved BLOCK/MANUAL_REVIEW queue size)
-  - This gives daily operational visibility into strict-mode pressure without requiring manual dashboard/API checks.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - feat: add open/resolved compliance queue toggle in Call Control UI
-- Request summary:
-  - Continue autonomous rollout by finishing operator visibility for the compliance decision lifecycle.
-- Files changed:
-  - `apps/web/src/app/(client)/client/call-control/page.tsx`
-- Key behavior changes:
-  - Added compliance queue filter toggle (`Open` / `Resolved`) in Call Control.
-  - Queue fetch now queries `decision=open|resolved` dynamically.
-  - Open queue keeps action buttons (`Block Contact`, `Record Consent`, `Dismiss`).
-  - Resolved queue shows resolution metadata (`resolvedBy`, `resolvedAt`, `resolutionAction`) so operators can audit what happened.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - ops: add compliance risk alerts to morning digest payload
-- Request summary:
-  - Continue autonomous hardening by turning morning digest compliance counts into actionable alert signals.
-- Files changed:
-  - `apps/api/src/routes/webhooks.ts`
-- Key behavior changes:
-  - Morning digest per-tenant payload now includes `complianceAlerts` with warning conditions:
-    - high open queue (`open_queue_high`)
-    - manual-review spike (`manual_review_spike`)
-    - blocked spike (`blocked_spike`)
-    - high blocked/manual ratio (`blocked_ratio_high`)
-  - This allows cron consumers/ops tooling to detect risk states directly from digest output.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - test: extract and unit-test compliance digest alert policy
-- Request summary:
-  - Continue autonomous hardening by making morning digest alert thresholds deterministic and regression-safe.
-- Files changed:
-  - `apps/api/src/lib/complianceDigest.ts`
-  - `apps/api/src/lib/complianceDigest.test.ts`
-  - `apps/api/src/routes/webhooks.ts`
-  - `package.json`
-- Key behavior changes:
-  - Moved compliance alert threshold logic into shared helper `buildComplianceDigestAlerts(...)`.
-  - Added focused tests for:
-    - healthy no-alert state
-    - spike/high-queue alerts
-    - blocked-ratio guardrail behavior on low sample sizes.
-  - Added new compliance digest test file to `pnpm test:hardening`.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - ops: add stale open-queue SLA alerting to compliance morning digest
-- Request summary:
-  - Continue autonomous hardening by detecting unresolved compliance items that remain open too long.
-- Files changed:
-  - `apps/api/src/lib/complianceDigest.ts`
-  - `apps/api/src/lib/complianceDigest.test.ts`
-  - `apps/api/src/routes/webhooks.ts`
-- Key behavior changes:
-  - Morning digest now computes `oldestOpenAgeHours` for unresolved BLOCK/MANUAL_REVIEW decisions.
-  - Compliance alert policy now emits `open_queue_stale` when oldest unresolved decision age is >= 24h.
-  - Per-tenant digest payload includes `oldestOpenAgeHours` for operational triage.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - feat: add reopen workflow for resolved compliance decisions
-- Request summary:
-  - Continue autonomous operator hardening by allowing mistakenly resolved compliance decisions to be reopened.
-- Files changed:
-  - `apps/api/src/routes/assist.ts`
-  - `apps/web/src/app/(client)/client/call-control/page.tsx`
-- Key behavior changes:
-  - Added `POST /api/v1/assist/compliance/decisions/:id/reopen` to clear resolution fields and return a decision to open queue state.
-  - Added `Reopen` action in Call Control resolved queue view.
-  - Reopened items are removed from resolved list immediately and surfaced back in open queue on refresh.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - hardening: enforce valid compliance decision state transitions + audit logs
-- Request summary:
-  - Continue autonomous hardening by preventing invalid resolve/reopen operations and capturing operator actions in audit logs.
-- Files changed:
-  - `apps/api/src/routes/assist.ts`
-- Key behavior changes:
-  - `resolve` now rejects invalid transitions:
-    - only `BLOCK` and `MANUAL_REVIEW` are eligible
-    - returns `409 ALREADY_RESOLVED` if already resolved
-  - `reopen` now rejects invalid transitions:
-    - only `BLOCK` and `MANUAL_REVIEW` are eligible
-    - returns `409 ALREADY_OPEN` if already open
-  - Added audit events:
-    - `assist.compliance.resolve`
-    - `assist.compliance.reopen`
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
-
-### pending - test: lock compliance decision transition policy with unit tests
-- Request summary:
-  - Continue autonomous hardening by adding explicit unit tests for resolve/reopen transition rules.
-- Files changed:
-  - `apps/api/src/lib/complianceDecisionState.ts`
-  - `apps/api/src/lib/complianceDecisionState.test.ts`
-  - `apps/api/src/routes/assist.ts`
-  - `package.json`
-- Key behavior changes:
-  - Extracted transition checks to shared helpers:
-    - `validateResolveTransition(...)`
-    - `validateReopenTransition(...)`
-  - Route handlers now use shared transition validators for consistent response behavior.
-  - Added deterministic tests for valid/invalid state transitions and conflict outcomes.
-  - Added new transition-policy test file to `pnpm test:hardening`.
-- Validation run:
-  - pending after current edit set
-- Commit hash:
-  - pending
+### remaining true pending items (high-signal only)
+- Calendar/product ops finalization:
+  - finalize first-class manual booking/blackout UX and provider writeback parity checks.
+- Compliance/product UX documentation cleanup:
+  - replace remaining stale `pending` labels in older historical tracker sections with explicit `done`/`superseded` statuses.
+- Optional security depth pass:
+  - dedicated route-level tests for resolve/reopen endpoints and audit-log assertions (currently covered by unit policy tests + runtime checks).
