@@ -126,6 +126,17 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Moved SWAIG `business-info` AI execution onto the shared agent runner so quota, usage logging, and model governance are consistent with the rest of Assist.
   - Cleaned up Assist UI language: "Widget" now presents as "Website Chat", several raw call outcomes are translated into business-readable text, billing CTAs are less misleading, and the products hub back-link is contextual to the active workspace.
 
+### pending - fix: retire legacy bundle checkout from products billing CTA
+- Request summary:
+  - Prevent new customers from being routed to the old bundle Stripe product when they click to add both products.
+- Files changed:
+  - `apps/web/src/components/billing/BillingActions.tsx`
+  - `apps/api/src/routes/billing.ts`
+- Key behavior changes:
+  - Removed the "Add Both Products" checkout button that triggered legacy bundle pricing.
+  - Added an API guard that blocks new `product="bundle"` checkout session creation (unless an explicit allowed `priceId` is passed), returning a retired-product error message.
+  - Existing bundle subscriptions remain readable for entitlement mapping/backward compatibility.
+
 ## 2026-04-12
 
 ### pending - feat: shared booking execution service, manual bookings, and blackout blocks

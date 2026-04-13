@@ -10,7 +10,7 @@ type ProductAccess = {
   assist: boolean;
 };
 
-type BillingProduct = "lead" | "assist" | "bundle";
+type BillingProduct = "lead" | "assist";
 
 export default function BillingActions({ productAccess }: { productAccess: ProductAccess }) {
   const { getToken } = useAuth();
@@ -109,17 +109,6 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
             {loadingAction === "assist" ? "Opening checkout..." : "Add QYRO Assist"}
           </button>
         )}
-
-        {!productAccess.lead || !productAccess.assist ? (
-          <button
-            type="button"
-            onClick={() => void startCheckout("bundle")}
-            disabled={loadingAction !== null}
-            className="text-xs font-medium px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-60"
-          >
-            {loadingAction === "bundle" ? "Opening checkout..." : "Add Both Products"}
-          </button>
-        ) : null}
 
         {canManage && (
           <button

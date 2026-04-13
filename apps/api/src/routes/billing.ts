@@ -225,6 +225,14 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
       cancelUrl?: string;
     };
 
+    if (product === "bundle" && !rawPriceId) {
+      res.status(400).json({
+        error: "PRODUCT_RETIRED",
+        message: "Bundle checkout has been retired. Add Lead and Assist subscriptions individually.",
+      });
+      return;
+    }
+
     const resolvedPriceId = (rawPriceId && isAllowedCheckoutPriceId(rawPriceId))
       ? rawPriceId
       : (product && plan ? getPriceId(product, plan) : null);
