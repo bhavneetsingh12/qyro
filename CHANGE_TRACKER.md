@@ -779,3 +779,23 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - test: extract and unit-test compliance digest alert policy
+- Request summary:
+  - Continue autonomous hardening by making morning digest alert thresholds deterministic and regression-safe.
+- Files changed:
+  - `apps/api/src/lib/complianceDigest.ts`
+  - `apps/api/src/lib/complianceDigest.test.ts`
+  - `apps/api/src/routes/webhooks.ts`
+  - `package.json`
+- Key behavior changes:
+  - Moved compliance alert threshold logic into shared helper `buildComplianceDigestAlerts(...)`.
+  - Added focused tests for:
+    - healthy no-alert state
+    - spike/high-queue alerts
+    - blocked-ratio guardrail behavior on low sample sizes.
+  - Added new compliance digest test file to `pnpm test:hardening`.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending
