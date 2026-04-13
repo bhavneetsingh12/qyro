@@ -409,12 +409,14 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Prevent paid/onboarded users from being pushed back into legacy-style subscribe prompts when product access flags are temporarily empty or still syncing.
 - Files changed:
   - `apps/web/src/app/products/page.tsx`
+  - `apps/web/src/components/auth/PlanCapture.tsx`
 - Key behavior changes:
   - Removed the auto-redirect from `/products` to `/products?upgrade=bundle` for users with no current product access.
   - Users with incomplete onboarding still go to `/onboarding`, but onboarded users now stay on the product chooser and can pick Lead/Assist directly.
   - Upgrade banner copy now adapts:
     - existing subscribers: “Add another QYRO product”
     - no active product yet: “Choose your first QYRO product”
+  - Plan intent capture now accepts only active product plans (`assist|lead` with `starter|growth`) and no longer stores legacy `bundle-*` or `pro` intents.
 - Validation run:
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
   - Note: existing unrelated Next.js hook dependency warnings remain unchanged.

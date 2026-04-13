@@ -10,7 +10,7 @@ export default function PlanCapture() {
 
   useEffect(() => {
     const plan = searchParams?.get("plan");
-    if (plan && /^(assist|lead|bundle)-(starter|growth|pro)$/.test(plan)) {
+    if (plan && /^(assist|lead)-(starter|growth)$/.test(plan)) {
       try {
         localStorage.setItem("qyro_plan_intent", plan);
       } catch {
