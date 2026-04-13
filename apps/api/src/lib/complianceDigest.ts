@@ -9,6 +9,7 @@ export function buildComplianceDigestAlerts(params: {
   complianceBlock: number;
   complianceManualReview: number;
   complianceOpen: number;
+  oldestOpenAgeHours?: number | null;
 }): ComplianceDigestAlert[] {
   const alerts: ComplianceDigestAlert[] = [];
 
@@ -46,6 +47,15 @@ export function buildComplianceDigestAlerts(params: {
         message: `High blocked/manual-review ratio (${blockedShare}%).`,
       });
     }
+  }
+
+  const oldestOpenAgeHours = Number(params.oldestOpenAgeHours ?? 0);
+  if (Number.isFinite(oldestOpenAgeHours) && oldestOpenAgeHours >= 24) {
+    alerts.push({
+      code: "open_queue_stale",
+      level: "warning",
+      message: `Oldest unresolved compliance decision is ${Math.round(oldestOpenAgeHours)}h old.`,
+    });
   }
 
   return alerts;

@@ -799,3 +799,19 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - ops: add stale open-queue SLA alerting to compliance morning digest
+- Request summary:
+  - Continue autonomous hardening by detecting unresolved compliance items that remain open too long.
+- Files changed:
+  - `apps/api/src/lib/complianceDigest.ts`
+  - `apps/api/src/lib/complianceDigest.test.ts`
+  - `apps/api/src/routes/webhooks.ts`
+- Key behavior changes:
+  - Morning digest now computes `oldestOpenAgeHours` for unresolved BLOCK/MANUAL_REVIEW decisions.
+  - Compliance alert policy now emits `open_queue_stale` when oldest unresolved decision age is >= 24h.
+  - Per-tenant digest payload includes `oldestOpenAgeHours` for operational triage.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

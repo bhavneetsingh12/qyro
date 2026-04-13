@@ -277,7 +277,7 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 			const intentKeys = intentCounterKeys(run.tenantId, digestDate);
 
-			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows, callsRows, urgencyRows, intentValues, complianceWindowRows, complianceOpenRows] = await Promise.all([
+			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows, callsRows, urgencyRows, intentValues, complianceWindowRows, complianceOpenRows, oldestOpenRow] = await Promise.all([
 				db
 					.select({ id: prospectsRaw.id })
 					.from(prospectsRaw)
@@ -352,6 +352,17 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 						inArray(complianceDecisions.decision, ["BLOCK", "MANUAL_REVIEW"]),
 						isNull(complianceDecisions.resolvedAt),
 					)),
+				db
+					.select({
+						oldestEvaluatedAt: sql<Date | null>`min(${complianceDecisions.evaluatedAt})`,
+					})
+					.from(complianceDecisions)
+					.where(and(
+						eq(complianceDecisions.tenantId, run.tenantId),
+						inArray(complianceDecisions.decision, ["BLOCK", "MANUAL_REVIEW"]),
+						isNull(complianceDecisions.resolvedAt),
+					))
+					.then((rows) => rows[0] ?? { oldestEvaluatedAt: null }),
 			]);
 
 			const newProspects = newProspectsRows.length;
@@ -375,11 +386,16 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const complianceBlock = complianceWindowRows.find((row) => row.decision === "BLOCK")?.count ?? 0;
 			const complianceManualReview = complianceWindowRows.find((row) => row.decision === "MANUAL_REVIEW")?.count ?? 0;
 			const complianceOpen = complianceOpenRows.length;
+			const oldestOpenDate = oldestOpenRow.oldestEvaluatedAt ? new Date(oldestOpenRow.oldestEvaluatedAt) : null;
+			const oldestOpenAgeHours = oldestOpenDate
+				? Math.max(0, Math.round((Date.now() - oldestOpenDate.getTime()) / (60 * 60 * 1000)))
+				: null;
 			const complianceAlerts = buildComplianceDigestAlerts({
 				complianceAllow,
 				complianceBlock,
 				complianceManualReview,
 				complianceOpen,
+				oldestOpenAgeHours,
 			});
 
 			await redis.del(intentKeys.questions, intentKeys.bookings, intentKeys.escalations);
@@ -449,6 +465,7 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 				complianceBlock,
 				complianceManualReview,
 				complianceOpen,
+				oldestOpenAgeHours,
 				complianceAlerts,
 				avgUrgencyScore,
 				pendingApprovalTotal,

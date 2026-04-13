@@ -9,6 +9,7 @@ test("returns empty alerts for healthy compliance posture", () => {
     complianceBlock: 2,
     complianceManualReview: 1,
     complianceOpen: 3,
+    oldestOpenAgeHours: 2,
   });
   assert.equal(alerts.length, 0);
 });
@@ -19,6 +20,7 @@ test("flags queue pressure and spikes", () => {
     complianceBlock: 18,
     complianceManualReview: 16,
     complianceOpen: 31,
+    oldestOpenAgeHours: 40,
   });
 
   const codes = alerts.map((row) => row.code);
@@ -26,6 +28,7 @@ test("flags queue pressure and spikes", () => {
   assert.ok(codes.includes("manual_review_spike"));
   assert.ok(codes.includes("blocked_spike"));
   assert.ok(codes.includes("blocked_ratio_high"));
+  assert.ok(codes.includes("open_queue_stale"));
 });
 
 test("blocked ratio threshold is ignored on tiny sample size", () => {
@@ -34,7 +37,20 @@ test("blocked ratio threshold is ignored on tiny sample size", () => {
     complianceBlock: 2,
     complianceManualReview: 1,
     complianceOpen: 0,
+    oldestOpenAgeHours: null,
   });
   const codes = alerts.map((row) => row.code);
   assert.equal(codes.includes("blocked_ratio_high"), false);
+});
+
+test("does not emit stale alert for recent queue age", () => {
+  const alerts = buildComplianceDigestAlerts({
+    complianceAllow: 2,
+    complianceBlock: 1,
+    complianceManualReview: 0,
+    complianceOpen: 5,
+    oldestOpenAgeHours: 12,
+  });
+  const codes = alerts.map((row) => row.code);
+  assert.equal(codes.includes("open_queue_stale"), false);
 });
