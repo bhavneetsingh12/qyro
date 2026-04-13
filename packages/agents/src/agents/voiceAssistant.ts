@@ -32,6 +32,8 @@ export type VoiceAssistantInput = {
   sessionId?: string;
   message: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
+  assistantMode?: "inbound" | "outbound" | "chat";
+  behaviorHint?: string;
   prospectId?: string;
   contactName?: string;
   contactEmail?: string;
@@ -81,6 +83,8 @@ export async function processTurn(input: VoiceAssistantInput): Promise<AgentResu
     message: input.message,
     history: input.history,
     sessionType: "website_widget",
+    assistantMode: input.assistantMode ?? "inbound",
+    behaviorHint: input.behaviorHint,
     prospectId: input.prospectId,
     contactName: input.contactName,
     contactEmail: input.contactEmail,

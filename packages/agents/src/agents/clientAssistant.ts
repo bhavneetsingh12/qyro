@@ -28,6 +28,8 @@ export type ClientAssistantInput = {
   message: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   sessionType?: "website_widget" | "missed_call_sms";
+  assistantMode?: "inbound" | "outbound" | "chat";
+  behaviorHint?: string;
   prospectId?: string;
   contactName?: string;
   contactEmail?: string;
@@ -202,6 +204,8 @@ async function generateReply(params: {
   intent: IntentResult["intent"];
   message: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
+  assistantMode: "inbound" | "outbound" | "chat";
+  behaviorHint?: string;
   runId?: string;
 }): Promise<AgentResult<string>> {
   const system = `You are the text assistant for ${params.tenantName}.
@@ -210,7 +214,9 @@ Use this approved prompt pack as source of truth:\n\n${params.promptPack}\n\nRul
 - Do not promise services outside approved list
 - If unsubscribe intent, confirm opt-out and be brief
 - If escalate intent, say a human will follow up
-- No markdown`;
+- No markdown
+- Runtime mode: ${params.assistantMode}
+${params.behaviorHint ? `- Mode-specific policy: ${params.behaviorHint}` : ""}`;
 
   const historyText = params.history
     .slice(-8)
@@ -358,6 +364,8 @@ export async function runClientAssistant(
       intent: intentResult.data.intent,
       message: input.message,
       history: compactedHistory,
+      assistantMode: input.assistantMode ?? "chat",
+      behaviorHint: input.behaviorHint,
       runId: input.runId,
     });
     if (!replyResult.ok) return replyResult;

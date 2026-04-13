@@ -13,7 +13,7 @@
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db, inferProspectTimezone } from "@qyro/db";
-import { prospectsRaw, prospectsEnriched, messageAttempts, tenants } from "@qyro/db";
+import { prospectsRaw, prospectsEnriched, messageAttempts, tenants, consentRecords } from "@qyro/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { researchQueue, outreachQueue } from "@qyro/queue";
 import { quotaCheck } from "../middleware/quota";
@@ -28,6 +28,14 @@ function priorityFromUrgency(urgencyScore: number | null | undefined): 1 | 2 | 3
   if (score >= 8) return 1;
   if (score >= 5) return 2;
   return 3;
+}
+
+function normalizePhone(value?: string | null): string {
+  return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
+function getRequestIp(req: Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 const router: ExpressRouter = Router();
@@ -281,19 +289,34 @@ router.post("/ingest", quotaCheck("lead_discovery"), async (req: Request, res: R
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { tenantId } = req;
-    const { businessName, domain, phone, email, address, niche } = req.body as {
+    const { businessName, domain, phone, email, address, niche, consent } = req.body as {
       businessName: string;
       domain?:      string;
       phone?:       string;
       email?:       string;
       address?:     string;
       niche?:       string;
+      consent?: {
+        given?: boolean;
+        consentChannel?: "voice" | "sms" | "both";
+        consentType?: "written" | "express" | "inquiry_only" | "unknown";
+        disclosureText?: string;
+        disclosureVersion?: string;
+        formUrl?: string;
+        sellerName?: string;
+        capturedAt?: string;
+      };
     };
 
     if (!businessName?.trim()) {
       res.status(400).json({ error: "INVALID_INPUT", message: "businessName is required" });
       return;
     }
+
+    const normalizedPhone = normalizePhone(phone);
+    const normalizedEmail = email?.trim().toLowerCase() || null;
+    const consentGiven = consent?.given === true && normalizedPhone.startsWith("+");
+    const consentState = consentGiven ? "given" : "unknown";
 
     const [row] = await db
       .insert(prospectsRaw)
@@ -303,14 +326,32 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         sourceType:   "individual",
         businessName: businessName.trim(),
         domain:       domain?.trim()   || null,
-        phone:        phone?.trim()    || null,
-        email:        email?.trim()    || null,
+        phone:        normalizedPhone || null,
+        email:        normalizedEmail,
         address:      address?.trim()  || null,
         prospectTimezone: inferProspectTimezone(address?.trim() || null),
         niche:        niche?.trim()    || null,
-        consentState: "unknown",
+        consentState,
       })
       .returning();
+
+    if (consentGiven) {
+      const capturedAt = consent?.capturedAt ? new Date(consent.capturedAt) : new Date();
+      await db.insert(consentRecords).values({
+        tenantId,
+        prospectId: row.id,
+        phoneE164: normalizedPhone,
+        sellerName: String(consent?.sellerName ?? businessName).trim() || businessName.trim(),
+        consentChannel: consent?.consentChannel ?? "both",
+        consentType: consent?.consentType ?? "written",
+        disclosureText: String(consent?.disclosureText ?? "").trim() || null,
+        disclosureVersion: String(consent?.disclosureVersion ?? "").trim() || null,
+        formUrl: String(consent?.formUrl ?? "").trim() || null,
+        capturedAt: isNaN(capturedAt.getTime()) ? new Date() : capturedAt,
+        ipAddress: getRequestIp(req),
+        userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : null,
+      });
+    }
 
     res.status(201).json({ data: row });
   } catch (err) {

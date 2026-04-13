@@ -161,6 +161,162 @@ Purpose: running log of all changes made in this workspace session series so fol
 
 ## 2026-04-12
 
+### pending - feat: consent capture wiring for intake paths + evidence persistence
+
+- Request summary:
+  - Ensure strict compliance mode receives real consent evidence from lead intake and public Assist entry points.
+- Files changed:
+  - `apps/api/src/routes/leads.ts`
+  - `apps/api/src/routes/assist.ts`
+- Key behavior changes:
+  - `POST /api/leads` now accepts optional `consent` payload and writes `consent_records` with request IP/user-agent evidence when `consent.given === true` and phone is valid E.164.
+  - Manual lead intake now sets `prospects_raw.consent_state` to `given` when consent evidence is provided.
+  - Public Assist chat/missed-call intake now supports optional consent payload and persists consent evidence to `consent_records`.
+  - Prospect consent state is updated to `given` when evidence is captured.
+
+### pending - feat: campaign-level compliance metadata propagation from enqueue through worker
+
+- Request summary:
+  - Ensure compliance evaluator uses campaign-specific seller/automation context consistently in both enqueue and dial worker stages.
+- Files changed:
+  - `packages/db/migrations/0018_call_attempts_compliance_campaign_context.sql`
+  - `packages/db/src/schema.ts`
+  - `packages/db/src/complianceContext.ts`
+  - `packages/db/src/index.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `packages/queue/src/workers/outboundCallWorker.ts`
+- Key behavior changes:
+  - Added call attempt columns:
+    - `campaign_id`
+    - `compliance_seller_name`
+    - `compliance_automated`
+  - Enqueue endpoint now accepts campaign context (top-level or nested `campaign`) and stores it on `call_attempts`.
+  - Compliance evaluator at enqueue now receives `campaignId`, `sellerName`, and `automated` values from campaign context.
+  - Outbound worker now reuses the same stored context so compliance decisions stay consistent after queueing.
+
+### pending - test: add focused hardening suite for evaluator outcomes, gating context, and booking fallback
+
+- Request summary:
+  - Add deterministic automated tests for core hardening logic without external infra.
+- Files changed:
+  - `packages/db/src/compliance.test.ts`
+  - `packages/db/src/complianceContext.test.ts`
+  - `packages/db/src/compliance.ts`
+  - `packages/agents/src/bookingMode.ts`
+  - `packages/agents/src/assistBooking.ts`
+  - `packages/agents/src/assistBooking.test.ts`
+  - `package.json`
+- Key behavior changes:
+  - Added pure evaluator helper `evaluateComplianceFromSnapshot(...)` and unit tests for:
+    - DNC block
+    - missing consent manual review
+    - written-consent enforcement for automated outreach
+    - valid strict-mode allow path
+  - Added compliance context resolution tests for enqueue/worker metadata propagation.
+  - Extracted booking-mode normalization to pure module and added fallback behavior tests.
+  - Added root test command: `pnpm test:hardening`.
+- Validation run:
+  - `pnpm -s -r typecheck`: pass
+  - `pnpm test:hardening`: pass (10 tests, 0 failures)
+
+### pending - ops: compliance reporting endpoints + strict-mode rollout playbook
+
+- Request summary:
+  - Provide operational monitoring tools for strict mode plus a rollout checklist.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+  - `docs/STRICT_MODE_ROLLOUT.md`
+- Key behavior changes:
+  - Added `GET /api/v1/assist/compliance/report?days=...` with totals, top rules, and by-day breakdown.
+  - Added `GET /api/v1/assist/compliance/alerts` with simple spike detection (BLOCK and MANUAL_REVIEW vs 7-day baseline).
+  - Added rollout/operations document for strict mode enablement and incident response.
+
+### pending - feat: shared multi-agent runtime profiles (inbound/outbound/chat) with tenant-level policy controls
+
+- Request summary:
+  - Avoid per-client SignalWire agent sprawl by running a shared runtime and resolving behavior by tenant + mode (`inbound`, `outbound`, `chat`) inside QYRO.
+- Files changed:
+  - `apps/api/src/lib/agentProfiles.ts`
+  - `apps/api/src/routes/tenants.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `apps/api/src/routes/voice.ts`
+  - `apps/api/src/routes/swaig.ts`
+  - `packages/agents/src/agents/clientAssistant.ts`
+  - `packages/agents/src/agents/voiceAssistant.ts`
+  - `apps/web/src/app/(client)/client/admin/page.tsx`
+- Key behavior changes:
+  - Added tenant metadata-backed `agentProfiles` config for:
+    - `inbound`
+    - `outbound`
+    - `chat`
+  - Each profile supports:
+    - `enabled`
+    - `name`
+    - `behaviorHint`
+    - `allowBooking`
+    - `allowEscalation`
+  - `GET /api/v1/tenants/settings` now returns normalized `agentProfiles`.
+  - `PATCH /api/v1/tenants/settings` now accepts and merges `agentProfiles`.
+  - Assist chat route now resolves `chat` profile, blocks when disabled, injects mode hint, and enforces no-booking/no-escalation profile policy on result handling.
+  - Voice routes now resolve direction-based mode:
+    - inbound calls -> inbound profile
+    - outbound calls -> outbound profile
+    and pass mode behavior hints into turn processing.
+  - SWAIG routes now resolve mode and enforce profile policy:
+    - `business-info` respects mode enabled/behavior
+    - `book-appointment` requires `allowBooking`
+    - `escalate` requires `allowEscalation`
+    - `callback-sms` requires mode enabled
+  - Client Admin UI now includes an editable **Shared Agent Runtime Profiles** section under Voice tab.
+- Validation run:
+  - `pnpm -s -r typecheck`: pass (no output)
+
+### pending - ops+feat: verify migration 0017 in live DB and wire inbound opt-out suppression ingestion
+
+- Request summary:
+  - Verify the TCPA compliance migration is truly present in the deployed environment.
+  - Auto-ingest STOP/opt-out revocations from real inbound channels so suppressions are created without manual operator action.
+- Files changed:
+  - `apps/api/src/routes/voice.ts`
+  - `apps/api/src/routes/assist.ts`
+- Key behavior changes:
+  - Verified migration state in current environment:
+    - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro migrate` => `All migrations already applied. Nothing to do.`
+    - Confirmed tables exist: `consent_records`, `suppressions`, `compliance_decisions`.
+  - Added shared opt-out ingestion behavior in voice routes:
+    - Voice "stop" path now writes both `do_not_contact` and `suppressions`, and revokes matching `consent_records` for phone.
+    - Added `POST /api/v1/voice/sms/inbound` (SignalWire-signed) to process inbound SMS STOP/opt-out requests.
+    - SMS opt-out now marks matching outbound attempts as DND and clears future scheduling.
+  - Added chat opt-out ingestion behavior in Assist public chat route:
+    - Widget chat messages containing opt-out intents now create suppression + DNC and revoke consent when phone is present.
+    - Chat returns a direct opt-out confirmation response instead of continuing normal AI conversation flow.
+- Validation run:
+  - `pnpm -s -r typecheck`: pass (no output)
+
+### pending - feat: add compliance decision review API + Call Control queue panel
+
+- Request summary:
+  - Add day-to-day visibility for strict-mode outcomes so blocked/manual-review decisions are actionable without digging through raw logs.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+- Key behavior changes:
+  - Added `GET /api/v1/assist/compliance/decisions?limit=25&decision=open` returning recent `BLOCK` + `MANUAL_REVIEW` decisions with rule code, explanation, channel, and prospect context.
+  - Added a new **Compliance Review Queue** panel in Call Control that surfaces those decisions in the client UI.
+  - Queue action feedback now includes how many submissions were blocked by compliance at enqueue time.
+  - Added user-facing mapping for `blocked_compliance` outcome text.
+- Validation run:
+  - `pnpm -s -r typecheck`: pass (no output)
+- Highest-priority list status after this change:
+  - ✅ Add compliance UI pages for reviewing `MANUAL_REVIEW` and blocked decisions (initial operational view complete)
+  - ❌ Run migration `0017` in all deployed environments and verify table presence
+  - ❌ Inbound STOP/revocation ingestion to auto-create suppressions from real inbound channels
+  - ❌ Consent capture wiring at lead intake/onboarding/forms for strict-mode evidence
+  - ❌ Campaign-level compliance metadata + evaluator wiring
+  - ❌ Complete provider writeback for all supported calendar providers + bookings UX hardening
+  - ❌ Focused automated tests for evaluator/worker suppression and booking fallback
+  - ❌ Deployment/ops checks (strict-mode rollout playbook, daily report, anomaly alerting)
+
 ### pending - feat: shared booking execution service, manual bookings, and blackout blocks
 
 - Request summary:

@@ -11,6 +11,7 @@ import {
   inferProspectTimezone,
   resolveCallingTimezone,
   evaluateComplianceForProspect,
+  resolveOutboundComplianceContextFromAttempt,
 } from "@qyro/db";
 import { redis, QUEUE_NAMES, outboundCallQueue, type OutboundCallJobData } from "../queues";
 import { publishRealtimeEvent } from "../realtime";
@@ -217,13 +218,20 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   });
 
   const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+  const complianceContext = resolveOutboundComplianceContextFromAttempt({
+    campaignId: attempt.campaignId,
+    complianceSellerName: attempt.complianceSellerName,
+    complianceAutomated: attempt.complianceAutomated,
+    defaultSellerName: tenant?.name ?? null,
+  });
   const compliance = await evaluateComplianceForProspect({
     tenantId,
     prospectId: prospect.id,
     channel: "voice",
-    automated: true,
+    automated: complianceContext.automated,
     strictMode: tenantMeta.tcpa_strict_mode === true,
-    sellerName: tenant?.name ?? null,
+    sellerName: complianceContext.sellerName,
+    campaignId: complianceContext.campaignId,
   });
 
   if (compliance.decision !== "ALLOW") {

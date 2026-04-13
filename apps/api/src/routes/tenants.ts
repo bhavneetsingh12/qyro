@@ -11,6 +11,7 @@ import { db, decryptSecret, encryptSecret, tenantIntegrationSecrets, tenantSubsc
 import { normalizeBookingMode, normalizeCalendarProvider } from "@qyro/agents/assistBooking";
 import { isMasterAdminUser, isTenantManagerRole, resolveEffectiveAccessForUser, resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { getWidgetTokenVersion, issueWidgetToken } from "../lib/widgetAuth";
+import { mergeTenantAgentProfiles, resolveTenantAgentProfiles } from "../lib/agentProfiles";
 
 const router: ExpressRouter = Router();
 
@@ -104,6 +105,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       ?? "";
     const calendarProvider = normalizeCalendarProvider(meta.calendarProvider ?? meta.calendar_provider);
     const bookingMode = normalizeBookingMode(meta.bookingMode ?? meta.booking_mode, calendarProvider);
+    const agentProfiles = resolveTenantAgentProfiles(meta);
     let widgetToken: { token: string; expiresAt: string; version: number } | null = null;
     try {
       widgetToken = issueWidgetToken({
@@ -139,6 +141,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       escalationContactPhone: tenant.escalationContactPhone ?? (meta.escalationContactPhone as string | undefined) ?? "",
       escalationContactEmail: tenant.escalationContactEmail ?? (meta.escalationContactEmail as string | undefined) ?? "",
       voiceRuntime: "signalwire",
+      agentProfiles,
       industry: (meta.industry as string) ?? "",
       timezone: (meta.timezone as string) ?? "",
       businessDescription: (meta.businessDescription as string) ?? "",
@@ -207,6 +210,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       businessDescription,
       greetingScript,
       escalationPhrases,
+      agentProfiles,
     } = req.body as {
       name?:             string;
       approvedServices?: string;
@@ -237,6 +241,13 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       businessDescription?: string;
       greetingScript?: string;
       escalationPhrases?: string;
+      agentProfiles?: Partial<Record<"inbound" | "outbound" | "chat", {
+        enabled?: boolean;
+        name?: string;
+        behaviorHint?: string;
+        allowBooking?: boolean;
+        allowEscalation?: boolean;
+      }>>;
     };
 
     const existing = await db.query.tenants.findFirst({
@@ -301,6 +312,9 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       ...(businessDescription !== undefined && { businessDescription }),
       ...(greetingScript     !== undefined && { greetingScript }),
       ...(escalationPhrases  !== undefined && { escalationPhrases }),
+      ...(agentProfiles !== undefined && {
+        agentProfiles: mergeTenantAgentProfiles(existingMeta, agentProfiles),
+      }),
     };
 
     delete updatedMeta.retell_agent_id;

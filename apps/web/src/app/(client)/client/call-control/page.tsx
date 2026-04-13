@@ -44,6 +44,21 @@ type MetricsState = {
   }>;
 };
 
+type ComplianceDecisionRow = {
+  id: string;
+  decision: "ALLOW" | "BLOCK" | "MANUAL_REVIEW";
+  ruleCode: string;
+  explanation: string;
+  channel: string;
+  automated: boolean;
+  evaluatedAt: string;
+  prospectId: string | null;
+  businessName: string | null;
+  phone: string | null;
+  email: string | null;
+  domain: string | null;
+};
+
 const DEFAULT_CONTROL: ControlState = {
   enabled: false,
   paused: false,
@@ -86,6 +101,7 @@ function formatOutcome(outcome: string | null): string {
     dial_failed_retry: "Dial failed, retry scheduled",
     dial_failed: "Dial failed",
     do_not_contact: "Do not contact",
+    blocked_compliance: "Blocked by compliance gate",
   };
   return labels[outcome] ?? outcome.replace(/_/g, " ");
 }
@@ -114,6 +130,7 @@ export default function ClientCallControlPage() {
   const [numbersDraft, setNumbersDraft] = useState("");
   const [enqueueMaxAttempts, setEnqueueMaxAttempts] = useState(3);
   const [enqueueResult, setEnqueueResult] = useState<string | null>(null);
+  const [complianceRows, setComplianceRows] = useState<ComplianceDecisionRow[]>([]);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -126,9 +143,10 @@ export default function ClientCallControlPage() {
         return;
       }
 
-      const [controlRes, metricsRes] = await Promise.all([
+      const [controlRes, metricsRes, complianceRes] = await Promise.all([
         fetchWithToken<{ data: ControlState }>(`${API_URL}/api/v1/assist/outbound-calls/control`, token),
         fetchWithToken<{ data: MetricsState }>(`${API_URL}/api/v1/assist/outbound-calls/metrics`, token),
+        fetchWithToken<{ data: ComplianceDecisionRow[] }>(`${API_URL}/api/v1/assist/compliance/decisions?limit=25&decision=open`, token),
       ]);
 
       if (!controlRes || !metricsRes) {
@@ -140,6 +158,7 @@ export default function ClientCallControlPage() {
       setPausedReasonDraft(controlRes.data.pausedReason ?? "");
       setMaxConcurrentDraft(controlRes.data.maxConcurrentCalls ?? 3);
       setMetrics(metricsRes.data);
+      setComplianceRows(complianceRes?.data ?? []);
       setError(null);
     } catch {
       setError("Could not load outbound control data.");
@@ -230,7 +249,10 @@ export default function ClientCallControlPage() {
       const body = (await res.json().catch(() => ({}))) as {
         message?: string;
         error?: string;
-        data?: { enqueued?: number };
+        data?: {
+          enqueued?: number;
+          blockedByCompliance?: Array<{ prospectId: string }>;
+        };
       };
 
       if (!res.ok) {
@@ -238,7 +260,9 @@ export default function ClientCallControlPage() {
       }
 
       const enqueued = Number(body.data?.enqueued ?? 0);
-      setEnqueueResult(`${enqueued} outbound call${enqueued === 1 ? "" : "s"} queued.`);
+      const blocked = Number(body.data?.blockedByCompliance?.length ?? 0);
+      const blockedSuffix = blocked > 0 ? ` ${blocked} blocked for compliance review.` : "";
+      setEnqueueResult(`${enqueued} outbound call${enqueued === 1 ? "" : "s"} queued.${blockedSuffix}`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to enqueue outbound calls");
@@ -470,6 +494,43 @@ export default function ClientCallControlPage() {
           </div>
         </section>
       </div>
+
+      <section className="mt-5 rounded-[14px] border border-[#E8E6E1] bg-white p-5">
+        <h2 className="text-sm font-semibold text-stone-800">Compliance Review Queue</h2>
+        <p className="mt-1 text-xs text-stone-500">Latest blocked and manual-review decisions from strict-mode evaluator.</p>
+
+        <div className="mt-4 max-h-[320px] overflow-y-auto rounded-lg border border-[#F0EEE9]">
+          {loading ? (
+            <p className="px-4 py-4 text-sm text-stone-500">Loading...</p>
+          ) : complianceRows.length === 0 ? (
+            <p className="px-4 py-4 text-sm text-stone-500">No open compliance decisions.</p>
+          ) : (
+            <ul className="divide-y divide-[#F0EEE9]">
+              {complianceRows.map((row) => (
+                <li key={row.id} className="px-4 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                          row.decision === "BLOCK" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {row.decision === "BLOCK" ? "Blocked" : "Manual review"}
+                      </span>
+                      <span className="font-medium text-stone-700">{row.ruleCode}</span>
+                    </div>
+                    <span className="text-xs text-stone-400">{new Date(row.evaluatedAt).toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-stone-600">{row.explanation}</p>
+                  <p className="mt-1 text-xs text-stone-500">
+                    Prospect: {row.businessName || "Unknown"} {row.phone ? `(${row.phone})` : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t border-[#E8E6E1] bg-white/95 backdrop-blur-sm p-3">
         <div className="max-w-6xl mx-auto grid grid-cols-3 gap-2">

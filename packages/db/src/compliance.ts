@@ -23,6 +23,21 @@ export type EvaluateComplianceParams = {
   strictMode?: boolean;
 };
 
+type ConsentSnapshot = {
+  id: string;
+  consentChannel: string;
+  consentType: string;
+  sellerName: string;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+};
+
+type SuppressionSnapshot = {
+  id: string;
+  suppressionType: string;
+  revokedAt: Date | null;
+};
+
 function isMissingRelationError(err: unknown): boolean {
   return (err as { code?: string })?.code === "42P01";
 }
@@ -34,6 +49,104 @@ function normalizePhone(value: string | null | undefined): string {
 function channelCovered(consentChannel: string, channel: ComplianceChannel): boolean {
   const normalized = (consentChannel ?? "").trim().toLowerCase();
   return normalized === channel || normalized === "both";
+}
+
+export function evaluateComplianceFromSnapshot(params: {
+  strictMode: boolean;
+  automated: boolean;
+  channel: ComplianceChannel;
+  sellerName?: string | null;
+  hasDoNotContact: boolean;
+  suppression: SuppressionSnapshot | null;
+  consent: ConsentSnapshot | null;
+  now?: Date;
+}): ComplianceEvaluation {
+  const now = params.now ?? new Date();
+
+  if (params.hasDoNotContact) {
+    return {
+      decision: "BLOCK",
+      ruleCode: "BLOCK_INTERNAL_DNC",
+      explanation: "Prospect is on do-not-contact list",
+    };
+  }
+
+  if (params.suppression && !params.suppression.revokedAt) {
+    return {
+      decision: "BLOCK",
+      ruleCode: "BLOCK_SUPPRESSION_LIST",
+      explanation: `Suppression active (${params.suppression.suppressionType})`,
+      suppressionId: params.suppression.id,
+    };
+  }
+
+  if (!params.strictMode) {
+    return {
+      decision: "ALLOW",
+      ruleCode: "ALLOW_NO_STRICT_REQUIREMENT",
+      explanation: "Strict mode disabled; suppression checks passed",
+    };
+  }
+
+  if (!params.consent) {
+    return {
+      decision: "MANUAL_REVIEW",
+      ruleCode: "REVIEW_MISSING_CONSENT",
+      explanation: "No consent record found for prospect phone",
+    };
+  }
+
+  if (params.consent.revokedAt) {
+    return {
+      decision: "BLOCK",
+      ruleCode: "BLOCK_CONSENT_REVOKED",
+      explanation: "Consent has been revoked",
+      consentRecordId: params.consent.id,
+    };
+  }
+
+  if (params.consent.expiresAt && params.consent.expiresAt < now) {
+    return {
+      decision: "MANUAL_REVIEW",
+      ruleCode: "REVIEW_CONSENT_EXPIRED",
+      explanation: "Consent record has expired",
+      consentRecordId: params.consent.id,
+    };
+  }
+
+  if (!channelCovered(params.consent.consentChannel, params.channel)) {
+    return {
+      decision: "MANUAL_REVIEW",
+      ruleCode: "REVIEW_CHANNEL_NOT_COVERED",
+      explanation: `Consent channel ${params.consent.consentChannel} does not cover ${params.channel}`,
+      consentRecordId: params.consent.id,
+    };
+  }
+
+  if (params.sellerName && params.consent.sellerName.trim().toLowerCase() !== params.sellerName.trim().toLowerCase()) {
+    return {
+      decision: "MANUAL_REVIEW",
+      ruleCode: "REVIEW_SELLER_MISMATCH",
+      explanation: "Consent seller name does not match campaign seller",
+      consentRecordId: params.consent.id,
+    };
+  }
+
+  if (params.automated && params.consent.consentType.trim().toLowerCase() !== "written") {
+    return {
+      decision: "BLOCK",
+      ruleCode: "BLOCK_WRITTEN_CONSENT_REQUIRED",
+      explanation: "Automated outreach requires written consent",
+      consentRecordId: params.consent.id,
+    };
+  }
+
+  return {
+    decision: "ALLOW",
+    ruleCode: "ALLOW_CONSENT_VALIDATED",
+    explanation: "Consent validated and no active suppressions",
+    consentRecordId: params.consent.id,
+  };
 }
 
 async function writeComplianceDecision(
@@ -108,16 +221,6 @@ export async function evaluateComplianceForProspect(
       ),
     });
 
-    if (dnc) {
-      const blocked: ComplianceEvaluation = {
-        decision: "BLOCK",
-        ruleCode: "BLOCK_INTERNAL_DNC",
-        explanation: "Prospect is on do-not-contact list",
-      };
-      await writeComplianceDecision(params, blocked);
-      return blocked;
-    }
-
     const now = new Date();
     const suppression = await db.query.suppressions.findFirst({
       where: and(
@@ -132,22 +235,6 @@ export async function evaluateComplianceForProspect(
       orderBy: desc(suppressions.createdAt),
     });
 
-    if (suppression && !suppression.revokedAt) {
-      const blocked: ComplianceEvaluation = {
-        decision: "BLOCK",
-        ruleCode: "BLOCK_SUPPRESSION_LIST",
-        explanation: `Suppression active (${suppression.suppressionType})`,
-        suppressionId: suppression.id,
-      };
-      await writeComplianceDecision(params, blocked);
-      return blocked;
-    }
-
-    if (!strictMode) {
-      await writeComplianceDecision(params, fallbackAllow);
-      return fallbackAllow;
-    }
-
     const consent = phone
       ? await db.query.consentRecords.findFirst({
           where: and(
@@ -158,79 +245,33 @@ export async function evaluateComplianceForProspect(
         })
       : null;
 
-    if (!consent) {
-      const review: ComplianceEvaluation = {
-        decision: "MANUAL_REVIEW",
-        ruleCode: "REVIEW_MISSING_CONSENT",
-        explanation: "No consent record found for prospect phone",
-      };
-      await writeComplianceDecision(params, review);
-      return review;
-    }
-
-    if (consent.revokedAt) {
-      const blocked: ComplianceEvaluation = {
-        decision: "BLOCK",
-        ruleCode: "BLOCK_CONSENT_REVOKED",
-        explanation: "Consent has been revoked",
-        consentRecordId: consent.id,
-      };
-      await writeComplianceDecision(params, blocked);
-      return blocked;
-    }
-
-    if (consent.expiresAt && consent.expiresAt < now) {
-      const review: ComplianceEvaluation = {
-        decision: "MANUAL_REVIEW",
-        ruleCode: "REVIEW_CONSENT_EXPIRED",
-        explanation: "Consent record has expired",
-        consentRecordId: consent.id,
-      };
-      await writeComplianceDecision(params, review);
-      return review;
-    }
-
-    if (!channelCovered(consent.consentChannel, params.channel)) {
-      const review: ComplianceEvaluation = {
-        decision: "MANUAL_REVIEW",
-        ruleCode: "REVIEW_CHANNEL_NOT_COVERED",
-        explanation: `Consent channel ${consent.consentChannel} does not cover ${params.channel}`,
-        consentRecordId: consent.id,
-      };
-      await writeComplianceDecision(params, review);
-      return review;
-    }
-
-    if (params.sellerName && consent.sellerName.trim().toLowerCase() !== params.sellerName.trim().toLowerCase()) {
-      const review: ComplianceEvaluation = {
-        decision: "MANUAL_REVIEW",
-        ruleCode: "REVIEW_SELLER_MISMATCH",
-        explanation: "Consent seller name does not match campaign seller",
-        consentRecordId: consent.id,
-      };
-      await writeComplianceDecision(params, review);
-      return review;
-    }
-
-    if (automated && consent.consentType.trim().toLowerCase() !== "written") {
-      const blocked: ComplianceEvaluation = {
-        decision: "BLOCK",
-        ruleCode: "BLOCK_WRITTEN_CONSENT_REQUIRED",
-        explanation: "Automated outreach requires written consent",
-        consentRecordId: consent.id,
-      };
-      await writeComplianceDecision(params, blocked);
-      return blocked;
-    }
-
-    const allow: ComplianceEvaluation = {
-      decision: "ALLOW",
-      ruleCode: "ALLOW_CONSENT_VALIDATED",
-      explanation: "Consent validated and no active suppressions",
-      consentRecordId: consent.id,
-    };
-    await writeComplianceDecision(params, allow);
-    return allow;
+    const result = evaluateComplianceFromSnapshot({
+      strictMode,
+      automated,
+      channel: params.channel,
+      sellerName: params.sellerName,
+      hasDoNotContact: Boolean(dnc),
+      suppression: suppression
+        ? {
+            id: suppression.id,
+            suppressionType: suppression.suppressionType,
+            revokedAt: suppression.revokedAt,
+          }
+        : null,
+      consent: consent
+        ? {
+            id: consent.id,
+            consentChannel: consent.consentChannel,
+            consentType: consent.consentType,
+            sellerName: consent.sellerName,
+            expiresAt: consent.expiresAt,
+            revokedAt: consent.revokedAt,
+          }
+        : null,
+      now,
+    });
+    await writeComplianceDecision(params, result);
+    return result;
   } catch (err) {
     if (isMissingRelationError(err)) {
       return fallbackAllow;
@@ -238,4 +279,3 @@ export async function evaluateComplianceForProspect(
     throw err;
   }
 }
-

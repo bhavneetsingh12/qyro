@@ -22,6 +22,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@qyro/db";
 import { executeBooking } from "@qyro/agents/bookingService";
 import { runCompletion } from "@qyro/agents/runner";
+import { resolveAssistantMode, resolveTenantAgentProfiles, type AssistAgentMode } from "../lib/agentProfiles";
 import {
   auditLogs,
   messageAttempts,
@@ -98,6 +99,15 @@ function getParsed(payload: SwaigPayload): Record<string, unknown> {
 
 function normalizePhone(value?: string): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
+function parseAgentMode(payload: SwaigPayload): AssistAgentMode {
+  const parsed = getParsed(payload);
+  const explicitMode = str(parsed.agent_mode) || str(parsed.mode) || str(payload.function);
+  if (explicitMode.toLowerCase().includes("chat")) return "chat";
+  const direction = str(parsed.direction).toLowerCase();
+  if (direction === "outbound") return resolveAssistantMode({ channel: "voice", direction: "outbound" });
+  return resolveAssistantMode({ channel: "voice", direction: "inbound" });
 }
 
 async function resolveTenant(
@@ -198,6 +208,15 @@ router.post("/business-info", async (req: Request, res: Response) => {
   }
 
   try {
+    const mode = parseAgentMode(payload);
+    const profile = resolveTenantAgentProfiles(tenant.metadata)[mode];
+    if (!profile.enabled) {
+      res.json({
+        response: "This assistant path is currently disabled for your account. Please hold while we connect you to the team.",
+      } satisfies SwaigResponse);
+      return;
+    }
+
     const promptRow = await db
       .select({ content: promptVersions.content })
       .from(promptVersions)
@@ -214,6 +233,8 @@ router.post("/business-info", async (req: Request, res: Response) => {
 
     const systemPrompt = [
       `You are a helpful voice assistant for ${tenant.name}.`,
+      `Runtime mode: ${mode}.`,
+      `Mode policy: ${profile.behaviorHint}`,
       faqContext ? `Business information:\n${faqContext}` : "",
       "Answer the caller's question concisely and naturally, as if speaking aloud.",
       "Keep your answer under 3 sentences. If you don't know, say so and offer a callback.",
@@ -273,6 +294,15 @@ router.post("/book-appointment", async (req: Request, res: Response) => {
   }
 
   try {
+    const mode = parseAgentMode(payload);
+    const profile = resolveTenantAgentProfiles(tenant.metadata)[mode];
+    if (!profile.enabled || !profile.allowBooking) {
+      res.json({
+        response: "Booking is currently handled by the team directly. We will call you back to schedule.",
+      } satisfies SwaigResponse);
+      return;
+    }
+
     const prospectId = await findOrCreateProspect(tenant.id, phoneNumber, callerName);
     if (!prospectId) {
       res.json({
@@ -349,6 +379,15 @@ router.post("/escalate", async (req: Request, res: Response) => {
     console.warn("[swaig/escalate] tenant not resolved");
     res.json({
       response: "Let me connect you with our team. Please hold.",
+    } satisfies SwaigResponse);
+    return;
+  }
+  const mode = parseAgentMode(payload);
+  const profile = resolveTenantAgentProfiles(tenant.metadata)[mode];
+  if (!profile.enabled || !profile.allowEscalation) {
+    res.json({
+      response:
+        "Our escalation path is currently unavailable. A team member will follow up with you shortly.",
     } satisfies SwaigResponse);
     return;
   }
@@ -432,6 +471,15 @@ router.post("/callback-sms", async (req: Request, res: Response) => {
     res.json({
       response:
         "I'm sorry, I wasn't able to send that text message. Is there anything else I can help you with?",
+    } satisfies SwaigResponse);
+    return;
+  }
+  const mode = parseAgentMode(payload);
+  const profile = resolveTenantAgentProfiles(tenant.metadata)[mode];
+  if (!profile.enabled) {
+    res.json({
+      response:
+        "Text follow-up is currently unavailable for this assistant path. A team member will contact you directly.",
     } satisfies SwaigResponse);
     return;
   }

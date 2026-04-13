@@ -1,12 +1,13 @@
 import express, { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
 import { db } from "@qyro/db";
-import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, tenantSubscriptions } from "@qyro/db";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { assistantSessions, callAttempts, prospectsRaw, tenants, doNotContact, tenantSubscriptions, suppressions, consentRecords } from "@qyro/db";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { greeting, processTurn, transferToStaff } from "@qyro/agents/voiceAssistant";
 import { compactHistory, shouldCompact } from "@qyro/agents/compact";
 import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { triggerEscalationNotifications } from "../lib/escalation";
+import { resolveTenantAgentProfiles, resolveAssistantMode } from "../lib/agentProfiles";
 
 const router: ExpressRouter = Router();
 router.use(express.urlencoded({ extended: true }));
@@ -39,6 +40,67 @@ function normalizePhone(value?: string): string {
 function isDndRequest(text: string): boolean {
   const lowered = text.toLowerCase();
   return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd)\b/.test(lowered);
+}
+
+function emailDomain(email?: string | null): string | null {
+  const value = String(email ?? "").trim().toLowerCase();
+  if (!value.includes("@")) return null;
+  const domain = value.split("@").pop()?.trim() ?? "";
+  return domain || null;
+}
+
+async function applyOptOut(params: {
+  tenantId: string;
+  prospect: {
+    id: string;
+    phone: string | null;
+    email: string | null;
+    domain: string | null;
+  } | null;
+  phone?: string | null;
+  email?: string | null;
+  reason: string;
+  suppressionType: "stop_reply" | "verbal_optout" | "manual_block";
+}) {
+  const now = new Date();
+  const normalizedPhone = normalizePhone(params.phone ?? params.prospect?.phone ?? "");
+  const normalizedEmail = String(params.email ?? params.prospect?.email ?? "").trim().toLowerCase();
+  const domain = String(params.prospect?.domain ?? "").trim().toLowerCase() || emailDomain(normalizedEmail) || null;
+
+  if (!normalizedPhone && !normalizedEmail && !domain) return;
+
+  await db.insert(doNotContact).values({
+    tenantId: params.tenantId,
+    phone: normalizedPhone || null,
+    email: normalizedEmail || null,
+    domain,
+    reason: params.reason,
+  });
+
+  await db.insert(suppressions).values({
+    tenantId: params.tenantId,
+    phoneE164: normalizedPhone || null,
+    email: normalizedEmail || null,
+    domain,
+    suppressionType: params.suppressionType,
+    scope: "global",
+    reason: params.reason,
+    effectiveAt: now,
+  });
+
+  if (normalizedPhone) {
+    await db
+      .update(consentRecords)
+      .set({
+        revokedAt: now,
+        revokedReason: params.reason,
+      })
+      .where(and(
+        eq(consentRecords.tenantId, params.tenantId),
+        eq(consentRecords.phoneE164, normalizedPhone),
+        isNull(consentRecords.revokedAt),
+      ));
+  }
 }
 
 function mapTwilioStatusToPipeline(status: string): string {
@@ -214,8 +276,17 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     }
 
     const businessName = tenant.name || "the business";
+    const inboundProfile = resolveTenantAgentProfiles(tenant.metadata)[resolveAssistantMode({ channel: "voice", direction: "inbound" })];
+    if (!inboundProfile.enabled) {
+      sendTwiml(twimlSay("Voice assistant is currently unavailable. Please call back later."));
+      return;
+    }
     const greet = await greeting({ businessName });
-    const reply = greet.ok ? greet.data.reply : "Hi, you've reached the business. I'm an AI assistant. How can I help you today?";
+    const fallbackGreeting = "Hi, you've reached the business. I'm an AI assistant. How can I help you today?";
+    const baseGreeting = greet.ok ? greet.data.reply : fallbackGreeting;
+    const reply = inboundProfile.behaviorHint
+      ? `${baseGreeting} ${inboundProfile.behaviorHint}`
+      : baseGreeting;
 
     const say = reply;
     const action = `/api/v1/voice/turn?sessionId=${encodeURIComponent(session.id)}`;
@@ -246,6 +317,11 @@ router.post("/outbound/twiml", async (req: Request, res: Response, next: NextFun
 
     const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, attempt.tenantId) });
     const businessName = tenant?.name || "the business";
+    const outboundProfile = resolveTenantAgentProfiles(tenant?.metadata ?? null)[resolveAssistantMode({ channel: "voice", direction: "outbound" })];
+    if (!outboundProfile.enabled) {
+      res.type("text/xml").send(twimlSay("Outbound assistant is currently unavailable."));
+      return;
+    }
 
     const [session] = await db
       .insert(assistantSessions)
@@ -261,7 +337,7 @@ router.post("/outbound/twiml", async (req: Request, res: Response, next: NextFun
       ? greet.data.reply
       : "Hi, this is an AI assistant calling from the business. How can I help you today?";
 
-    const safeGreeting = `${greetingText} You can say stop at any time to opt out of future calls.`;
+    const safeGreeting = `${greetingText} ${outboundProfile.behaviorHint} You can say stop at any time to opt out of future calls.`;
     const action = `/api/v1/voice/turn?sessionId=${encodeURIComponent(session.id)}&callAttemptId=${encodeURIComponent(callAttemptId)}`;
     res.type("text/xml").send(twimlGatherAndSayWithAction(action, safeGreeting));
   } catch (err) {
@@ -288,6 +364,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
     const speech = String(req.body.SpeechResult ?? req.body.Body ?? "").trim();
     const sessionId = String(req.query.sessionId ?? req.body.sessionId ?? "").trim();
     const callAttemptId = String(req.query.callAttemptId ?? req.body.callAttemptId ?? "").trim();
+    const voiceDirection = callAttemptId ? "outbound" : "inbound";
 
     if (!speech) {
       sendTwiml(twimlGatherAndSay("I did not catch that. Could you repeat your request?"));
@@ -305,12 +382,18 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
             where: and(eq(prospectsRaw.id, attempt.prospectId), eq(prospectsRaw.tenantId, attempt.tenantId)),
           });
 
-          await db.insert(doNotContact).values({
+          await applyOptOut({
             tenantId: attempt.tenantId,
-            phone: prospect?.phone ?? null,
-            email: prospect?.email ?? null,
-            domain: prospect?.domain ?? null,
+            prospect: prospect
+              ? {
+                  id: prospect.id,
+                  phone: prospect.phone ?? null,
+                  email: prospect.email ?? null,
+                  domain: prospect.domain ?? null,
+                }
+              : null,
             reason: "unsubscribe",
+            suppressionType: "verbal_optout",
           });
 
           await db
@@ -379,12 +462,17 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
           where: and(eq(prospectsRaw.id, session.prospectId), eq(prospectsRaw.tenantId, session.tenantId)),
         })
       : null;
+    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, session.tenantId) });
+    const resolvedMode = resolveAssistantMode({ channel: "voice", direction: voiceDirection });
+    const behaviorHint = resolveTenantAgentProfiles(tenant?.metadata ?? null)[resolvedMode].behaviorHint;
 
     const turn = await processTurn({
       tenantId: session.tenantId,
       sessionId: session.id,
       message: speech,
       history,
+      assistantMode: resolvedMode,
+      behaviorHint,
       prospectId: prospect?.id,
       contactName: prospect?.businessName ?? undefined,
       contactEmail: prospect?.email ?? undefined,
@@ -405,7 +493,6 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
 
     // ── Escalation path ───────────────────────────────────────────────────────
     if (turn.data.escalate) {
-      const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, session.tenantId) });
       const meta = (tenant?.metadata as Record<string, unknown>) ?? {};
 
       const escalationPhone =
@@ -463,6 +550,69 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
     next(err);
   } finally {
     clearTimeout(timeout);
+  }
+});
+
+router.post("/sms/inbound", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const fromPhone = String(req.body.From ?? req.body.from ?? "").trim();
+    const toPhone = String(req.body.To ?? req.body.to ?? "").trim();
+    const bodyText = String(req.body.Body ?? req.body.body ?? "").trim();
+
+    if (!fromPhone || !toPhone || !bodyText) {
+      res.type("text/xml").send(twimlEmpty());
+      return;
+    }
+
+    if (!isDndRequest(bodyText)) {
+      res.type("text/xml").send(twimlEmpty());
+      return;
+    }
+
+    const tenant = await findTenantByVoiceNumber(toPhone);
+    if (!tenant) {
+      res.type("text/xml").send(twimlEmpty());
+      return;
+    }
+
+    const prospect = await findProspectByPhone(tenant.id, fromPhone);
+    await applyOptOut({
+      tenantId: tenant.id,
+      prospect: prospect
+        ? {
+            id: prospect.id,
+            phone: prospect.phone ?? null,
+            email: prospect.email ?? null,
+            domain: prospect.domain ?? null,
+          }
+        : null,
+      phone: fromPhone,
+      reason: "sms_stop",
+      suppressionType: "stop_reply",
+    });
+
+    if (prospect?.id) {
+      await db
+        .update(callAttempts)
+        .set({
+          status: "dnd",
+          outcome: "do_not_contact",
+          dndAt: new Date(),
+          nextAttemptAt: null,
+        })
+        .where(
+          and(
+            eq(callAttempts.tenantId, tenant.id),
+            eq(callAttempts.prospectId, prospect.id),
+            eq(callAttempts.direction, "outbound"),
+            or(eq(callAttempts.status, "queued"), eq(callAttempts.status, "retry_scheduled"), eq(callAttempts.status, "dialing"), eq(callAttempts.status, "ringing")) as any,
+          ),
+        );
+    }
+
+    res.type("text/xml").send(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>You are opted out. No further calls or texts will be sent.</Message></Response>`);
+  } catch (err) {
+    next(err);
   }
 });
 

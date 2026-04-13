@@ -184,6 +184,9 @@ export const callAttempts = pgTable("call_attempts", {
   nextAttemptAt:  timestamp("next_attempt_at"),
   lastAttemptAt:  timestamp("last_attempt_at"),
   source:         text("source"), // "lead_manual" | "campaign" | "callback"
+  campaignId:     uuid("campaign_id"),
+  complianceSellerName: text("compliance_seller_name"),
+  complianceAutomated: boolean("compliance_automated").notNull().default(true),
   complianceBlockedReason: text("compliance_blocked_reason"),
   bookingStatus:  text("booking_status").notNull().default("none"), // "none" | "proposed" | "confirmed" | "declined"
   bookingRef:     text("booking_ref"), // appointments.id when booked

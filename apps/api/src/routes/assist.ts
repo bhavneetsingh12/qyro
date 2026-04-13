@@ -13,9 +13,9 @@ import { verifyWidgetToken } from "../lib/widgetAuth";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, blackoutBlocks, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries, consentRecords, suppressions, doNotContact } from "@qyro/db";
-import { evaluateComplianceForProspect } from "@qyro/db";
-import { eq, and, desc, sql, inArray, or, gte, lte } from "drizzle-orm";
+import { assistantSessions, appointments, blackoutBlocks, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries, consentRecords, suppressions, doNotContact, complianceDecisions } from "@qyro/db";
+import { evaluateComplianceForProspect, resolveOutboundComplianceContextFromInput } from "@qyro/db";
+import { eq, and, desc, sql, inArray, isNull, or, gte, lte } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
 import {
   executeBooking,
@@ -24,6 +24,7 @@ import {
 } from "@qyro/agents/bookingService";
 import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
+import { resolveTenantAgentProfiles, resolveAssistantMode } from "../lib/agentProfiles";
 
 const router: ExpressRouter = Router();
 const publicRouter: ExpressRouter = Router();
@@ -67,6 +68,126 @@ function outboundGlobalPauseEnabled(): boolean {
 
 function normalizePhone(value?: string | null): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
+}
+
+function isOptOutText(value: string): boolean {
+  const lowered = value.toLowerCase();
+  return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd|revoke consent)\b/.test(lowered);
+}
+
+function getEmailDomain(email?: string | null): string | null {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  if (!normalized.includes("@")) return null;
+  const domain = normalized.split("@").pop()?.trim() ?? "";
+  return domain || null;
+}
+
+async function createSuppressionAndRevokeConsent(params: {
+  tenantId: string;
+  phone?: string | null;
+  email?: string | null;
+  domain?: string | null;
+  suppressionType: "stop_reply" | "verbal_optout" | "manual_block";
+  reason: string;
+}) {
+  const phone = normalizePhone(params.phone);
+  const email = String(params.email ?? "").trim().toLowerCase();
+  const domain = String(params.domain ?? "").trim().toLowerCase() || getEmailDomain(email) || "";
+  if (!phone && !email && !domain) return false;
+
+  const now = new Date();
+  await db.insert(suppressions).values({
+    tenantId: params.tenantId,
+    phoneE164: phone || null,
+    email: email || null,
+    domain: domain || null,
+    suppressionType: params.suppressionType,
+    scope: "global",
+    reason: params.reason,
+    effectiveAt: now,
+  });
+
+  await db.insert(doNotContact).values({
+    tenantId: params.tenantId,
+    phone: phone || null,
+    email: email || null,
+    domain: domain || null,
+    reason: params.reason,
+  });
+
+  if (phone) {
+    await db
+      .update(consentRecords)
+      .set({
+        revokedAt: now,
+        revokedReason: params.reason,
+      })
+      .where(and(
+        eq(consentRecords.tenantId, params.tenantId),
+        eq(consentRecords.phoneE164, phone),
+        isNull(consentRecords.revokedAt),
+      ));
+  }
+
+  return true;
+}
+
+type ConsentPayload = {
+  given?: boolean;
+  consentChannel?: string;
+  consentType?: string;
+  disclosureText?: string;
+  disclosureVersion?: string;
+  formUrl?: string;
+  sellerName?: string;
+  capturedAt?: string;
+};
+
+function normalizeConsentChannel(value: unknown): "voice" | "sms" | "both" {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "voice" || normalized === "sms" || normalized === "both") return normalized;
+  return "both";
+}
+
+function normalizeConsentType(value: unknown): "written" | "express" | "inquiry_only" | "unknown" {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "written" || normalized === "express" || normalized === "inquiry_only" || normalized === "unknown") return normalized;
+  return "written";
+}
+
+async function captureConsentEvidence(params: {
+  tenantId: string;
+  prospectId: string;
+  phone: string | null;
+  sellerName: string;
+  consent?: ConsentPayload | null;
+  req: Request;
+}): Promise<boolean> {
+  const normalizedPhone = normalizePhone(params.phone);
+  if (!normalizedPhone || !params.consent || params.consent.given !== true) return false;
+
+  const capturedAt = params.consent.capturedAt ? new Date(params.consent.capturedAt) : new Date();
+  await db.insert(consentRecords).values({
+    tenantId: params.tenantId,
+    prospectId: params.prospectId,
+    phoneE164: normalizedPhone,
+    sellerName: String(params.consent.sellerName ?? params.sellerName).trim() || params.sellerName,
+    consentChannel: normalizeConsentChannel(params.consent.consentChannel),
+    consentType: normalizeConsentType(params.consent.consentType),
+    disclosureText: String(params.consent.disclosureText ?? "").trim() || null,
+    disclosureVersion: String(params.consent.disclosureVersion ?? "").trim() || null,
+    formUrl: String(params.consent.formUrl ?? "").trim() || null,
+    capturedAt: isNaN(capturedAt.getTime()) ? new Date() : capturedAt,
+    ipAddress: getRequestIp(params.req),
+    userAgent: params.req.headers["user-agent"] ? String(params.req.headers["user-agent"]) : null,
+  });
+
+  await db
+    .update(prospectsRaw)
+    .set({ consentState: "given" })
+    .where(and(eq(prospectsRaw.tenantId, params.tenantId), eq(prospectsRaw.id, params.prospectId)));
+
+  return true;
 }
 
 function isMissingColumnError(err: unknown): boolean {
@@ -534,6 +655,10 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
     const maxAttempts = Number.isFinite(maxAttemptsRaw)
       ? Math.max(1, Math.min(maxAttemptsRaw, 8))
       : 4;
+    const complianceContext = resolveOutboundComplianceContextFromInput({
+      body: req.body,
+      defaultSellerName: tenant?.name ?? null,
+    });
 
     const prospectSet = new Set<string>();
     const createdProspectIds: string[] = [];
@@ -582,9 +707,10 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
         tenantId,
         prospectId: prospect.id,
         channel: "voice",
-        automated: true,
+        automated: complianceContext.automated,
         strictMode: tenantMeta.tcpa_strict_mode === true,
-        sellerName: tenant?.name ?? null,
+        sellerName: complianceContext.sellerName,
+        campaignId: complianceContext.campaignId,
       });
 
       if (compliance.decision !== "ALLOW") {
@@ -603,6 +729,9 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
               prospectId: prospect.id,
               direction: "outbound",
               source: "lead_manual",
+              campaignId: complianceContext.campaignId,
+              complianceSellerName: complianceContext.sellerName,
+              complianceAutomated: complianceContext.automated,
               status: "blocked_compliance",
               outcome: "blocked_compliance",
               complianceBlockedReason: `${compliance.decision}:${compliance.ruleCode}`,
@@ -636,6 +765,9 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
             prospectId,
             direction: "outbound",
             source: "lead_manual",
+            campaignId: complianceContext.campaignId,
+            complianceSellerName: complianceContext.sellerName,
+            complianceAutomated: complianceContext.automated,
             status: "queued",
             outcome: "queued",
             attemptCount: 0,
@@ -856,6 +988,194 @@ router.post("/v1/assist/compliance/suppressions", async (req: Request, res: Resp
     });
 
     res.json({ data: { id: created.id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/compliance/decisions ────────────────────────────────
+
+router.get("/v1/assist/compliance/decisions", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.tenantId;
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 100);
+    const decisionFilter = String(req.query.decision ?? "open").trim().toUpperCase();
+
+    const decisionWhere =
+      decisionFilter === "BLOCK"
+        ? eq(complianceDecisions.decision, "BLOCK")
+        : decisionFilter === "MANUAL_REVIEW"
+          ? eq(complianceDecisions.decision, "MANUAL_REVIEW")
+          : inArray(complianceDecisions.decision, ["BLOCK", "MANUAL_REVIEW"]);
+
+    const rows = await db
+      .select({
+        id: complianceDecisions.id,
+        decision: complianceDecisions.decision,
+        ruleCode: complianceDecisions.ruleCode,
+        explanation: complianceDecisions.explanation,
+        channel: complianceDecisions.channel,
+        automated: complianceDecisions.automated,
+        evaluatedAt: complianceDecisions.evaluatedAt,
+        prospectId: prospectsRaw.id,
+        businessName: prospectsRaw.businessName,
+        phone: prospectsRaw.phone,
+        email: prospectsRaw.email,
+        domain: prospectsRaw.domain,
+      })
+      .from(complianceDecisions)
+      .leftJoin(prospectsRaw, eq(complianceDecisions.prospectId, prospectsRaw.id))
+      .where(and(eq(complianceDecisions.tenantId, tenantId), decisionWhere))
+      .orderBy(desc(complianceDecisions.evaluatedAt))
+      .limit(limit);
+
+    res.json({ data: rows, limit });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/compliance/report ───────────────────────────────────
+
+router.get("/v1/assist/compliance/report", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance reporting" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const days = Math.max(1, Math.min(parseInt(String(req.query.days ?? "7"), 10), 30));
+    const cutoff = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000);
+
+    const totals = await db
+      .select({
+        decision: complianceDecisions.decision,
+        count: sql<number>`count(*)`,
+      })
+      .from(complianceDecisions)
+      .where(and(eq(complianceDecisions.tenantId, tenantId), gte(complianceDecisions.evaluatedAt, cutoff)))
+      .groupBy(complianceDecisions.decision);
+
+    const byRule = await db
+      .select({
+        ruleCode: complianceDecisions.ruleCode,
+        decision: complianceDecisions.decision,
+        count: sql<number>`count(*)`,
+      })
+      .from(complianceDecisions)
+      .where(and(eq(complianceDecisions.tenantId, tenantId), gte(complianceDecisions.evaluatedAt, cutoff)))
+      .groupBy(complianceDecisions.ruleCode, complianceDecisions.decision)
+      .orderBy(desc(sql<number>`count(*)`))
+      .limit(20);
+
+    const byDay = await db
+      .select({
+        day: sql<string>`to_char(date_trunc('day', ${complianceDecisions.evaluatedAt}), 'YYYY-MM-DD')`,
+        decision: complianceDecisions.decision,
+        count: sql<number>`count(*)`,
+      })
+      .from(complianceDecisions)
+      .where(and(eq(complianceDecisions.tenantId, tenantId), gte(complianceDecisions.evaluatedAt, cutoff)))
+      .groupBy(sql`date_trunc('day', ${complianceDecisions.evaluatedAt})`, complianceDecisions.decision)
+      .orderBy(sql`date_trunc('day', ${complianceDecisions.evaluatedAt})`);
+
+    res.json({
+      data: {
+        days,
+        totals,
+        byRule,
+        byDay,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/v1/assist/compliance/alerts ───────────────────────────────────
+
+router.get("/v1/assist/compliance/alerts", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance reporting" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const todayRows = await db
+      .select({
+        decision: complianceDecisions.decision,
+        count: sql<number>`count(*)`,
+      })
+      .from(complianceDecisions)
+      .where(and(eq(complianceDecisions.tenantId, tenantId), gte(complianceDecisions.evaluatedAt, todayStart)))
+      .groupBy(complianceDecisions.decision);
+
+    const weekRows = await db
+      .select({
+        decision: complianceDecisions.decision,
+        count: sql<number>`count(*)`,
+      })
+      .from(complianceDecisions)
+      .where(and(eq(complianceDecisions.tenantId, tenantId), gte(complianceDecisions.evaluatedAt, weekStart), lte(complianceDecisions.evaluatedAt, todayStart)))
+      .groupBy(complianceDecisions.decision);
+
+    const todayMap = todayRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.decision] = Number(row.count ?? 0);
+      return acc;
+    }, {});
+    const weekMap = weekRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.decision] = Number(row.count ?? 0);
+      return acc;
+    }, {});
+
+    const blockedToday = todayMap.BLOCK ?? 0;
+    const reviewToday = todayMap.MANUAL_REVIEW ?? 0;
+    const blockedDailyAvg = Math.round((weekMap.BLOCK ?? 0) / 7);
+    const reviewDailyAvg = Math.round((weekMap.MANUAL_REVIEW ?? 0) / 7);
+
+    const alerts: Array<{ code: string; level: "info" | "warning"; message: string }> = [];
+    if (blockedToday > Math.max(10, blockedDailyAvg * 2)) {
+      alerts.push({
+        code: "BLOCK_SPIKE",
+        level: "warning",
+        message: `Blocked decisions spiked today (${blockedToday}) vs 7-day avg (${blockedDailyAvg}).`,
+      });
+    }
+    if (reviewToday > Math.max(10, reviewDailyAvg * 2)) {
+      alerts.push({
+        code: "MANUAL_REVIEW_SPIKE",
+        level: "warning",
+        message: `Manual-review decisions spiked today (${reviewToday}) vs 7-day avg (${reviewDailyAvg}).`,
+      });
+    }
+    if (alerts.length === 0) {
+      alerts.push({
+        code: "COMPLIANCE_STABLE",
+        level: "info",
+        message: "No abnormal compliance decision spikes detected.",
+      });
+    }
+
+    res.json({
+      data: {
+        today: {
+          blocked: blockedToday,
+          manualReview: reviewToday,
+        },
+        baselineDailyAvg: {
+          blocked: blockedDailyAvg,
+          manualReview: reviewDailyAvg,
+        },
+        alerts,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -1226,6 +1546,11 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
     }
 
     const tenantMeta = getTenantMetadata(tenant);
+    const agentProfile = resolveTenantAgentProfiles(tenant.metadata)[resolveAssistantMode({ channel: "chat" })];
+    if (!agentProfile.enabled) {
+      res.status(403).json({ error: "AGENT_DISABLED", message: "Chat assistant is disabled for this tenant" });
+      return;
+    }
     const publicBudgetError = await enforcePublicDailyBudget({
       tenantId: tenant.id,
       bucket: "chat",
@@ -1251,11 +1576,45 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
     }
 
     const contact = (req.body?.contact ?? {}) as { name?: string; phone?: string; email?: string };
+    const consent = (req.body?.consent ?? null) as ConsentPayload | null;
+
+    if (isOptOutText(message)) {
+      const suppressed = await createSuppressionAndRevokeConsent({
+        tenantId,
+        phone: contact.phone,
+        email: contact.email,
+        suppressionType: "stop_reply",
+        reason: "chat_opt_out",
+      });
+
+      res.json({
+        data: {
+          sessionId: sessionId ?? null,
+          reply: suppressed
+            ? "Understood. You are opted out and we will not contact you again."
+            : "Understood. Please share the phone or email you'd like us to opt out.",
+          escalated: false,
+          escalate: false,
+          escalationReason: null,
+          status: "resolved",
+        },
+      });
+      return;
+    }
+
     const prospect = await getOrCreateProspect({
       tenantId,
       name: contact.name,
       phone: contact.phone,
       email: contact.email,
+    });
+    await captureConsentEvidence({
+      tenantId,
+      prospectId: prospect.id,
+      phone: contact.phone ?? prospect.phone,
+      sellerName: tenant.name,
+      consent,
+      req,
     });
 
     const result = await runClientAssistant({
@@ -1268,12 +1627,23 @@ publicRouter.post("/chat", async (req: Request, res: Response, next: NextFunctio
       contactName: contact.name,
       contactEmail: contact.email,
       contactPhone: contact.phone,
+      assistantMode: "chat",
+      behaviorHint: `${agentProfile.behaviorHint}${agentProfile.allowBooking ? "" : " Booking actions are disabled in this mode."}${agentProfile.allowEscalation ? "" : " Escalation actions are disabled in this mode."}`,
       runId: req.body?.runId ? String(req.body.runId) : undefined,
     });
 
     if (!result.ok) {
       res.status(400).json(result);
       return;
+    }
+
+    if (!agentProfile.allowBooking && result.data.intent === "booking_intent") {
+      result.data.reply = "Booking is currently handled by our team. Please share your preferred day and time and we will follow up.";
+      result.data.bookingId = undefined;
+    }
+    if (!agentProfile.allowEscalation && result.data.escalate) {
+      result.data.escalate = false;
+      result.data.escalationReason = undefined;
     }
 
     // Escalation path: fire-and-forget notifications when agent detects escalation
@@ -1399,6 +1769,15 @@ publicRouter.post("/missed-call", async (req: Request, res: Response, next: Next
     }
 
     const prospect = await getOrCreateProspect({ tenantId, name, phone: normalizedPhone });
+    const consent = (req.body?.consent ?? null) as ConsentPayload | null;
+    await captureConsentEvidence({
+      tenantId,
+      prospectId: prospect.id,
+      phone: normalizedPhone,
+      sellerName: tenant.name,
+      consent,
+      req,
+    });
 
     const [session] = await db
       .insert(assistantSessions)

@@ -12,6 +12,18 @@ type Tab = "org" | "voice" | "ai" | "team" | "billing";
 
 type CalendarProvider = "callback_only" | "cal_com" | "calendly" | "google_calendar" | "square_appointments" | "acuity";
 type BookingMode = "direct_booking" | "booking_link_sms" | "callback_only";
+type AgentProfile = {
+  enabled: boolean;
+  name: string;
+  behaviorHint: string;
+  allowBooking: boolean;
+  allowEscalation: boolean;
+};
+type AgentProfiles = {
+  inbound: AgentProfile;
+  outbound: AgentProfile;
+  chat: AgentProfile;
+};
 
 type Settings = {
   name: string;
@@ -33,6 +45,7 @@ type Settings = {
   calendarEventTypeId: string;
   hasCalendarApiKey: boolean;
   tcpaStrictMode: boolean;
+  agentProfiles: AgentProfiles;
 };
 
 type FaqEntry = { question: string; answer: string };
@@ -260,6 +273,15 @@ function VoiceTab({ settings, onChange, onSave, saving, saved, error }: {
   saved: boolean;
   error: string | null;
 }) {
+  function patchProfile(mode: keyof AgentProfiles, patch: Partial<AgentProfile>) {
+    onChange({
+      agentProfiles: {
+        ...settings.agentProfiles,
+        [mode]: { ...settings.agentProfiles[mode], ...patch },
+      },
+    });
+  }
+
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave(); }} className="space-y-5">
       <Section title="Voice Configuration">
@@ -290,6 +312,57 @@ function VoiceTab({ settings, onChange, onSave, saving, saved, error }: {
             )}
           </div>
         </div>
+      </Section>
+      <Section title="Shared Agent Runtime Profiles">
+        <p className="text-xs text-stone-500 -mt-2">
+          One number, separate behavior policies by mode. SignalWire can reuse shared runtimes while QYRO controls policy here.
+        </p>
+        {(["inbound", "outbound", "chat"] as const).map((mode) => {
+          const profile = settings.agentProfiles[mode];
+          return (
+            <div key={mode} className="rounded-lg border border-[#E8E6E1] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-stone-800 capitalize">{mode} profile</p>
+                <label className="flex items-center gap-2 text-xs text-stone-600">
+                  <input
+                    type="checkbox"
+                    checked={profile.enabled}
+                    onChange={(e) => patchProfile(mode, { enabled: e.target.checked })}
+                  />
+                  Enabled
+                </label>
+              </div>
+              <Field label="Profile name">
+                <input className="input" value={profile.name} onChange={(e) => patchProfile(mode, { name: e.target.value })} />
+              </Field>
+              <Field label="Behavior hint" hint="Injected into runtime policy for this mode. Keep it short and operational.">
+                <textarea
+                  className="input min-h-[64px] resize-y"
+                  value={profile.behaviorHint}
+                  onChange={(e) => patchProfile(mode, { behaviorHint: e.target.value })}
+                />
+              </Field>
+              <div className="flex gap-4 text-xs text-stone-600">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={profile.allowBooking}
+                    onChange={(e) => patchProfile(mode, { allowBooking: e.target.checked })}
+                  />
+                  Allow booking
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={profile.allowEscalation}
+                    onChange={(e) => patchProfile(mode, { allowEscalation: e.target.checked })}
+                  />
+                  Allow escalation
+                </label>
+              </div>
+            </div>
+          );
+        })}
       </Section>
       <SaveBar saving={saving} saved={saved} error={error} />
     </form>
@@ -618,6 +691,29 @@ const DEFAULT_SETTINGS: Settings = {
   calendarEventTypeId: "",
   hasCalendarApiKey: false,
   tcpaStrictMode: false,
+  agentProfiles: {
+    inbound: {
+      enabled: true,
+      name: "Inbound Receptionist",
+      behaviorHint: "Prioritize answering questions, booking, and escalations for incoming callers.",
+      allowBooking: true,
+      allowEscalation: true,
+    },
+    outbound: {
+      enabled: true,
+      name: "Outbound Prospector",
+      behaviorHint: "Be concise, qualify quickly, and keep outbound calls focused.",
+      allowBooking: false,
+      allowEscalation: true,
+    },
+    chat: {
+      enabled: true,
+      name: "Website Chat Assistant",
+      behaviorHint: "Answer FAQs quickly and capture intent clearly.",
+      allowBooking: true,
+      allowEscalation: true,
+    },
+  },
 };
 
 const TABS: { key: Tab; label: string }[] = [
@@ -671,6 +767,7 @@ export default function ClientAdminPage() {
             calendarEventTypeId:   String(d.calendarEventTypeId ?? ""),
             hasCalendarApiKey:     Boolean(d.hasCalendarApiKey),
             tcpaStrictMode:        d.tcpaStrictMode === true,
+            agentProfiles:         (d.agentProfiles as AgentProfiles) ?? DEFAULT_SETTINGS.agentProfiles,
           });
           setBilling({
             plan: String(d.plan ?? ""),
