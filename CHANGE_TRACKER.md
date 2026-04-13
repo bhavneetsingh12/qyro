@@ -830,3 +830,23 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - hardening: enforce valid compliance decision state transitions + audit logs
+- Request summary:
+  - Continue autonomous hardening by preventing invalid resolve/reopen operations and capturing operator actions in audit logs.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+- Key behavior changes:
+  - `resolve` now rejects invalid transitions:
+    - only `BLOCK` and `MANUAL_REVIEW` are eligible
+    - returns `409 ALREADY_RESOLVED` if already resolved
+  - `reopen` now rejects invalid transitions:
+    - only `BLOCK` and `MANUAL_REVIEW` are eligible
+    - returns `409 ALREADY_OPEN` if already open
+  - Added audit events:
+    - `assist.compliance.resolve`
+    - `assist.compliance.reopen`
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

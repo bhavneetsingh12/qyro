@@ -1163,6 +1163,27 @@ router.post("/v1/assist/compliance/decisions/:id/resolve", async (req: Request, 
       return;
     }
 
+    const decision = await db.query.complianceDecisions.findFirst({
+      where: and(eq(complianceDecisions.tenantId, tenantId), eq(complianceDecisions.id, id)),
+      columns: {
+        id: true,
+        decision: true,
+        resolvedAt: true,
+      },
+    });
+    if (!decision) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
+      return;
+    }
+    if (decision.decision !== "BLOCK" && decision.decision !== "MANUAL_REVIEW") {
+      res.status(400).json({ error: "INVALID_STATE", message: "Only BLOCK or MANUAL_REVIEW decisions can be resolved" });
+      return;
+    }
+    if (decision.resolvedAt) {
+      res.status(409).json({ error: "ALREADY_RESOLVED", message: "Compliance decision is already resolved" });
+      return;
+    }
+
     const [updated] = await db
       .update(complianceDecisions)
       .set({
@@ -1171,16 +1192,22 @@ router.post("/v1/assist/compliance/decisions/:id/resolve", async (req: Request, 
         resolutionAction: action,
         resolutionNote: note || null,
       })
-      .where(and(
-        eq(complianceDecisions.tenantId, tenantId),
-        eq(complianceDecisions.id, id),
-      ))
+      .where(and(eq(complianceDecisions.tenantId, tenantId), eq(complianceDecisions.id, id)))
       .returning({ id: complianceDecisions.id, resolvedAt: complianceDecisions.resolvedAt });
 
     if (!updated) {
       res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
       return;
     }
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "assist.compliance.resolve",
+      resourceType: "compliance_decision",
+      resourceId: id,
+    });
 
     res.json({ data: updated });
   } catch (err) {
@@ -1204,6 +1231,27 @@ router.post("/v1/assist/compliance/decisions/:id/reopen", async (req: Request, r
       return;
     }
 
+    const decision = await db.query.complianceDecisions.findFirst({
+      where: and(eq(complianceDecisions.tenantId, tenantId), eq(complianceDecisions.id, id)),
+      columns: {
+        id: true,
+        decision: true,
+        resolvedAt: true,
+      },
+    });
+    if (!decision) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
+      return;
+    }
+    if (decision.decision !== "BLOCK" && decision.decision !== "MANUAL_REVIEW") {
+      res.status(400).json({ error: "INVALID_STATE", message: "Only BLOCK or MANUAL_REVIEW decisions can be reopened" });
+      return;
+    }
+    if (!decision.resolvedAt) {
+      res.status(409).json({ error: "ALREADY_OPEN", message: "Compliance decision is already open" });
+      return;
+    }
+
     const [updated] = await db
       .update(complianceDecisions)
       .set({
@@ -1212,16 +1260,22 @@ router.post("/v1/assist/compliance/decisions/:id/reopen", async (req: Request, r
         resolutionAction: null,
         resolutionNote: null,
       })
-      .where(and(
-        eq(complianceDecisions.tenantId, tenantId),
-        eq(complianceDecisions.id, id),
-      ))
+      .where(and(eq(complianceDecisions.tenantId, tenantId), eq(complianceDecisions.id, id)))
       .returning({ id: complianceDecisions.id, resolvedAt: complianceDecisions.resolvedAt });
 
     if (!updated) {
       res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
       return;
     }
+
+    logAudit({
+      req,
+      tenantId,
+      userId: req.userId,
+      action: "assist.compliance.reopen",
+      resourceType: "compliance_decision",
+      resourceId: id,
+    });
 
     res.json({ data: updated });
   } catch (err) {
