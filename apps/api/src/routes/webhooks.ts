@@ -2,8 +2,8 @@
 // Internal ops webhooks are signed with WEBHOOK_SECRET using timestamped HMAC.
 
 import { Router, type Request, type Response, type NextFunction, type Router as ExpressRouter } from "express";
-import { db, tenants, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries } from "@qyro/db";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { db, tenants, prospectsRaw, prospectsEnriched, messageAttempts, callAttempts, dailySummaries, complianceDecisions } from "@qyro/db";
+import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { runLeadDiscovery } from "@qyro/agents/leadDiscovery";
 import { outreachQueue, redis } from "@qyro/queue";
 import { verifyInternalWebhookSignature } from "../lib/webhookAuth";
@@ -263,6 +263,10 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 		let totalAppointmentsBooked = 0;
 		let totalEscalations = 0;
 		let totalQuestions = 0;
+		let totalComplianceAllow = 0;
+		let totalComplianceBlock = 0;
+		let totalComplianceManualReview = 0;
+		let totalComplianceOpen = 0;
 		let totalUrgencyWeighted = 0;
 		let totalUrgencyContributors = 0;
 		const digestDate = utcDayString();
@@ -272,7 +276,7 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 			const intentKeys = intentCounterKeys(run.tenantId, digestDate);
 
-			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows, callsRows, urgencyRows, intentValues] = await Promise.all([
+			const [newProspectsRows, pendingRows, approvedRows, blockedRows, pendingTotalRows, callsRows, urgencyRows, intentValues, complianceWindowRows, complianceOpenRows] = await Promise.all([
 				db
 					.select({ id: prospectsRaw.id })
 					.from(prospectsRaw)
@@ -328,6 +332,25 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 						gte(prospectsEnriched.researchedAt, since),
 					)),
 				redis.mget(intentKeys.questions, intentKeys.bookings, intentKeys.escalations),
+				db
+					.select({
+						decision: complianceDecisions.decision,
+						count: sql<number>`count(*)`,
+					})
+					.from(complianceDecisions)
+					.where(and(
+						eq(complianceDecisions.tenantId, run.tenantId),
+						gte(complianceDecisions.evaluatedAt, since),
+					))
+					.groupBy(complianceDecisions.decision),
+				db
+					.select({ id: complianceDecisions.id })
+					.from(complianceDecisions)
+					.where(and(
+						eq(complianceDecisions.tenantId, run.tenantId),
+						inArray(complianceDecisions.decision, ["BLOCK", "MANUAL_REVIEW"]),
+						isNull(complianceDecisions.resolvedAt),
+					)),
 			]);
 
 			const newProspects = newProspectsRows.length;
@@ -347,6 +370,10 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const questionsCount = Number.parseInt(String(intentValues[0] ?? "0"), 10) || 0;
 			const appointmentsBookedCount = Number.parseInt(String(intentValues[1] ?? "0"), 10) || 0;
 			const escalationsCount = Number.parseInt(String(intentValues[2] ?? "0"), 10) || 0;
+			const complianceAllow = complianceWindowRows.find((row) => row.decision === "ALLOW")?.count ?? 0;
+			const complianceBlock = complianceWindowRows.find((row) => row.decision === "BLOCK")?.count ?? 0;
+			const complianceManualReview = complianceWindowRows.find((row) => row.decision === "MANUAL_REVIEW")?.count ?? 0;
+			const complianceOpen = complianceOpenRows.length;
 
 			await redis.del(intentKeys.questions, intentKeys.bookings, intentKeys.escalations);
 
@@ -389,6 +416,10 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			totalAppointmentsBooked += appointmentsBookedCount;
 			totalEscalations += escalationsCount;
 			totalQuestions += questionsCount;
+			totalComplianceAllow += complianceAllow;
+			totalComplianceBlock += complianceBlock;
+			totalComplianceManualReview += complianceManualReview;
+			totalComplianceOpen += complianceOpen;
 			if (avgUrgencyScore !== null) {
 				totalUrgencyWeighted += avgUrgencyScore;
 				totalUrgencyContributors += 1;
@@ -407,6 +438,10 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 				appointmentsBookedCount,
 				escalationsCount,
 				questionsCount,
+				complianceAllow,
+				complianceBlock,
+				complianceManualReview,
+				complianceOpen,
 				avgUrgencyScore,
 				pendingApprovalTotal,
 			});
@@ -424,6 +459,10 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 					appointmentsBooked: totalAppointmentsBooked,
 					escalations: totalEscalations,
 					questions: totalQuestions,
+					complianceAllow: totalComplianceAllow,
+					complianceBlock: totalComplianceBlock,
+					complianceManualReview: totalComplianceManualReview,
+					complianceOpen: totalComplianceOpen,
 					avgUrgencyScore: totalUrgencyContributors > 0
 						? Math.round(totalUrgencyWeighted / totalUrgencyContributors)
 						: null,

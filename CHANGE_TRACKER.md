@@ -730,3 +730,20 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - ops: include compliance health metrics in morning digest webhook
+- Request summary:
+  - Continue autonomous delivery by adding daily compliance telemetry into the existing scheduled digest workflow.
+- Files changed:
+  - `apps/api/src/routes/webhooks.ts`
+- Key behavior changes:
+  - `/webhooks/morning/digest` now returns per-tenant and aggregate compliance metrics for the digest lookback window:
+    - `complianceAllow`
+    - `complianceBlock`
+    - `complianceManualReview`
+    - `complianceOpen` (current unresolved BLOCK/MANUAL_REVIEW queue size)
+  - This gives daily operational visibility into strict-mode pressure without requiring manual dashboard/API checks.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending
