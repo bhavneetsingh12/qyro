@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -81,7 +81,7 @@ export default function ClientCallsPage() {
   const [loading, setLoading] = useState(true);
   const [outcome, setOutcome] = useState<string>("");
 
-  async function load(selectedOutcome = outcome) {
+  const load = useCallback(async (selectedOutcome = outcome) => {
     const token = await getToken();
     if (!token) return;
     const qp = selectedOutcome ? `?outcome=${encodeURIComponent(selectedOutcome)}` : "";
@@ -94,11 +94,11 @@ export default function ClientCallsPage() {
       setRows(json.data ?? []);
     }
     setLoading(false);
-  }
+  }, [getToken, outcome]);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   return (
     <div className="p-8 max-w-5xl">
@@ -115,7 +115,7 @@ export default function ClientCallsPage() {
               const v = e.target.value;
               setOutcome(v);
               setLoading(true);
-              load(v);
+              void load(v);
             }}
             className="input"
           >

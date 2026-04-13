@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -52,7 +52,7 @@ export default function OpsPage() {
 
   const sortedRows = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
 
-  async function fetchTenants() {
+  const fetchTenants = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
 
@@ -67,7 +67,7 @@ export default function OpsPage() {
 
     const body = (await res.json()) as { data: TenantRow[] };
     setRows(body.data ?? []);
-  }
+  }, [getToken]);
 
   useEffect(() => {
     async function load() {
@@ -95,7 +95,7 @@ export default function OpsPage() {
     }
 
     load();
-  }, [getToken]);
+  }, [fetchTenants, getToken]);
 
   async function saveTenant(row: TenantRow) {
     setSavingId(row.id);

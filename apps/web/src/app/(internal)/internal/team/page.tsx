@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -34,7 +34,7 @@ export default function TeamPage() {
     });
   }, [rows]);
 
-  async function loadUsers() {
+  const loadUsers = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
 
@@ -49,7 +49,7 @@ export default function TeamPage() {
 
     const body = (await res.json()) as { data?: TeamUser[] };
     setRows(body.data ?? []);
-  }
+  }, [getToken]);
 
   useEffect(() => {
     async function run() {
@@ -61,8 +61,8 @@ export default function TeamPage() {
         setLoading(false);
       }
     }
-    run();
-  }, []);
+    void run();
+  }, [loadUsers]);
 
   async function saveRow(row: TeamUser) {
     setSavingId(row.id);

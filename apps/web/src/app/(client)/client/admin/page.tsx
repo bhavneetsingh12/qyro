@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Save, CheckCircle, Plus, Trash2, ExternalLink, Loader2 } from "lucide-react";
 
@@ -466,7 +466,7 @@ function TeamTab({ getToken }: { getToken: () => Promise<string | null> }) {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadMembers() {
+  const loadMembers = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
     try {
@@ -480,9 +480,9 @@ function TeamTab({ getToken }: { getToken: () => Promise<string | null> }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [getToken]);
 
-  useEffect(() => { void loadMembers(); }, []);
+  useEffect(() => { void loadMembers(); }, [loadMembers]);
 
   async function updateMember(userId: string, patch: { role?: string; active?: boolean }) {
     setSavingId(userId);

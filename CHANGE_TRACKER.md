@@ -439,6 +439,24 @@ Purpose: running log of all changes made in this workspace session series so fol
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
   - Note: existing unrelated Next.js hook dependency warnings remain unchanged.
 
+### pending - hardening: remove stale React hook dependency warnings across admin and calls surfaces
+
+- Request summary:
+  - Stabilize data-loading callbacks and effect dependencies to prevent stale closures and polling drift in production dashboards.
+- Files changed:
+  - `apps/web/src/app/(admin)/qx-ops/page.tsx`
+  - `apps/web/src/app/(internal)/internal/admin/page.tsx`
+  - `apps/web/src/app/(internal)/internal/team/page.tsx`
+  - `apps/web/src/app/(client)/client/admin/page.tsx`
+  - `apps/web/src/app/(client)/client/calls/page.tsx`
+- Key behavior changes:
+  - Converted page/team loaders to `useCallback` and updated `useEffect` dependencies to stable references.
+  - Calls page outcome-filter loader now uses a stable callback and explicit async invocation in handlers/effects.
+  - Removed previously reported Next.js/ESLint `react-hooks/exhaustive-deps` warnings from these pages.
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass (no hook dependency warnings emitted)
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26 tests, 0 failures)
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals
