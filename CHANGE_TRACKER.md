@@ -762,3 +762,20 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - ops: add compliance risk alerts to morning digest payload
+- Request summary:
+  - Continue autonomous hardening by turning morning digest compliance counts into actionable alert signals.
+- Files changed:
+  - `apps/api/src/routes/webhooks.ts`
+- Key behavior changes:
+  - Morning digest per-tenant payload now includes `complianceAlerts` with warning conditions:
+    - high open queue (`open_queue_high`)
+    - manual-review spike (`manual_review_spike`)
+    - blocked spike (`blocked_spike`)
+    - high blocked/manual ratio (`blocked_ratio_high`)
+  - This allows cron consumers/ops tooling to detect risk states directly from digest output.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

@@ -37,6 +37,12 @@ type MorningDigestRun = {
 	lookbackHours?: number;
 };
 
+type ComplianceDigestAlert = {
+	code: string;
+	level: "info" | "warning";
+	message: string;
+};
+
 function utcDayString(date = new Date()): string {
 	return date.toISOString().slice(0, 10);
 }
@@ -374,6 +380,40 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			const complianceBlock = complianceWindowRows.find((row) => row.decision === "BLOCK")?.count ?? 0;
 			const complianceManualReview = complianceWindowRows.find((row) => row.decision === "MANUAL_REVIEW")?.count ?? 0;
 			const complianceOpen = complianceOpenRows.length;
+			const complianceAlerts: ComplianceDigestAlert[] = [];
+
+			if (complianceOpen >= 25) {
+				complianceAlerts.push({
+					code: "open_queue_high",
+					level: "warning",
+					message: `Open compliance queue is high (${complianceOpen}).`,
+				});
+			}
+			if (complianceManualReview >= 15) {
+				complianceAlerts.push({
+					code: "manual_review_spike",
+					level: "warning",
+					message: `Manual review decisions spiked in lookback window (${complianceManualReview}).`,
+				});
+			}
+			if (complianceBlock >= 15) {
+				complianceAlerts.push({
+					code: "blocked_spike",
+					level: "warning",
+					message: `Blocked compliance decisions spiked in lookback window (${complianceBlock}).`,
+				});
+			}
+			const complianceTotal = complianceAllow + complianceBlock + complianceManualReview;
+			if (complianceTotal >= 10) {
+				const blockedShare = Math.round(((complianceBlock + complianceManualReview) / complianceTotal) * 100);
+				if (blockedShare >= 50) {
+					complianceAlerts.push({
+						code: "blocked_ratio_high",
+						level: "warning",
+						message: `High blocked/manual-review ratio (${blockedShare}%).`,
+					});
+				}
+			}
 
 			await redis.del(intentKeys.questions, intentKeys.bookings, intentKeys.escalations);
 
@@ -442,6 +482,7 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 				complianceBlock,
 				complianceManualReview,
 				complianceOpen,
+				complianceAlerts,
 				avgUrgencyScore,
 				pendingApprovalTotal,
 			});
