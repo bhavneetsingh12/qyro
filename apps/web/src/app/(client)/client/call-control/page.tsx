@@ -52,6 +52,10 @@ type ComplianceDecisionRow = {
   channel: string;
   automated: boolean;
   evaluatedAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  resolutionAction: string | null;
+  resolutionNote: string | null;
   prospectId: string | null;
   businessName: string | null;
   phone: string | null;
@@ -323,6 +327,7 @@ export default function ClientCallControlPage() {
         throw new Error("suppression_failed");
       }
 
+      await resolveComplianceDecision(row.id, "blocked_contact");
       setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
       setComplianceActionNotice("Suppression recorded. Future calls and texts will stay blocked.");
       await load(true);
@@ -367,11 +372,50 @@ export default function ClientCallControlPage() {
         throw new Error("consent_failed");
       }
 
+      await resolveComplianceDecision(row.id, "recorded_consent");
       setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
       setComplianceActionNotice("Consent evidence saved. You can re-queue this lead when ready.");
       await load(true);
     } catch {
       setComplianceActionNotice("Could not save consent evidence right now. Please retry.");
+    } finally {
+      setComplianceActionBusyId(null);
+    }
+  }
+
+  async function resolveComplianceDecision(id: string, action: string, note?: string) {
+    const token = await getToken();
+    if (!token) {
+      throw new Error("missing_token");
+    }
+
+    const res = await fetch(`${API_URL}/api/v1/assist/compliance/decisions/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action,
+        note: note ?? "",
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("resolve_failed");
+    }
+  }
+
+  async function dismissComplianceDecision(row: ComplianceDecisionRow) {
+    setComplianceActionBusyId(row.id);
+    setComplianceActionNotice(null);
+    try {
+      await resolveComplianceDecision(row.id, "dismissed");
+      setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
+      setComplianceActionNotice("Compliance decision dismissed from the open queue.");
+      await load(true);
+    } catch {
+      setComplianceActionNotice("Could not dismiss compliance decision right now. Please retry.");
     } finally {
       setComplianceActionBusyId(null);
     }
@@ -652,6 +696,14 @@ export default function ClientCallControlPage() {
                       className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
                     >
                       Record Consent
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void dismissComplianceDecision(row)}
+                      disabled={!control.canManage || complianceActionBusyId === row.id}
+                      className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-medium text-stone-700 disabled:opacity-50"
+                    >
+                      Dismiss
                     </button>
                   </div>
                 </li>

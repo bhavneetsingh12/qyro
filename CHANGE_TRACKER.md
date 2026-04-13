@@ -706,3 +706,27 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - feat: add compliance decision resolution lifecycle (open vs resolved)
+- Request summary:
+  - Continue autonomous hardening by making compliance queue items explicitly resolvable so operators can clear and audit actions over time.
+- Files changed:
+  - `packages/db/migrations/0019_compliance_decision_resolution.sql`
+  - `packages/db/src/schema.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+- Key behavior changes:
+  - Added resolution fields on `compliance_decisions`:
+    - `resolved_at`
+    - `resolved_by`
+    - `resolution_action`
+    - `resolution_note`
+  - `GET /api/v1/assist/compliance/decisions` now supports real open/resolved behavior:
+    - `decision=open` returns unresolved BLOCK/MANUAL_REVIEW only.
+    - `decision=resolved` returns resolved BLOCK/MANUAL_REVIEW records.
+  - Added `POST /api/v1/assist/compliance/decisions/:id/resolve` for operator workflow.
+  - Call Control actions (`Block Contact`, `Record Consent`) now resolve decisions after applying the action, and a new `Dismiss` action resolves false alarms without suppression/consent writes.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

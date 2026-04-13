@@ -304,6 +304,10 @@ export const complianceDecisions = pgTable("compliance_decisions", {
   explanation:     text("explanation").notNull(),
   consentRecordId: uuid("consent_record_id").references(() => consentRecords.id, { onDelete: "set null" }),
   suppressionId:   uuid("suppression_id").references(() => suppressions.id, { onDelete: "set null" }),
+  resolvedAt:      timestamp("resolved_at"),
+  resolvedBy:      text("resolved_by"),
+  resolutionAction:text("resolution_action"),
+  resolutionNote:  text("resolution_note"),
   evaluatedAt:     timestamp("evaluated_at").notNull().defaultNow(),
   createdAt:       timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({

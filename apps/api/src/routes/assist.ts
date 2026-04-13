@@ -1082,9 +1082,16 @@ router.post("/v1/assist/compliance/inbound-events", async (req: Request, res: Re
 
 router.get("/v1/assist/compliance/decisions", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance reporting" });
+      return;
+    }
+
     const tenantId = req.tenantId;
     const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 100);
     const decisionFilter = String(req.query.decision ?? "open").trim().toUpperCase();
+    const openOnly = decisionFilter === "OPEN";
+    const resolvedOnly = decisionFilter === "RESOLVED";
 
     const decisionWhere =
       decisionFilter === "BLOCK"
@@ -1102,6 +1109,10 @@ router.get("/v1/assist/compliance/decisions", async (req: Request, res: Response
         channel: complianceDecisions.channel,
         automated: complianceDecisions.automated,
         evaluatedAt: complianceDecisions.evaluatedAt,
+        resolvedAt: complianceDecisions.resolvedAt,
+        resolvedBy: complianceDecisions.resolvedBy,
+        resolutionAction: complianceDecisions.resolutionAction,
+        resolutionNote: complianceDecisions.resolutionNote,
         prospectId: prospectsRaw.id,
         businessName: prospectsRaw.businessName,
         phone: prospectsRaw.phone,
@@ -1110,11 +1121,68 @@ router.get("/v1/assist/compliance/decisions", async (req: Request, res: Response
       })
       .from(complianceDecisions)
       .leftJoin(prospectsRaw, eq(complianceDecisions.prospectId, prospectsRaw.id))
-      .where(and(eq(complianceDecisions.tenantId, tenantId), decisionWhere))
+      .where(and(
+        eq(complianceDecisions.tenantId, tenantId),
+        decisionWhere,
+        openOnly ? isNull(complianceDecisions.resolvedAt) : undefined,
+        resolvedOnly ? sql`${complianceDecisions.resolvedAt} is not null` : undefined,
+      ))
       .orderBy(desc(complianceDecisions.evaluatedAt))
       .limit(limit);
 
     res.json({ data: rows, limit });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/compliance/decisions/:id/resolve ───────────────────
+
+router.post("/v1/assist/compliance/decisions/:id/resolve", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance controls" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const id = String(req.params.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "decision id is required" });
+      return;
+    }
+
+    const body = req.body as {
+      action?: string;
+      note?: string;
+    };
+    const action = String(body.action ?? "dismissed").trim().toLowerCase();
+    const note = String(body.note ?? "").trim();
+    if (!action) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "action is required" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(complianceDecisions)
+      .set({
+        resolvedAt: new Date(),
+        resolvedBy: req.userId,
+        resolutionAction: action,
+        resolutionNote: note || null,
+      })
+      .where(and(
+        eq(complianceDecisions.tenantId, tenantId),
+        eq(complianceDecisions.id, id),
+      ))
+      .returning({ id: complianceDecisions.id, resolvedAt: complianceDecisions.resolvedAt });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
+      return;
+    }
+
+    res.json({ data: updated });
   } catch (err) {
     next(err);
   }
