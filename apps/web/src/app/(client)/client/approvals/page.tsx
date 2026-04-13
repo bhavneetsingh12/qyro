@@ -63,7 +63,7 @@ export default function ClientApprovalsPage() {
   return (
     <div className="p-8 max-w-4xl">
       <h1 className="text-xl font-semibold text-stone-900">Approvals</h1>
-      <p className="text-sm text-stone-400 mt-0.5">Pending assistant messages</p>
+      <p className="text-sm text-stone-400 mt-0.5">Review AI-drafted customer replies before they send.</p>
 
       {loading ? (
         <div className="mt-6 text-sm text-stone-500">Loading...</div>
@@ -80,7 +80,7 @@ export default function ClientApprovalsPage() {
             <div key={row.id} className="bg-white border border-[#E8E6E1] rounded-[12px] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs text-stone-500 uppercase tracking-wide">{CHANNEL_LABELS[row.channel] ?? row.channel}</p>
+                  <p className="text-xs text-stone-500 uppercase tracking-wide">{CHANNEL_LABELS[row.channel] ?? "Assistant message"}</p>
                   <p className="text-sm text-stone-800 mt-1 whitespace-pre-wrap">{row.messageText || "(empty)"}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -89,14 +89,14 @@ export default function ClientApprovalsPage() {
                     onClick={() => act(row.id, "approve")}
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium"
                   >
-                    Approve
+                    Approve & send
                   </button>
                   <button
                     disabled={busyId === row.id}
                     onClick={() => act(row.id, "reject")}
                     className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-medium"
                   >
-                    Reject
+                    Reject draft
                   </button>
                 </div>
               </div>

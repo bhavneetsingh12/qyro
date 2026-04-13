@@ -42,11 +42,11 @@ function normalizeString(value: unknown, fallback: string): string {
 function normalizeProfile(value: unknown, fallback: AgentProfile): AgentProfile {
   const raw = (value as Record<string, unknown> | null) ?? {};
   return {
-    enabled: raw.enabled === false ? false : true,
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
     name: normalizeString(raw.name, fallback.name),
     behaviorHint: normalizeString(raw.behaviorHint, fallback.behaviorHint),
-    allowBooking: raw.allowBooking === false ? false : true,
-    allowEscalation: raw.allowEscalation === false ? false : true,
+    allowBooking: typeof raw.allowBooking === "boolean" ? raw.allowBooking : fallback.allowBooking,
+    allowEscalation: typeof raw.allowEscalation === "boolean" ? raw.allowEscalation : fallback.allowEscalation,
   };
 }
 

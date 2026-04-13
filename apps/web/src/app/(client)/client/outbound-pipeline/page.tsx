@@ -40,6 +40,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; Icon: React.
   dnd:       { label: "DND",       color: "text-stone-500 bg-stone-100 border-stone-200", Icon: Ban },
   voicemail: { label: "Voicemail", color: "text-purple-600 bg-purple-50 border-purple-200", Icon: Voicemail },
   canceled:  { label: "Canceled",  color: "text-stone-500 bg-stone-100 border-stone-200",  Icon: Ban },
+  blocked_compliance: { label: "Blocked (Compliance)", color: "text-rose-700 bg-rose-50 border-rose-200", Icon: Ban },
 };
 
 const OUTCOME_LABELS: Record<string, string> = {
@@ -53,6 +54,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   dial_failed: "Dial failed",
   dial_failed_retry: "Dial failed, retrying",
   do_not_contact: "Blocked by do-not-contact",
+  blocked_compliance: "Blocked by compliance controls",
 };
 
 function formatOutcome(outcome: string | null) {
@@ -165,6 +167,7 @@ export default function OutboundPipelinePage() {
   const [importText, setImportText] = useState("");
   const [importing, setImporting] = useState(false);
   const [queueImportedCalls, setQueueImportedCalls] = useState(true);
+  const [consentCapturedForImport, setConsentCapturedForImport] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
 
   const load = useCallback(async (showRefreshing = false) => {
@@ -233,10 +236,23 @@ export default function OutboundPipelinePage() {
       const createdIds: string[] = [];
       const results = await Promise.allSettled(
         contacts.map(async (contact) => {
+          const consent = consentCapturedForImport
+            ? {
+                given: true,
+                consentChannel: "voice",
+                consentType: "written",
+                disclosureVersion: "import-v1",
+                disclosureText: "Tenant confirmed prior voice consent for imported contact.",
+                formUrl: "import://outbound-pipeline",
+              }
+            : undefined;
           const res = await fetch(`${API_URL}/api/leads`, {
             method: "POST",
             headers,
-            body: JSON.stringify(contact),
+            body: JSON.stringify({
+              ...contact,
+              ...(consent ? { consent } : {}),
+            }),
           });
 
           const body = (await res.json().catch(() => ({}))) as { data?: { id?: string }; message?: string };
@@ -290,7 +306,7 @@ export default function OutboundPipelinePage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-900">Outbound Pipeline</h1>
           <p className="text-sm text-stone-500 mt-1">
-            Leads queued from QYRO Lead and their call status.
+            Leads queued from QYRO Lead with call and compliance outcomes.
           </p>
         </div>
         <button
@@ -366,15 +382,26 @@ export default function OutboundPipelinePage() {
         />
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <label className="inline-flex items-center gap-2 text-sm text-stone-600">
-            <input
-              type="checkbox"
-              checked={queueImportedCalls}
-              onChange={(event) => setQueueImportedCalls(event.target.checked)}
-              className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
-            />
-            Queue calls immediately for imported contacts with phone numbers
-          </label>
+          <div className="space-y-1">
+            <label className="inline-flex items-center gap-2 text-sm text-stone-600">
+              <input
+                type="checkbox"
+                checked={queueImportedCalls}
+                onChange={(event) => setQueueImportedCalls(event.target.checked)}
+                className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+              />
+              Queue calls immediately for imported contacts with phone numbers
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-stone-600">
+              <input
+                type="checkbox"
+                checked={consentCapturedForImport}
+                onChange={(event) => setConsentCapturedForImport(event.target.checked)}
+                className="h-4 w-4 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+              />
+              Confirm prior voice consent for imported contacts (stores evidence)
+            </label>
+          </div>
 
           <button
             onClick={importContacts}

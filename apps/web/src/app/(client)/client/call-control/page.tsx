@@ -59,6 +59,19 @@ type ComplianceDecisionRow = {
   domain: string | null;
 };
 
+type ComplianceReport = {
+  days: number;
+  totals: Array<{ decision: string; count: number }>;
+  byRule: Array<{ ruleCode: string; decision: string; count: number }>;
+  byDay: Array<{ day: string; decision: string; count: number }>;
+};
+
+type ComplianceAlerts = {
+  today: { blocked: number; manualReview: number };
+  baselineDailyAvg: { blocked: number; manualReview: number };
+  alerts: Array<{ code: string; level: "info" | "warning"; message: string }>;
+};
+
 const DEFAULT_CONTROL: ControlState = {
   enabled: false,
   paused: false,
@@ -131,6 +144,8 @@ export default function ClientCallControlPage() {
   const [enqueueMaxAttempts, setEnqueueMaxAttempts] = useState(3);
   const [enqueueResult, setEnqueueResult] = useState<string | null>(null);
   const [complianceRows, setComplianceRows] = useState<ComplianceDecisionRow[]>([]);
+  const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
+  const [complianceAlerts, setComplianceAlerts] = useState<ComplianceAlerts | null>(null);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -143,10 +158,12 @@ export default function ClientCallControlPage() {
         return;
       }
 
-      const [controlRes, metricsRes, complianceRes] = await Promise.all([
+      const [controlRes, metricsRes, complianceRes, reportRes, alertsRes] = await Promise.all([
         fetchWithToken<{ data: ControlState }>(`${API_URL}/api/v1/assist/outbound-calls/control`, token),
         fetchWithToken<{ data: MetricsState }>(`${API_URL}/api/v1/assist/outbound-calls/metrics`, token),
         fetchWithToken<{ data: ComplianceDecisionRow[] }>(`${API_URL}/api/v1/assist/compliance/decisions?limit=25&decision=open`, token),
+        fetchWithToken<{ data: ComplianceReport }>(`${API_URL}/api/v1/assist/compliance/report?days=7`, token),
+        fetchWithToken<{ data: ComplianceAlerts }>(`${API_URL}/api/v1/assist/compliance/alerts`, token),
       ]);
 
       if (!controlRes || !metricsRes) {
@@ -159,6 +176,8 @@ export default function ClientCallControlPage() {
       setMaxConcurrentDraft(controlRes.data.maxConcurrentCalls ?? 3);
       setMetrics(metricsRes.data);
       setComplianceRows(complianceRes?.data ?? []);
+      setComplianceReport(reportRes?.data ?? null);
+      setComplianceAlerts(alertsRes?.data ?? null);
       setError(null);
     } catch {
       setError("Could not load outbound control data.");
@@ -530,6 +549,42 @@ export default function ClientCallControlPage() {
             </ul>
           )}
         </div>
+      </section>
+
+      <section className="mt-5 rounded-[14px] border border-[#E8E6E1] bg-white p-5">
+        <h2 className="text-sm font-semibold text-stone-800">Compliance Health</h2>
+        <p className="mt-1 text-xs text-stone-500">7-day summary and spike alerts for blocked/manual-review decisions.</p>
+
+        {complianceAlerts && (
+          <div className="mt-3 space-y-2">
+            {complianceAlerts.alerts.map((alert) => (
+              <div
+                key={alert.code}
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  alert.level === "warning"
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : "border-teal-200 bg-teal-50 text-teal-700"
+                }`}
+              >
+                {alert.message}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {complianceReport && (
+          <div className="mt-4 grid sm:grid-cols-3 gap-3">
+            {["ALLOW", "BLOCK", "MANUAL_REVIEW"].map((decision) => {
+              const count = complianceReport.totals.find((row) => row.decision === decision)?.count ?? 0;
+              return (
+                <div key={decision} className="rounded-lg border border-[#F0EEE9] px-3 py-2">
+                  <p className="text-[11px] text-stone-500">{decision.replace("_", " ")}</p>
+                  <p className="text-base font-semibold text-stone-800">{count}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t border-[#E8E6E1] bg-white/95 backdrop-blur-sm p-3">
