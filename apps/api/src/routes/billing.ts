@@ -302,13 +302,13 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
     const productDescriptions: Record<string, string> = {
       lead: "Automated outbound calling pipeline with AI voice agents. Upload prospects, set campaigns, and let QYRO Lead handle the outreach 24/7.",
       assist: "AI-powered inbound assistant that handles calls on your existing business number — answers questions, books appointments, and hands off to your team automatically. No number porting required.",
-      bundle: "Full QYRO access: outbound lead generation + inbound AI assistant. Everything you need to run a hands-free voice pipeline.",
+      bundle: "Legacy bundle (retired). Use individual Lead and Assist subscriptions for new purchases.",
     };
 
     const productLabels: Record<string, string> = {
       lead: "QYRO Lead",
       assist: "QYRO Assist",
-      bundle: "QYRO Lead + Assist Bundle",
+      bundle: "QYRO Bundle (Legacy)",
     };
 
     const sessionLabel = product ? (productLabels[product] ?? "QYRO") : "QYRO";

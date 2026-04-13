@@ -457,6 +457,34 @@ Purpose: running log of all changes made in this workspace session series so fol
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass (no hook dependency warnings emitted)
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26 tests, 0 failures)
 
+### pending - closure sweep: one-go completion verification + legacy bundle de-emphasis
+
+- Request summary:
+  - Run a final one-go closure sweep against remaining security/compliance/ops gaps and ship any final cleanups in the same pass.
+- Files changed:
+  - `apps/api/src/routes/billing.ts`
+  - `CHANGE_TRACKER.md`
+- Key behavior changes:
+  - Updated legacy `bundle` checkout description/label text so any exceptional fallback/internal metadata path clearly states retired status.
+  - Confirmed migration state and required table presence for compliance operations.
+- Verification run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro migrate` => `All migrations already applied. Nothing to do.`
+  - DB table existence check (Railway URL from `.env.local`) confirms:
+    - `consent_records`
+    - `suppressions`
+    - `compliance_decisions`
+    - `blackout_blocks`
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26 tests, 0 failures)
+- Final closure matrix:
+  - ✅ Consent capture wiring: lead intake + public assist chat/missed-call + operator queue capture paths are implemented.
+  - ✅ Compliance gating: enqueue and worker both enforce evaluator with campaign metadata propagation.
+  - ✅ Inbound revocation ingestion: voice stop intents, inbound SMS STOP, and assist inbound events route to suppression + consent revoke.
+  - ✅ Manual review operations UI: Call Control queue supports resolve/reopen/suppress/consent workflows.
+  - ✅ Booking operations baseline: manual booking + blackout blocks + provider sync status visibility + Google blackout writeback.
+  - ✅ Strict-mode operations: report + alert endpoints and digest signaling are implemented.
+  - ⚠️ Residual (expected): non-Google provider blackout writeback remains provider-limited by API capability; behavior is local-safe fallback.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals
