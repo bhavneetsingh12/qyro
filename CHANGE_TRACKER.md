@@ -650,3 +650,21 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### 2026-04-12
+
+### pending - feat: add operator actions for compliance review queue in Assist Call Control
+- Request summary:
+  - Move to the next implementation chunk without waiting by making the compliance queue operational, not read-only.
+- Files changed:
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+- Key behavior changes:
+  - Added per-decision operator actions in the Compliance Review Queue:
+    - `Block Contact` writes a suppression via `POST /api/v1/assist/compliance/suppressions`.
+    - `Record Consent` writes consent evidence via `POST /api/v1/assist/compliance/consent`.
+  - Added inline action notices so operators immediately see success/failure and know next steps.
+  - Successful actions remove handled decisions from the local queue and trigger a refresh for queue/report consistency.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

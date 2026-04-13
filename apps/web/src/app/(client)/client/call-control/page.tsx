@@ -146,6 +146,8 @@ export default function ClientCallControlPage() {
   const [complianceRows, setComplianceRows] = useState<ComplianceDecisionRow[]>([]);
   const [complianceReport, setComplianceReport] = useState<ComplianceReport | null>(null);
   const [complianceAlerts, setComplianceAlerts] = useState<ComplianceAlerts | null>(null);
+  const [complianceActionBusyId, setComplianceActionBusyId] = useState<string | null>(null);
+  const [complianceActionNotice, setComplianceActionNotice] = useState<string | null>(null);
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -287,6 +289,91 @@ export default function ClientCallControlPage() {
       setError(err instanceof Error ? err.message : "Failed to enqueue outbound calls");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function suppressFromCompliance(row: ComplianceDecisionRow) {
+    const token = await getToken();
+    if (!token) return;
+    if (!row.phone && !row.email && !row.domain) {
+      setComplianceActionNotice("Cannot suppress this decision: no phone, email, or domain was available.");
+      return;
+    }
+
+    setComplianceActionBusyId(row.id);
+    setComplianceActionNotice(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/assist/compliance/suppressions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phone: row.phone,
+          email: row.email,
+          domain: row.domain,
+          suppressionType: "manual_block",
+          reason: `operator_block:${row.ruleCode}`,
+          scope: "global",
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("suppression_failed");
+      }
+
+      setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
+      setComplianceActionNotice("Suppression recorded. Future calls and texts will stay blocked.");
+      await load(true);
+    } catch {
+      setComplianceActionNotice("Could not save suppression right now. Please retry.");
+    } finally {
+      setComplianceActionBusyId(null);
+    }
+  }
+
+  async function recordConsentFromCompliance(row: ComplianceDecisionRow) {
+    const token = await getToken();
+    if (!token) return;
+    if (!row.phone) {
+      setComplianceActionNotice("Cannot record consent without a valid phone number.");
+      return;
+    }
+
+    setComplianceActionBusyId(row.id);
+    setComplianceActionNotice(null);
+    try {
+      const channel = row.channel === "voice" || row.channel === "sms" ? row.channel : "both";
+      const res = await fetch(`${API_URL}/api/v1/assist/compliance/consent`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prospectId: row.prospectId ?? undefined,
+          phone: row.phone,
+          sellerName: row.businessName ?? "QYRO Assist",
+          consentChannel: channel,
+          consentType: row.automated ? "written" : "express",
+          disclosureVersion: "manual-review-v1",
+          disclosureText: "Operator confirmed consent during compliance queue review.",
+          formUrl: "ops://client/call-control/compliance-review",
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("consent_failed");
+      }
+
+      setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
+      setComplianceActionNotice("Consent evidence saved. You can re-queue this lead when ready.");
+      await load(true);
+    } catch {
+      setComplianceActionNotice("Could not save consent evidence right now. Please retry.");
+    } finally {
+      setComplianceActionBusyId(null);
     }
   }
 
@@ -517,6 +604,11 @@ export default function ClientCallControlPage() {
       <section className="mt-5 rounded-[14px] border border-[#E8E6E1] bg-white p-5">
         <h2 className="text-sm font-semibold text-stone-800">Compliance Review Queue</h2>
         <p className="mt-1 text-xs text-stone-500">Latest blocked and manual-review decisions from strict-mode evaluator.</p>
+        {complianceActionNotice ? (
+          <div className="mt-3 rounded-lg border border-[#F0EEE9] bg-stone-50 px-3 py-2 text-xs text-stone-700">
+            {complianceActionNotice}
+          </div>
+        ) : null}
 
         <div className="mt-4 max-h-[320px] overflow-y-auto rounded-lg border border-[#F0EEE9]">
           {loading ? (
@@ -544,6 +636,24 @@ export default function ClientCallControlPage() {
                   <p className="mt-1 text-xs text-stone-500">
                     Prospect: {row.businessName || "Unknown"} {row.phone ? `(${row.phone})` : ""}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void suppressFromCompliance(row)}
+                      disabled={!control.canManage || complianceActionBusyId === row.id}
+                      className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 disabled:opacity-50"
+                    >
+                      Block Contact
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void recordConsentFromCompliance(row)}
+                      disabled={!control.canManage || !row.phone || complianceActionBusyId === row.id}
+                      className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
+                    >
+                      Record Consent
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
