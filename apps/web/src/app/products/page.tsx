@@ -71,7 +71,7 @@ export default async function ProductsPage({
       <div className="mx-auto max-w-5xl">
         <div className="mb-10 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <QyroBrandLockup surface="core" align="left" subtitle="Choose your workspace" />
+            <QyroBrandLockup surface="core" align="left" subtitle="Switch products or manage subscriptions" />
             <p className="mt-3 max-w-2xl text-sm text-stone-500">
               QYRO Lead finds and qualifies prospects. QYRO Assist handles conversations, outbound calls,
               and follow-up. Use both together to move leads from discovery to warm handoff.

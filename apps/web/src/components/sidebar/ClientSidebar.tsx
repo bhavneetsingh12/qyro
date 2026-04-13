@@ -84,7 +84,7 @@ export default function ClientSidebar({
                 className="sidebar-link"
               >
                 <ArrowLeftRight size={16} strokeWidth={1.75} />
-                Workspace Hub
+                Products & Billing
               </Link>
               <Link
                 href="/internal/dashboard"
@@ -92,7 +92,7 @@ export default function ClientSidebar({
                 className="sidebar-link"
               >
                 <ArrowLeftRight size={16} strokeWidth={1.75} />
-                Switch to QYRO Lead
+                Go to Lead
               </Link>
             </>
           )}

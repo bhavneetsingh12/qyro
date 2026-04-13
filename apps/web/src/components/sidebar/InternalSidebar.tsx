@@ -83,11 +83,11 @@ export default function InternalSidebar({
             <>
               <Link href="/products" onClick={onLinkClick} className="sidebar-link">
                 <ArrowLeftRight size={16} strokeWidth={1.75} />
-                Workspace Hub
+                Products & Billing
               </Link>
               <Link href="/client/dashboard" onClick={onLinkClick} className="sidebar-link">
                 <ArrowLeftRight size={16} strokeWidth={1.75} />
-                Switch to QYRO Assist
+                Go to Assist
               </Link>
             </>
           )}
