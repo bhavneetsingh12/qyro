@@ -26,6 +26,7 @@ import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { resolveTenantAgentProfiles, resolveAssistantMode } from "../lib/agentProfiles";
 import { isOptOutDisposition, isOptOutText, resolveInboundSuppressionType } from "../lib/optOut";
+import { validateReopenTransition, validateResolveTransition } from "../lib/complianceDecisionState";
 
 const router: ExpressRouter = Router();
 const publicRouter: ExpressRouter = Router();
@@ -1175,12 +1176,15 @@ router.post("/v1/assist/compliance/decisions/:id/resolve", async (req: Request, 
       res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
       return;
     }
-    if (decision.decision !== "BLOCK" && decision.decision !== "MANUAL_REVIEW") {
-      res.status(400).json({ error: "INVALID_STATE", message: "Only BLOCK or MANUAL_REVIEW decisions can be resolved" });
-      return;
-    }
-    if (decision.resolvedAt) {
-      res.status(409).json({ error: "ALREADY_RESOLVED", message: "Compliance decision is already resolved" });
+    const transition = validateResolveTransition({
+      decision: decision.decision,
+      resolvedAt: decision.resolvedAt,
+    });
+    if (!transition.ok) {
+      res.status(transition.code === "ALREADY_RESOLVED" ? 409 : 400).json({
+        error: transition.code,
+        message: transition.message,
+      });
       return;
     }
 
@@ -1243,12 +1247,15 @@ router.post("/v1/assist/compliance/decisions/:id/reopen", async (req: Request, r
       res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
       return;
     }
-    if (decision.decision !== "BLOCK" && decision.decision !== "MANUAL_REVIEW") {
-      res.status(400).json({ error: "INVALID_STATE", message: "Only BLOCK or MANUAL_REVIEW decisions can be reopened" });
-      return;
-    }
-    if (!decision.resolvedAt) {
-      res.status(409).json({ error: "ALREADY_OPEN", message: "Compliance decision is already open" });
+    const transition = validateReopenTransition({
+      decision: decision.decision,
+      resolvedAt: decision.resolvedAt,
+    });
+    if (!transition.ok) {
+      res.status(transition.code === "ALREADY_OPEN" ? 409 : 400).json({
+        error: transition.code,
+        message: transition.message,
+      });
       return;
     }
 

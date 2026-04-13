@@ -850,3 +850,23 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - test: lock compliance decision transition policy with unit tests
+- Request summary:
+  - Continue autonomous hardening by adding explicit unit tests for resolve/reopen transition rules.
+- Files changed:
+  - `apps/api/src/lib/complianceDecisionState.ts`
+  - `apps/api/src/lib/complianceDecisionState.test.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `package.json`
+- Key behavior changes:
+  - Extracted transition checks to shared helpers:
+    - `validateResolveTransition(...)`
+    - `validateReopenTransition(...)`
+  - Route handlers now use shared transition validators for consistent response behavior.
+  - Added deterministic tests for valid/invalid state transitions and conflict outcomes.
+  - Added new transition-policy test file to `pnpm test:hardening`.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

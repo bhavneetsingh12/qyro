@@ -17,7 +17,7 @@
     "backfill:prospect-timezones": "tsx scripts/backfill-prospect-timezones.ts",
     "migrate": "tsx infra/migrate.ts",
     "test:e2e": "tsx scripts/test-e2e.ts",
-    "test:hardening": "DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres tsx --test apps/api/src/lib/agentProfiles.test.ts apps/api/src/lib/optOut.test.ts apps/api/src/lib/complianceDigest.test.ts packages/db/src/compliance.test.ts packages/db/src/complianceContext.test.ts packages/agents/src/assistBooking.test.ts",
+    "test:hardening": "DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres tsx --test apps/api/src/lib/agentProfiles.test.ts apps/api/src/lib/optOut.test.ts apps/api/src/lib/complianceDigest.test.ts apps/api/src/lib/complianceDecisionState.test.ts packages/db/src/compliance.test.ts packages/db/src/complianceContext.test.ts packages/agents/src/assistBooking.test.ts",
     "worker:reply-triage": "pnpm --filter @qyro/workers run worker:reply-triage",
     "worker:outreach": "pnpm --filter @qyro/workers run worker:outreach",
     "worker:research": "pnpm --filter @qyro/workers run worker:research"
