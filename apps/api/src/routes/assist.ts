@@ -426,7 +426,9 @@ router.get("/appointments", async (req: Request, res: Response, next: NextFuncti
         startAt:       appointments.startAt,
         endAt:         appointments.endAt,
         status:        appointments.status,
+        source:        appointments.source,
         notes:         appointments.notes,
+        calBookingUid: appointments.calBookingUid,
         createdAt:     appointments.createdAt,
         prospectId:    appointments.prospectId,
         prospectName:  prospectsRaw.businessName,
@@ -439,7 +441,14 @@ router.get("/appointments", async (req: Request, res: Response, next: NextFuncti
       .limit(limit)
       .offset(offset);
 
-    res.json({ data: rows, limit, offset });
+    res.json({
+      data: rows.map((row) => ({
+        ...row,
+        syncedToProvider: Boolean(row.calBookingUid),
+      })),
+      limit,
+      offset,
+    });
   } catch (err) {
     next(err);
   }
@@ -2328,7 +2337,14 @@ router.post("/appointments/manual", async (req: Request, res: Response, next: Ne
       resourceId: result.appointmentId,
     });
 
-    res.status(201).json({ data: { appointmentId: result.appointmentId, status: result.status } });
+    res.status(201).json({
+      data: {
+        appointmentId: result.appointmentId,
+        status: result.status,
+        providerBookingId: result.calBookingUid ?? null,
+        syncedToProvider: Boolean(result.calBookingUid),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -2394,6 +2410,7 @@ router.get("/v1/assist/blackout-blocks", async (req: Request, res: Response, nex
         startAt: blackoutBlocks.startAt,
         endAt: blackoutBlocks.endAt,
         notes: blackoutBlocks.notes,
+        providerBlockId: blackoutBlocks.providerBlockId,
         createdAt: blackoutBlocks.createdAt,
       })
       .from(blackoutBlocks)
@@ -2406,7 +2423,14 @@ router.get("/v1/assist/blackout-blocks", async (req: Request, res: Response, nex
       .limit(limit)
       .offset(offset);
 
-    res.json({ data: rows, limit, offset });
+    res.json({
+      data: rows.map((row) => ({
+        ...row,
+        providerSynced: Boolean(row.providerBlockId),
+      })),
+      limit,
+      offset,
+    });
   } catch (err) {
     next(err);
   }

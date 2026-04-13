@@ -381,6 +381,28 @@ Purpose: running log of all changes made in this workspace session series so fol
 - Priority order coverage:
   - ✅ Priority 3 — provider writeback complete for Google Calendar; Cal.com block writeback deferred (no suitable API)
 
+### pending - feat: expose booking/provider sync status in API + Bookings UI clarity pass
+
+- Request summary:
+  - Make booking and blackout sync state explicit so operators can tell what is synced to calendar providers vs local-only.
+  - Add missing manual booking email input in the Bookings modal.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(client)/client/bookings/page.tsx`
+- Key behavior changes:
+  - `GET /api/appointments` now returns `source`, `calBookingUid`, and computed `syncedToProvider`.
+  - `POST /api/appointments/manual` now returns `providerBookingId` and `syncedToProvider`.
+  - `GET /api/v1/assist/blackout-blocks` now returns `providerBlockId` and computed `providerSynced`.
+  - Bookings UI now shows:
+    - appointment-level `Calendar sync: Synced | Local only`
+    - blackout-level `Provider sync: Synced | Local only`
+  - Availability block create flow now shows explicit sync outcome messaging after save.
+  - Manual booking modal now includes `Email (optional)` bound to `callerEmail`.
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26 tests, 0 failures)
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+  - Note: existing Next.js hook dependency warnings remain unchanged in unrelated files.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

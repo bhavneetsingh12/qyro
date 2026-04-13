@@ -18,6 +18,8 @@ type Appointment = {
   endAt: string;
   status: string;
   source: string | null;
+  calBookingUid: string | null;
+  syncedToProvider: boolean;
   notes: string | null;
   prospectName: string | null;
   prospectPhone: string | null;
@@ -30,6 +32,8 @@ type BlackoutBlock = {
   endAt: string;
   notes: string | null;
   createdAt: string;
+  providerBlockId: string | null;
+  providerSynced: boolean;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -193,6 +197,17 @@ function NewBookingModal({
           </div>
 
           <div>
+            <label className="block text-xs font-medium text-stone-500 mb-1">Email (optional)</label>
+            <input
+              type="email"
+              value={form.callerEmail}
+              onChange={(e) => setForm((f) => ({ ...f, callerEmail: e.target.value }))}
+              placeholder="jane@example.com"
+              className="w-full text-sm border border-[#E8E6E1] rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-stone-200"
+            />
+          </div>
+
+          <div>
             <label className="block text-xs font-medium text-stone-500 mb-1">Service</label>
             <input
               type="text"
@@ -289,6 +304,7 @@ export default function BookingsPage() {
   });
   const [blockSaving, setBlockSaving] = useState(false);
   const [blockFormError, setBlockFormError] = useState<string | null>(null);
+  const [blockFormNotice, setBlockFormNotice] = useState<string | null>(null);
 
   const fetchAppointments = useCallback(async () => {
     setApptLoading(true);
@@ -358,6 +374,7 @@ export default function BookingsPage() {
   const handleAddBlock = async (e: React.FormEvent) => {
     e.preventDefault();
     setBlockFormError(null);
+    setBlockFormNotice(null);
     setBlockSaving(true);
 
     try {
@@ -376,8 +393,9 @@ export default function BookingsPage() {
         }),
       });
 
+      const body = (await res.json()) as { message?: string; data?: { providerSynced?: boolean } };
+
       if (!res.ok) {
-        const body = (await res.json()) as { message?: string };
         setBlockFormError(body.message ?? "Failed to add block");
         return;
       }
@@ -388,6 +406,11 @@ export default function BookingsPage() {
         endAt: toLocalDatetimeValue(new Date(Date.now() + 24 * 60 * 60 * 1000)),
         notes: "",
       });
+      if (body.data?.providerSynced) {
+        setBlockFormNotice("Availability block saved and synced to your calendar provider.");
+      } else {
+        setBlockFormNotice("Availability block saved locally. Provider sync is not configured.");
+      }
 
       await fetchBlocks();
     } catch {
@@ -493,6 +516,9 @@ export default function BookingsPage() {
                           {SOURCE_LABELS[a.source] ?? a.source.replace(/_/g, " ")}
                         </p>
                       )}
+                      <p className={`text-xs mt-0.5 ${a.syncedToProvider ? "text-teal-600" : "text-amber-600"}`}>
+                        Calendar sync: {a.syncedToProvider ? "Synced" : "Local only"}
+                      </p>
                     </div>
                     <p className="text-sm text-stone-600 shrink-0 tabular-nums">
                       {fmtDateTime(a.startAt)}
@@ -569,6 +595,9 @@ export default function BookingsPage() {
               {blockFormError && (
                 <p className="text-xs text-rose-500 font-medium">{blockFormError}</p>
               )}
+              {blockFormNotice && (
+                <p className="text-xs text-teal-600 font-medium">{blockFormNotice}</p>
+              )}
               <button
                 type="submit"
                 disabled={blockSaving}
@@ -612,6 +641,9 @@ export default function BookingsPage() {
                       <p className="text-sm font-medium text-stone-800">{b.label}</p>
                       <p className="text-xs text-stone-400 mt-0.5">
                         {fmtDateRange(b.startAt, b.endAt)}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${b.providerSynced ? "text-teal-600" : "text-amber-600"}`}>
+                        Provider sync: {b.providerSynced ? "Synced" : "Local only"}
                       </p>
                       {b.notes && (
                         <p className="text-xs text-stone-300 mt-0.5 italic truncate">{b.notes}</p>
