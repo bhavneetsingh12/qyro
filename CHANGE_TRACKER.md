@@ -403,6 +403,22 @@ Purpose: running log of all changes made in this workspace session series so fol
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
   - Note: existing Next.js hook dependency warnings remain unchanged in unrelated files.
 
+### pending - fix: keep subscribed users in product hub/dashboard routing (no forced bundle redirect)
+
+- Request summary:
+  - Prevent paid/onboarded users from being pushed back into legacy-style subscribe prompts when product access flags are temporarily empty or still syncing.
+- Files changed:
+  - `apps/web/src/app/products/page.tsx`
+- Key behavior changes:
+  - Removed the auto-redirect from `/products` to `/products?upgrade=bundle` for users with no current product access.
+  - Users with incomplete onboarding still go to `/onboarding`, but onboarded users now stay on the product chooser and can pick Lead/Assist directly.
+  - Upgrade banner copy now adapts:
+    - existing subscribers: “Add another QYRO product”
+    - no active product yet: “Choose your first QYRO product”
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+  - Note: existing unrelated Next.js hook dependency warnings remain unchanged.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

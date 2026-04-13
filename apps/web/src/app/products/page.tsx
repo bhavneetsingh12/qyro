@@ -47,9 +47,10 @@ export default async function ProductsPage({
   const preferredWorkspace = getPreferredWorkspace({ productAccess, tenantType });
   if (!forceHub && preferredWorkspace) redirect(preferredWorkspace);
   if (!productAccess.lead && !productAccess.assist) {
-    redirect(onboardingComplete ? "/products?upgrade=bundle" : "/onboarding");
+    if (!onboardingComplete) redirect("/onboarding");
   }
 
+  const hasAnyAccess = productAccess.lead || productAccess.assist;
   const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");
   const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
   const leadHref = productAccess.lead ? "/internal/dashboard" : "/lead";
@@ -82,9 +83,13 @@ export default async function ProductsPage({
 
         {forceHub && (
           <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-            <p className="text-sm font-semibold text-amber-800">Add another QYRO product</p>
+            <p className="text-sm font-semibold text-amber-800">
+              {hasAnyAccess ? "Add another QYRO product" : "Choose your first QYRO product"}
+            </p>
             <p className="mt-1 text-sm text-amber-700">
-              Unlock the second workspace to run the full lead-to-call workflow from one account.
+              {hasAnyAccess
+                ? "Unlock the second workspace to run the full lead-to-call workflow from one account."
+                : "Pick Lead or Assist to start your workspace. You can add the other product anytime."}
             </p>
           </div>
         )}
