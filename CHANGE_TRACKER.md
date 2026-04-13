@@ -421,6 +421,24 @@ Purpose: running log of all changes made in this workspace session series so fol
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
   - Note: existing unrelated Next.js hook dependency warnings remain unchanged.
 
+### pending - ux: harden Assist approvals and outbound pipeline language for operator clarity
+
+- Request summary:
+  - Reduce ambiguity in Assist operations screens so operators can quickly understand what actions to take.
+- Files changed:
+  - `apps/web/src/app/(client)/client/approvals/page.tsx`
+  - `apps/web/src/app/(client)/client/outbound-pipeline/page.tsx`
+- Key behavior changes:
+  - Approvals page now shows draft timestamps and clearer empty-state guidance.
+  - Approvals empty state now links operators to Call Control for compliance decision workflow.
+  - Outbound Pipeline header/empty-state copy now reflects both Lead handoff and direct contact imports.
+  - Added dedicated compliance warning panel in Outbound Pipeline when blocked outcomes are present, linking directly to Call Control.
+  - Refactored approvals data load into `useCallback` + stable effect dependency to avoid stale interval behavior.
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26 tests, 0 failures)
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+  - Note: existing unrelated Next.js hook dependency warnings remain unchanged.
+
 ## 2026-04-06
 
 ### d2c604e - feat: SSE real-time dashboard updates for calls, leads, and approvals

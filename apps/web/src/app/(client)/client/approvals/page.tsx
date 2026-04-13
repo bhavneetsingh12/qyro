@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
@@ -27,7 +28,7 @@ export default function ClientApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
     const res = await fetch(`${API_URL}/api/v1/assist/pending`, {
@@ -38,13 +39,13 @@ export default function ClientApprovalsPage() {
       setRows(json.data ?? []);
     }
     setLoading(false);
-  }
+  }, [getToken]);
 
   useEffect(() => {
-    load();
+    void load();
     const id = setInterval(load, 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [load]);
 
   async function act(messageId: string, action: "approve" | "reject") {
     const token = await getToken();
@@ -63,7 +64,7 @@ export default function ClientApprovalsPage() {
   return (
     <div className="p-8 max-w-4xl">
       <h1 className="text-xl font-semibold text-stone-900">Approvals</h1>
-      <p className="text-sm text-stone-400 mt-0.5">Review AI-drafted customer replies before they send.</p>
+      <p className="text-sm text-stone-400 mt-0.5">Review AI-drafted customer replies before they are sent.</p>
 
       {loading ? (
         <div className="mt-6 text-sm text-stone-500">Loading...</div>
@@ -73,6 +74,13 @@ export default function ClientApprovalsPage() {
           <p className="mt-1 text-sm text-stone-500">
             Assistant replies that require human approval will appear here before they are sent.
           </p>
+          <p className="mt-2 text-xs text-stone-400">
+            Need stricter outbound review? Use{" "}
+            <Link href="/client/call-control" className="text-amber-700 hover:text-amber-800 font-medium">
+              Call Control
+            </Link>{" "}
+            for compliance queue decisions.
+          </p>
         </div>
       ) : (
         <div className="mt-6 space-y-3">
@@ -81,7 +89,8 @@ export default function ClientApprovalsPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs text-stone-500 uppercase tracking-wide">{CHANNEL_LABELS[row.channel] ?? "Assistant message"}</p>
-                  <p className="text-sm text-stone-800 mt-1 whitespace-pre-wrap">{row.messageText || "(empty)"}</p>
+                  <p className="text-[11px] text-stone-400 mt-1">{new Date(row.createdAt).toLocaleString()}</p>
+                  <p className="text-sm text-stone-800 mt-1 whitespace-pre-wrap">{row.messageText || "Draft message unavailable"}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button

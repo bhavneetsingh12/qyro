@@ -298,6 +298,7 @@ export default function OutboundPipelinePage() {
   const done    = rows.filter(r => !["queued", "dialing", "ringing"].includes(r.status));
   const missingVoiceNumberCount = done.filter((row) => row.outcome === "missing_voice_number").length;
   const missingProspectPhoneCount = done.filter((row) => row.outcome === "missing_prospect_phone" || row.outcome === "missing_phone").length;
+  const blockedComplianceCount = done.filter((row) => row.outcome === "blocked_compliance" || row.status === "blocked_compliance").length;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
@@ -306,7 +307,7 @@ export default function OutboundPipelinePage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-900">Outbound Pipeline</h1>
           <p className="text-sm text-stone-500 mt-1">
-            Leads queued from QYRO Lead with call and compliance outcomes.
+            Outbound calls from Lead handoff and direct imports, with compliance-aware outcomes.
           </p>
         </div>
         <button
@@ -345,6 +346,20 @@ export default function OutboundPipelinePage() {
               </p>
             )}
           </div>
+        </section>
+      )}
+
+      {blockedComplianceCount > 0 && (
+        <section className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4">
+          <h2 className="text-sm font-semibold text-rose-900">Compliance review required</h2>
+          <p className="mt-2 text-sm text-rose-800">
+            {blockedComplianceCount} recent attempt{blockedComplianceCount === 1 ? "" : "s"} were blocked by compliance controls.
+            Review and resolve these in{" "}
+            <Link href="/client/call-control" className="font-medium underline underline-offset-2">
+              Call Control
+            </Link>{" "}
+            before re-queuing.
+          </p>
         </section>
       )}
 
@@ -432,7 +447,7 @@ export default function OutboundPipelinePage() {
           <Phone size={36} className="mx-auto text-stone-300 mb-3" strokeWidth={1.5} />
           <p className="text-stone-600 font-medium">No outbound calls yet</p>
           <p className="text-stone-400 text-sm mt-1">
-            Select leads in QYRO Lead and click &ldquo;Queue Calls Selected&rdquo; to add them here.
+            Push prospects from QYRO Lead or import contacts above to start outbound calling.
           </p>
         </div>
       )}
