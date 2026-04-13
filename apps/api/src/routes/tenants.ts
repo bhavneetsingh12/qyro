@@ -147,6 +147,7 @@ router.get("/settings", async (req: Request, res: Response, next: NextFunction) 
       plan: (meta.plan as string) ?? subscription?.stripePriceId ?? "",
       subscriptionStatus: (subscription?.status as string) ?? "none",
       enrichmentProvider:    (meta.enrichmentProvider as string) ?? "mock",
+      tcpaStrictMode:        meta.tcpa_strict_mode === true,
       outreachEnabled:       meta.outreach_enabled !== false,
       hasApolloApiKey:       !!apolloApiKey,
       hasHunterApiKey:       !!hunterApiKey,
@@ -197,6 +198,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       widgetAllowedOrigins,
       enrichmentProvider,
       outreachEnabled,
+      tcpaStrictMode,
       apolloApiKey,
       hunterApiKey,
       enrichmentMonthlyLimit,
@@ -226,6 +228,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       widgetAllowedOrigins?: string | string[];
       enrichmentProvider?: "mock" | "apollo" | "hunter";
       outreachEnabled?: boolean;
+      tcpaStrictMode?: boolean;
       apolloApiKey?: string;
       hunterApiKey?: string;
       enrichmentMonthlyLimit?: number;
@@ -288,6 +291,7 @@ router.patch("/settings", async (req: Request, res: Response, next: NextFunction
       }),
       voice_runtime: "signalwire",
       ...(enrichmentProvider !== undefined && { enrichmentProvider }),
+      ...(tcpaStrictMode !== undefined && { tcpa_strict_mode: Boolean(tcpaStrictMode) }),
       ...(outreachEnabled !== undefined && { outreach_enabled: Boolean(outreachEnabled) }),
       ...(enrichmentMonthlyLimit !== undefined && {
         enrichmentMonthlyLimit: Math.max(0, Number(enrichmentMonthlyLimit) || 0),

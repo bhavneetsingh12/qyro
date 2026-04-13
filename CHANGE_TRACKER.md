@@ -137,6 +137,28 @@ Purpose: running log of all changes made in this workspace session series so fol
   - Added an API guard that blocks new `product="bundle"` checkout session creation (unless an explicit allowed `priceId` is passed), returning a retired-product error message.
   - Existing bundle subscriptions remain readable for entitlement mapping/backward compatibility.
 
+### pending - feat: TCPA compliance core gating for automated outbound voice
+- Request summary:
+  - Add a compliance decision layer that can block or route outbound attempts to manual review based on suppressions and consent evidence before calls are queued or dialed.
+- Files changed:
+  - `packages/db/migrations/0017_tcpa_compliance_core.sql`
+  - `packages/db/src/schema.ts`
+  - `packages/db/src/compliance.ts`
+  - `packages/db/src/index.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `packages/queue/src/workers/outboundCallWorker.ts`
+  - `apps/api/src/routes/tenants.ts`
+  - `apps/web/src/app/(client)/client/admin/page.tsx`
+- Key behavior changes:
+  - Added core compliance tables: `consent_records`, `suppressions`, and `compliance_decisions`.
+  - Added shared evaluator `evaluateComplianceForProspect(...)` with `ALLOW | BLOCK | MANUAL_REVIEW` outcomes and rule codes.
+  - Outbound enqueue now evaluates compliance per prospect and returns blocked/manual-review reasons instead of silently queueing all records.
+  - Outbound call worker now enforces the same compliance gate before dialing, preventing queue bypass.
+  - Added authenticated endpoints to write consent and suppression records:
+    - `POST /api/v1/assist/compliance/consent`
+    - `POST /api/v1/assist/compliance/suppressions`
+  - Added tenant setting `tcpaStrictMode` (`metadata.tcpa_strict_mode`) and Admin UI toggle to enable strict consent checks without direct DB edits.
+
 ## 2026-04-12
 
 ### pending - feat: shared booking execution service, manual bookings, and blackout blocks

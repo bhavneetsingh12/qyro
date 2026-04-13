@@ -245,6 +245,68 @@ export const doNotContact = pgTable("do_not_contact", {
   phoneIdx:       index("dnc_phone_idx").on(t.tenantId, t.phone),
 }));
 
+export const consentRecords = pgTable("consent_records", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  tenantId:          uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  prospectId:        uuid("prospect_id").references(() => prospectsRaw.id, { onDelete: "set null" }),
+  phoneE164:         text("phone_e164").notNull(),
+  sellerName:        text("seller_name").notNull(),
+  consentChannel:    text("consent_channel").notNull(), // voice | sms | both
+  consentType:       text("consent_type").notNull(), // written | express | inquiry_only | unknown
+  disclosureText:    text("disclosure_text"),
+  disclosureVersion: text("disclosure_version"),
+  formUrl:           text("form_url"),
+  ipAddress:         text("ip_address"),
+  userAgent:         text("user_agent"),
+  capturedAt:        timestamp("captured_at").notNull(),
+  expiresAt:         timestamp("expires_at"),
+  revokedAt:         timestamp("revoked_at"),
+  revokedReason:     text("revoked_reason"),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantPhoneIdx:    index("consent_records_tenant_phone_idx").on(t.tenantId, t.phoneE164),
+  tenantCapturedIdx: index("consent_records_tenant_captured_idx").on(t.tenantId, t.capturedAt),
+}));
+
+export const suppressions = pgTable("suppressions", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  phoneE164:       text("phone_e164"),
+  email:           text("email"),
+  domain:          text("domain"),
+  suppressionType: text("suppression_type").notNull(), // internal_dnc | stop_reply | verbal_optout | manual_block
+  scope:           text("scope").notNull().default("global"), // global | seller_specific | campaign_specific
+  sellerName:      text("seller_name"),
+  campaignId:      uuid("campaign_id"),
+  reason:          text("reason"),
+  effectiveAt:     timestamp("effective_at").notNull().defaultNow(),
+  revokedAt:       timestamp("revoked_at"),
+  sourceEventId:   uuid("source_event_id"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantPhoneIdx:  index("suppressions_tenant_phone_idx").on(t.tenantId, t.phoneE164),
+  tenantEmailIdx:  index("suppressions_tenant_email_idx").on(t.tenantId, t.email),
+  tenantDomainIdx: index("suppressions_tenant_domain_idx").on(t.tenantId, t.domain),
+}));
+
+export const complianceDecisions = pgTable("compliance_decisions", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  prospectId:      uuid("prospect_id").references(() => prospectsRaw.id, { onDelete: "set null" }),
+  campaignId:      uuid("campaign_id"),
+  channel:         text("channel").notNull(),
+  automated:       boolean("automated").notNull().default(true),
+  decision:        text("decision").notNull(), // ALLOW | BLOCK | MANUAL_REVIEW
+  ruleCode:        text("rule_code").notNull(),
+  explanation:     text("explanation").notNull(),
+  consentRecordId: uuid("consent_record_id").references(() => consentRecords.id, { onDelete: "set null" }),
+  suppressionId:   uuid("suppression_id").references(() => suppressions.id, { onDelete: "set null" }),
+  evaluatedAt:     timestamp("evaluated_at").notNull().defaultNow(),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  tenantEvalIdx:   index("compliance_decisions_tenant_eval_idx").on(t.tenantId, t.evaluatedAt),
+}));
+
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 export const appointments = pgTable("appointments", {

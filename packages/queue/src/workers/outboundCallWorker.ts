@@ -1,7 +1,17 @@
 import { Worker, type Job } from "bullmq";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { DateTime } from "luxon";
-import { db, callAttempts, prospectsRaw, tenants, doNotContact, auditLogs, inferProspectTimezone, resolveCallingTimezone } from "@qyro/db";
+import {
+  db,
+  callAttempts,
+  prospectsRaw,
+  tenants,
+  doNotContact,
+  auditLogs,
+  inferProspectTimezone,
+  resolveCallingTimezone,
+  evaluateComplianceForProspect,
+} from "@qyro/db";
 import { redis, QUEUE_NAMES, outboundCallQueue, type OutboundCallJobData } from "../queues";
 import { publishRealtimeEvent } from "../realtime";
 
@@ -207,6 +217,28 @@ async function processOutboundCallJob(job: Job<OutboundCallJobData>) {
   });
 
   const tenantMeta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+  const compliance = await evaluateComplianceForProspect({
+    tenantId,
+    prospectId: prospect.id,
+    channel: "voice",
+    automated: true,
+    strictMode: tenantMeta.tcpa_strict_mode === true,
+    sellerName: tenant?.name ?? null,
+  });
+
+  if (compliance.decision !== "ALLOW") {
+    await db
+      .update(callAttempts)
+      .set({
+        status: "blocked_compliance",
+        outcome: "blocked_compliance",
+        complianceBlockedReason: `${compliance.decision}:${compliance.ruleCode}`,
+      })
+      .where(eq(callAttempts.id, attempt.id));
+    emitCallStatusChange(tenantId, attempt.id, "failed");
+    return;
+  }
+
   const outboundEnabled = tenantMeta.outbound_voice_enabled !== false;
   const tenantPaused = tenantMeta.outbound_voice_paused === true;
   const globalPaused = outboundGlobalPauseEnabled();

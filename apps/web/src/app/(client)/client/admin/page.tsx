@@ -32,6 +32,7 @@ type Settings = {
   calendarBookingUrl: string;
   calendarEventTypeId: string;
   hasCalendarApiKey: boolean;
+  tcpaStrictMode: boolean;
 };
 
 type FaqEntry = { question: string; answer: string };
@@ -135,6 +136,21 @@ function OrgTab({ settings, onChange, onSave, saving, saved, error }: {
         <Field label="Business hours" hint="Natural text format, e.g. Mon–Fri 9am–6pm, Sat 10am–2pm">
           <input className="input" value={settings.businessHours} onChange={(e) => onChange({ businessHours: e.target.value })} placeholder="Mon-Fri 9am-6pm, Sat 10am-2pm" />
         </Field>
+        <div className="flex items-start gap-3 rounded-lg border border-[#E8E6E1] bg-stone-50 px-3 py-2.5">
+          <input
+            id="tcpaStrictMode"
+            type="checkbox"
+            checked={settings.tcpaStrictMode}
+            onChange={(e) => onChange({ tcpaStrictMode: e.target.checked })}
+            className="mt-0.5"
+          />
+          <div>
+            <label htmlFor="tcpaStrictMode" className="text-sm font-medium text-stone-700">Enable strict TCPA compliance mode</label>
+            <p className="text-xs text-stone-500 mt-0.5">
+              When enabled, automated outbound voice requires valid written consent records; otherwise attempts are blocked or routed to manual review.
+            </p>
+          </div>
+        </div>
       </Section>
 
       <Section title="Appointment Booking">
@@ -601,6 +617,7 @@ const DEFAULT_SETTINGS: Settings = {
   calendarBookingUrl: "",
   calendarEventTypeId: "",
   hasCalendarApiKey: false,
+  tcpaStrictMode: false,
 };
 
 const TABS: { key: Tab; label: string }[] = [
@@ -653,6 +670,7 @@ export default function ClientAdminPage() {
             calendarBookingUrl:    String(d.calendarBookingUrl ?? ""),
             calendarEventTypeId:   String(d.calendarEventTypeId ?? ""),
             hasCalendarApiKey:     Boolean(d.hasCalendarApiKey),
+            tcpaStrictMode:        d.tcpaStrictMode === true,
           });
           setBilling({
             plan: String(d.plan ?? ""),

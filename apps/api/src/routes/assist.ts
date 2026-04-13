@@ -13,7 +13,8 @@ import { verifyWidgetToken } from "../lib/widgetAuth";
 
 const MAX_PAGE_SIZE = 50;
 import { db } from "@qyro/db";
-import { assistantSessions, appointments, blackoutBlocks, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries } from "@qyro/db";
+import { assistantSessions, appointments, blackoutBlocks, prospectsRaw, messageAttempts, callAttempts, tenants, tenantSubscriptions, dailySummaries, consentRecords, suppressions, doNotContact } from "@qyro/db";
+import { evaluateComplianceForProspect } from "@qyro/db";
 import { eq, and, desc, sql, inArray, or, gte, lte } from "drizzle-orm";
 import { runClientAssistant } from "@qyro/agents/clientAssistant";
 import {
@@ -566,6 +567,7 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
 
     let enqueued = 0;
     const callAttemptIds: string[] = [];
+    const blockedByCompliance: Array<{ prospectId: string; decision: string; ruleCode: string; explanation: string }> = [];
     const schemaMode = await getCallAttemptsSchemaMode();
     const legacyMode = schemaMode === "legacy";
 
@@ -575,6 +577,55 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
       });
 
       if (!prospect || !normalizePhone(prospect.phone)) continue;
+
+      const compliance = await evaluateComplianceForProspect({
+        tenantId,
+        prospectId: prospect.id,
+        channel: "voice",
+        automated: true,
+        strictMode: tenantMeta.tcpa_strict_mode === true,
+        sellerName: tenant?.name ?? null,
+      });
+
+      if (compliance.decision !== "ALLOW") {
+        blockedByCompliance.push({
+          prospectId: prospect.id,
+          decision: compliance.decision,
+          ruleCode: compliance.ruleCode,
+          explanation: compliance.explanation,
+        });
+
+        if (!legacyMode) {
+          const [attempt] = await db
+            .insert(callAttempts)
+            .values({
+              tenantId,
+              prospectId: prospect.id,
+              direction: "outbound",
+              source: "lead_manual",
+              status: "blocked_compliance",
+              outcome: "blocked_compliance",
+              complianceBlockedReason: `${compliance.decision}:${compliance.ruleCode}`,
+              attemptCount: 0,
+              maxAttempts,
+              scheduledBy: userId,
+            })
+            .returning({ id: callAttempts.id });
+
+          void publishRealtimeEvent({
+            type: "call_status_change",
+            tenantId,
+            payload: {
+              callAttemptId: attempt.id,
+              prospectId: prospect.id,
+              status: "failed",
+            },
+          }).catch((err) => {
+            console.error("[assist/outbound-calls/enqueue] compliance block realtime publish failed:", err);
+          });
+        }
+        continue;
+      }
 
       let attemptId: string;
       if (schemaMode === "modern") {
@@ -653,9 +704,158 @@ router.post("/v1/assist/outbound-calls/enqueue", async (req: Request, res: Respo
         enqueued,
         callAttemptIds,
         createdProspectIds,
+        blockedByCompliance,
         legacyMode,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/compliance/consent ──────────────────────────────────
+
+router.post("/v1/assist/compliance/consent", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance controls" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const tenant = await db.query.tenants.findFirst({
+      where: and(eq(tenants.id, tenantId), eq(tenants.active, true)),
+    });
+    if (!tenant) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Tenant not found" });
+      return;
+    }
+
+    const body = req.body as {
+      prospectId?: string;
+      phone?: string;
+      sellerName?: string;
+      consentChannel?: string;
+      consentType?: string;
+      disclosureText?: string;
+      disclosureVersion?: string;
+      formUrl?: string;
+      capturedAt?: string;
+    };
+
+    const normalizedPhone = normalizePhone(body.phone);
+    const prospectId = String(body.prospectId ?? "").trim();
+    const consentChannel = String(body.consentChannel ?? "voice").trim().toLowerCase();
+    const consentType = String(body.consentType ?? "written").trim().toLowerCase();
+    const capturedAt = body.capturedAt ? new Date(body.capturedAt) : new Date();
+    if (!normalizedPhone || !normalizedPhone.startsWith("+")) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "phone (E.164) is required" });
+      return;
+    }
+    if (!["voice", "sms", "both"].includes(consentChannel)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "consentChannel must be voice, sms, or both" });
+      return;
+    }
+    if (!["written", "express", "inquiry_only", "unknown"].includes(consentType)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "consentType must be written, express, inquiry_only, or unknown" });
+      return;
+    }
+
+    let resolvedProspectId: string | null = null;
+    if (prospectId) {
+      const prospect = await db.query.prospectsRaw.findFirst({
+        where: and(eq(prospectsRaw.id, prospectId), eq(prospectsRaw.tenantId, tenantId)),
+      });
+      resolvedProspectId = prospect?.id ?? null;
+    } else {
+      const prospect = await db.query.prospectsRaw.findFirst({
+        where: and(eq(prospectsRaw.tenantId, tenantId), eq(prospectsRaw.phone, normalizedPhone)) as any,
+      });
+      resolvedProspectId = prospect?.id ?? null;
+    }
+
+    const [created] = await db
+      .insert(consentRecords)
+      .values({
+        tenantId,
+        prospectId: resolvedProspectId,
+        phoneE164: normalizedPhone,
+        sellerName: String(body.sellerName ?? tenant.name).trim(),
+        consentChannel,
+        consentType,
+        disclosureText: String(body.disclosureText ?? "").trim() || null,
+        disclosureVersion: String(body.disclosureVersion ?? "").trim() || null,
+        formUrl: String(body.formUrl ?? "").trim() || null,
+        capturedAt,
+        ipAddress: getRequestIp(req),
+        userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : null,
+      })
+      .returning({ id: consentRecords.id });
+
+    res.json({ data: { id: created.id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/compliance/suppressions ─────────────────────────────
+
+router.post("/v1/assist/compliance/suppressions", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance controls" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const body = req.body as {
+      phone?: string;
+      email?: string;
+      domain?: string;
+      suppressionType?: string;
+      scope?: string;
+      reason?: string;
+      sellerName?: string;
+      effectiveAt?: string;
+    };
+
+    const phone = normalizePhone(body.phone);
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const domain = String(body.domain ?? "").trim().toLowerCase();
+    if (!phone && !email && !domain) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "phone, email, or domain is required" });
+      return;
+    }
+
+    const suppressionType = String(body.suppressionType ?? "manual_block").trim().toLowerCase();
+    const scope = String(body.scope ?? "global").trim().toLowerCase();
+    const effectiveAt = body.effectiveAt ? new Date(body.effectiveAt) : new Date();
+
+    const [created] = await db
+      .insert(suppressions)
+      .values({
+        tenantId,
+        phoneE164: phone || null,
+        email: email || null,
+        domain: domain || null,
+        suppressionType,
+        scope,
+        sellerName: String(body.sellerName ?? "").trim() || null,
+        reason: String(body.reason ?? "").trim() || null,
+        effectiveAt,
+      })
+      .returning({ id: suppressions.id });
+
+    await db.insert(doNotContact).values({
+      tenantId,
+      phone: phone || null,
+      email: email || null,
+      domain: domain || null,
+      reason: suppressionType || "manual",
+      addedBy: req.userId,
+    });
+
+    res.json({ data: { id: created.id } });
   } catch (err) {
     next(err);
   }
