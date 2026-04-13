@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "https://api.qyro.us" : "http://localhost:3001");
 
@@ -14,10 +15,12 @@ type BillingProduct = "lead" | "assist";
 
 export default function BillingActions({ productAccess }: { productAccess: ProductAccess }) {
   const { getToken } = useAuth();
+  const searchParams = useSearchParams();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const autoCheckoutStartedRef = useRef(false);
 
-  async function startCheckout(product: BillingProduct) {
+  const startCheckout = useCallback(async (product: BillingProduct) => {
     setLoadingAction(product);
     setError(null);
 
@@ -48,7 +51,7 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
       setError(err instanceof Error ? err.message : "Could not start checkout");
       setLoadingAction(null);
     }
-  }
+  }, [getToken]);
 
   async function openPortal() {
     setLoadingAction("portal");
@@ -79,6 +82,22 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
   }
 
   const canManage = productAccess.lead || productAccess.assist;
+
+  useEffect(() => {
+    if (autoCheckoutStartedRef.current) return;
+    const openCheckout = String(searchParams?.get("openCheckout") ?? "").trim().toLowerCase();
+    if (openCheckout !== "lead" && openCheckout !== "assist") return;
+    if (openCheckout === "lead" && productAccess.lead) return;
+    if (openCheckout === "assist" && productAccess.assist) return;
+    autoCheckoutStartedRef.current = true;
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("openCheckout");
+    const nextSearch = url.searchParams.toString();
+    window.history.replaceState({}, "", `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`);
+
+    void startCheckout(openCheckout);
+  }, [searchParams, productAccess.lead, productAccess.assist, startCheckout]);
 
   return (
     <div id="billing" className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">

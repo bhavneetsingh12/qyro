@@ -53,8 +53,12 @@ export default async function ProductsPage({
   const hasAnyAccess = productAccess.lead || productAccess.assist;
   const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");
   const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
-  const leadHref = productAccess.lead ? "/internal/dashboard" : "/products?upgrade=lead#billing";
-  const assistHref = productAccess.assist ? "/client/dashboard" : "/products?upgrade=assist#billing";
+  const leadHref = productAccess.lead
+    ? "/internal/dashboard"
+    : "/products?upgrade=lead&openCheckout=lead#billing";
+  const assistHref = productAccess.assist
+    ? "/client/dashboard"
+    : "/products?upgrade=assist&openCheckout=assist#billing";
   const backHref = preferredWorkspace ?? "/";
   const backLabel = preferredWorkspace === "/client/dashboard"
     ? "Back to Assist"

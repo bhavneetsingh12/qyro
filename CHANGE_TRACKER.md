@@ -811,4 +811,19 @@ Purpose: running log of all changes made in this workspace session series so fol
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
   - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26/26)
 - Commit hash:
+  - `2afc261`
+
+### done - product card click now opens checkout intent directly
+- Request summary:
+  - Fix inactive product cards on `/products` so clicking the card reliably starts upgrade checkout flow instead of appearing non-functional.
+- Files changed:
+  - `apps/web/src/app/products/page.tsx`
+  - `apps/web/src/components/billing/BillingActions.tsx`
+- Key behavior changes:
+  - Inactive product cards now append explicit `openCheckout` query intent when routing to `/products`.
+  - Billing actions now auto-start checkout when `openCheckout` is present and the product is not already active.
+  - The `openCheckout` query param is removed from URL before redirect to prevent repeated auto-trigger loops on refresh/back navigation.
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+- Commit hash:
   - pending
