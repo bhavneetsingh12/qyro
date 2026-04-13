@@ -75,6 +75,20 @@ function isOptOutText(value: string): boolean {
   return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd|revoke consent)\b/.test(lowered);
 }
 
+function isOptOutDisposition(value: unknown): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    "verbal_optout",
+    "stop_reply",
+    "do_not_contact",
+    "unsubscribe",
+    "revoked",
+    "opt_out",
+    "dnc",
+  ].includes(normalized);
+}
+
 function getEmailDomain(email?: string | null): string | null {
   const normalized = String(email ?? "").trim().toLowerCase();
   if (!normalized.includes("@")) return null;
@@ -988,6 +1002,95 @@ router.post("/v1/assist/compliance/suppressions", async (req: Request, res: Resp
     });
 
     res.json({ data: { id: created.id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/v1/assist/compliance/inbound-events ───────────────────────────
+
+router.post("/v1/assist/compliance/inbound-events", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance controls" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const body = req.body as {
+      channel?: string;
+      text?: string;
+      disposition?: string;
+      reason?: string;
+      phone?: string;
+      email?: string;
+      domain?: string;
+      prospectId?: string;
+      sourceEventId?: string;
+    };
+
+    const channel = String(body.channel ?? "sms").trim().toLowerCase();
+    const text = String(body.text ?? "").trim();
+    const disposition = String(body.disposition ?? "").trim().toLowerCase();
+    const explicitReason = String(body.reason ?? "").trim();
+
+    const optOutRequested = isOptOutText(text) || isOptOutDisposition(disposition);
+    if (!optOutRequested) {
+      res.json({ data: { applied: false, reason: "ignored_non_optout_event" } });
+      return;
+    }
+
+    const prospectId = String(body.prospectId ?? "").trim();
+    const prospect = prospectId
+      ? await db.query.prospectsRaw.findFirst({
+          where: and(eq(prospectsRaw.tenantId, tenantId), eq(prospectsRaw.id, prospectId)),
+        })
+      : null;
+
+    const suppressionType = disposition === "verbal_optout" || channel === "voice" ? "verbal_optout" : "stop_reply";
+    const reason = explicitReason || disposition || (text ? "inbound_opt_out_text" : "inbound_opt_out");
+    const applied = await createSuppressionAndRevokeConsent({
+      tenantId,
+      phone: String(body.phone ?? prospect?.phone ?? ""),
+      email: String(body.email ?? prospect?.email ?? ""),
+      domain: String(body.domain ?? prospect?.domain ?? ""),
+      suppressionType,
+      reason,
+    });
+
+    if (applied && prospect?.id) {
+      await db
+        .update(callAttempts)
+        .set({
+          status: "dnd",
+          outcome: "do_not_contact",
+          dndAt: new Date(),
+          nextAttemptAt: null,
+        })
+        .where(
+          and(
+            eq(callAttempts.tenantId, tenantId),
+            eq(callAttempts.prospectId, prospect.id),
+            eq(callAttempts.direction, "outbound"),
+            or(
+              eq(callAttempts.status, "queued"),
+              eq(callAttempts.status, "retry_scheduled"),
+              eq(callAttempts.status, "dialing"),
+              eq(callAttempts.status, "ringing"),
+            ) as any,
+          ),
+        );
+    }
+
+    res.json({
+      data: {
+        applied,
+        suppressionType,
+        reason,
+        prospectId: prospect?.id ?? null,
+        sourceEventId: String(body.sourceEventId ?? "").trim() || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

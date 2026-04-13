@@ -668,3 +668,19 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - feat: add inbound revocation ingestion endpoint for compliance suppressions
+- Request summary:
+  - Continue autonomous backlog execution by adding a single ingestion path for inbound STOP/opt-out/revocation events.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+- Key behavior changes:
+  - Added `POST /api/v1/assist/compliance/inbound-events`.
+  - Endpoint evaluates inbound event text/disposition and applies suppression + consent revocation when opt-out intent is detected.
+  - Supports channel-aware suppression typing (`verbal_optout` for voice, `stop_reply` for sms/chat).
+  - If a prospect is identified, pending outbound attempts are moved to `dnd` with `do_not_contact` outcome.
+  - Non-opt-out events are explicitly ignored with a structured response.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending
