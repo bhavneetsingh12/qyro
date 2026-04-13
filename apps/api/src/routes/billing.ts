@@ -97,6 +97,13 @@ function applySubscriptionStatus(access: ProductAccess, status: string): Product
   return access;
 }
 
+function mergeAccess(a: ProductAccess, b: ProductAccess): ProductAccess {
+  return {
+    lead: a.lead || b.lead,
+    assist: a.assist || b.assist,
+  };
+}
+
 function accessIncludes(current: ProductAccess, requested: ProductAccess): boolean {
   const leadCovered = requested.lead ? current.lead : true;
   const assistCovered = requested.assist ? current.assist : true;
@@ -130,51 +137,153 @@ async function writeTenantProductAccess(tenantId: string, access: ProductAccess)
     .where(eq(tenants.id, tenantId));
 }
 
-async function upsertSubscriptionFromStripe(params: {
-  tenantId: string;
+async function listCustomerSubscriptionsForTenant(params: {
+  stripe: StripeClient;
   customerId: string;
-  subscription: any;
-}): Promise<void> {
-  const { tenantId, customerId, subscription } = params;
+  tenantId: string;
+}): Promise<any[]> {
+  const { stripe, customerId, tenantId } = params;
 
-  const priceId = subscription.items.data[0]?.price?.id;
-  if (!priceId) {
-    throw new Error("Stripe subscription does not include a price id");
+  const subscriptions: any[] = [];
+  let startingAfter: string | undefined;
+
+  while (true) {
+    const page = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+
+    const rows = Array.isArray(page?.data) ? page.data : [];
+    subscriptions.push(
+      ...rows.filter((sub: any) => String(sub?.metadata?.tenantId ?? "").trim() === tenantId),
+    );
+
+    if (!page?.has_more || rows.length === 0) break;
+    startingAfter = String(rows[rows.length - 1]?.id ?? "").trim() || undefined;
+    if (!startingAfter) break;
   }
 
-  const rawAccess = resolveAccessFromPriceId(priceId);
-  const productAccess = applySubscriptionStatus(rawAccess, subscription.status);
+  return subscriptions;
+}
 
+function pickRepresentativeSubscription(subscriptions: any[]): any | null {
+  if (subscriptions.length === 0) return null;
+
+  const activeLike = subscriptions.find((sub) =>
+    ACTIVE_LIKE_STATUSES.has(String(sub?.status ?? "").trim()),
+  );
+  if (activeLike) return activeLike;
+
+  return subscriptions[0] ?? null;
+}
+
+function resolveMergedAccessFromSubscriptions(subscriptions: any[]): ProductAccess {
+  let access: ProductAccess = { lead: false, assist: false };
+
+  for (const sub of subscriptions) {
+    const priceId = String(sub?.items?.data?.[0]?.price?.id ?? "").trim();
+    if (!priceId) continue;
+    const raw = resolveAccessFromPriceId(priceId);
+    const activeScoped = applySubscriptionStatus(raw, String(sub?.status ?? ""));
+    access = mergeAccess(access, activeScoped);
+  }
+
+  return access;
+}
+
+async function syncTenantAccessFromStripe(params: {
+  stripe: StripeClient;
+  tenantId: string;
+  customerId: string;
+}): Promise<void> {
+  const { stripe, tenantId, customerId } = params;
+  const subscriptions = await listCustomerSubscriptionsForTenant({ stripe, customerId, tenantId });
+  const mergedAccess = resolveMergedAccessFromSubscriptions(subscriptions);
+  const representative = pickRepresentativeSubscription(subscriptions);
+
+  if (!representative) {
+    await db
+      .insert(tenantSubscriptions)
+      .values({
+        tenantId,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: "",
+        stripePriceId: "",
+        status: "none",
+        productAccess: mergedAccess,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: tenantSubscriptions.tenantId,
+        set: {
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: "",
+          stripePriceId: "",
+          status: "none",
+          productAccess: mergedAccess,
+          currentPeriodStart: null,
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          updatedAt: new Date(),
+        },
+      });
+
+    await writeTenantProductAccess(tenantId, mergedAccess);
+    return;
+  }
+
+  const priceId = String(representative?.items?.data?.[0]?.price?.id ?? "").trim();
   await db
     .insert(tenantSubscriptions)
     .values({
       tenantId,
       stripeCustomerId: customerId,
-      stripeSubscriptionId: subscription.id,
+      stripeSubscriptionId: String(representative.id),
       stripePriceId: priceId,
-      status: subscription.status,
-      productAccess,
-      currentPeriodStart: toDate(subscription.current_period_start),
-      currentPeriodEnd: toDate(subscription.current_period_end),
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      status: String(representative.status ?? "none"),
+      productAccess: mergedAccess,
+      currentPeriodStart: toDate(representative.current_period_start),
+      currentPeriodEnd: toDate(representative.current_period_end),
+      cancelAtPeriodEnd: Boolean(representative.cancel_at_period_end),
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
       target: tenantSubscriptions.tenantId,
       set: {
         stripeCustomerId: customerId,
-        stripeSubscriptionId: subscription.id,
+        stripeSubscriptionId: String(representative.id),
         stripePriceId: priceId,
-        status: subscription.status,
-        productAccess,
-        currentPeriodStart: toDate(subscription.current_period_start),
-        currentPeriodEnd: toDate(subscription.current_period_end),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        status: String(representative.status ?? "none"),
+        productAccess: mergedAccess,
+        currentPeriodStart: toDate(representative.current_period_start),
+        currentPeriodEnd: toDate(representative.current_period_end),
+        cancelAtPeriodEnd: Boolean(representative.cancel_at_period_end),
         updatedAt: new Date(),
       },
     });
 
-  await writeTenantProductAccess(tenantId, productAccess);
+  await writeTenantProductAccess(tenantId, mergedAccess);
+}
+
+async function upsertSubscriptionFromStripe(params: {
+  stripe: StripeClient;
+  tenantId: string;
+  customerId: string;
+  subscription: any;
+}): Promise<void> {
+  const { stripe, tenantId, customerId, subscription } = params;
+
+  const priceId = subscription.items.data[0]?.price?.id;
+  if (!priceId) {
+    throw new Error("Stripe subscription does not include a price id");
+  }
+
+  await syncTenantAccessFromStripe({ stripe, tenantId, customerId });
 }
 
 // ─── Authenticated billing routes ────────────────────────────────────────────
@@ -314,6 +423,13 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
     const sessionLabel = product ? (productLabels[product] ?? "QYRO") : "QYRO";
     const sessionDescription = product ? (productDescriptions[product] ?? "") : "";
 
+    const successPath = product
+      ? `${baseAppUrl}/products?billing=success&upgrade=${encodeURIComponent(product)}`
+      : `${baseAppUrl}/products?billing=success`;
+    const cancelPath = product
+      ? `${baseAppUrl}/products?billing=canceled&upgrade=${encodeURIComponent(product)}`
+      : `${baseAppUrl}/products?billing=canceled`;
+
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
@@ -326,8 +442,8 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
           quantity: 1,
         },
       ],
-      success_url: successUrl ?? `${baseAppUrl}/products?billing=success`,
-      cancel_url: cancelUrl ?? `${baseAppUrl}/products?billing=canceled`,
+      success_url: successUrl ?? successPath,
+      cancel_url: cancelUrl ?? cancelPath,
       custom_text: {
         submit: {
           message: `You're subscribing to ${sessionLabel}. Cancel anytime from your account settings.`,
@@ -420,6 +536,7 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
         if (tenantId) {
           const subscription = await stripe.subscriptions.retrieve(String(session.subscription));
           await upsertSubscriptionFromStripe({
+            stripe,
             tenantId,
             customerId: String(session.customer),
             subscription,
@@ -434,7 +551,7 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
       const customerId = String(subscription.customer);
 
       if (tenantId) {
-        await upsertSubscriptionFromStripe({ tenantId, customerId, subscription });
+        await upsertSubscriptionFromStripe({ stripe, tenantId, customerId, subscription });
       }
     }
 
@@ -443,56 +560,36 @@ publicRouter.post("/stripe", async (req: Request, res: Response, next: NextFunct
       const subscriptionId = String(invoice.subscription ?? "").trim();
 
       if (subscriptionId) {
-        const existing = await db.query.tenantSubscriptions.findFirst({
-          where: eq(tenantSubscriptions.stripeSubscriptionId, subscriptionId),
-        });
-
-        if (existing) {
-          const productAccess = { lead: false, assist: false };
-          await db
-            .update(tenantSubscriptions)
-            .set({
-              status: "past_due",
-              productAccess,
-              updatedAt: new Date(),
-            })
-            .where(eq(tenantSubscriptions.id, existing.id));
-
-          await writeTenantProductAccess(existing.tenantId, productAccess);
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const tenantId = String(subscription?.metadata?.tenantId ?? "").trim();
+        const customerId = String(subscription?.customer ?? "").trim();
+        if (tenantId && customerId) {
+          await syncTenantAccessFromStripe({ stripe, tenantId, customerId });
         }
       }
     }
 
     if (event.type === "customer.subscription.deleted") {
       const subscription = event.data.object as any;
-      const existing = await db.query.tenantSubscriptions.findFirst({
-        where: eq(tenantSubscriptions.stripeSubscriptionId, subscription.id),
-      });
+      const tenantId = String(subscription?.metadata?.tenantId ?? "").trim();
+      const customerId = String(subscription?.customer ?? "").trim();
+      if (tenantId && customerId) {
+        await syncTenantAccessFromStripe({ stripe, tenantId, customerId });
 
-      if (existing) {
-        const productAccess = { lead: false, assist: false };
-        await db
-          .update(tenantSubscriptions)
-          .set({
-            status: "canceled",
-            productAccess,
-            currentPeriodStart: toDate(subscription.current_period_start),
-            currentPeriodEnd: toDate(subscription.current_period_end),
-            cancelAtPeriodEnd: subscription.cancel_at_period_end,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantSubscriptions.id, existing.id));
+        const current = await db.query.tenantSubscriptions.findFirst({
+          where: eq(tenantSubscriptions.tenantId, tenantId),
+        });
+        const access = (current?.productAccess as ProductAccess | undefined) ?? { lead: false, assist: false };
 
-        await writeTenantProductAccess(existing.tenantId, productAccess);
+        if (!access.lead && !access.assist) {
+          // Freeze tenant data only when no paid products remain.
+          await db
+            .update(tenants)
+            .set({ dataFrozenAt: new Date(), updatedAt: new Date() })
+            .where(eq(tenants.id, tenantId));
 
-        // Freeze tenant data — blocks exports immediately on cancellation.
-        // Grace period: 30 days read-only, no exports.
-        await db
-          .update(tenants)
-          .set({ dataFrozenAt: new Date(), updatedAt: new Date() })
-          .where(eq(tenants.id, existing.tenantId));
-
-        console.log(`[billing] data frozen for tenant ${existing.tenantId} on subscription cancellation`);
+          console.log(`[billing] data frozen for tenant ${tenantId} on final subscription cancellation`);
+        }
       }
     }
 

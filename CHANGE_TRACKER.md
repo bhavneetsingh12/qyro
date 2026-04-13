@@ -788,3 +788,27 @@ Purpose: running log of all changes made in this workspace session series so fol
   - replace remaining stale `pending` labels in older historical tracker sections with explicit `done`/`superseded` statuses.
 - Optional security depth pass:
   - dedicated route-level tests for resolve/reopen endpoints and audit-log assertions (currently covered by unit policy tests + runtime checks).
+
+## 2026-04-13
+
+### done - fixed multi-product upgrade loop and product hub navigation confusion
+- Request summary:
+  - Fix the Lead/Assist add-on loop where buying a second product could still show incorrect upsell state.
+  - Ensure product cards route users to correct checkout/workspace destinations.
+  - Keep post-checkout return URLs scoped to product intent.
+- Files changed:
+  - `apps/api/src/routes/billing.ts`
+  - `apps/web/src/app/products/page.tsx`
+  - `apps/web/src/components/billing/BillingActions.tsx`
+  - `apps/web/src/app/lead/page.tsx`
+  - `apps/web/src/app/assist/page.tsx`
+- Key behavior changes:
+  - Stripe entitlement sync now merges access across all customer subscriptions for a tenant instead of letting a single subscription overwrite product access.
+  - Checkout success/cancel defaults now preserve `upgrade` intent (`lead` or `assist`) when available.
+  - Product hub cards for inactive products now route directly to billing checkout options on `/products` instead of bouncing to marketing pages.
+  - Marketing CTAs on `/lead` and `/assist` now detect signed-in users and route them into upgrade checkout flow (`/products?...#billing`) instead of generic sign-up.
+- Validation run:
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro build`: pass
+  - `pnpm -C /Volumes/WrkspaceSSD/dev/qyro test:hardening`: pass (26/26)
+- Commit hash:
+  - pending

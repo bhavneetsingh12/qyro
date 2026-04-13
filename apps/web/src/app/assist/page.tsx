@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
 import { ArrowRight, PhoneCall, MessageSquare, Calendar, Users, Zap, Shield, CheckCircle2 } from "lucide-react";
 import { QyroMark } from "@/components/brand/QyroBrand";
 import { ASSIST_PRICING } from "@/config/pricing";
@@ -92,7 +93,11 @@ const FAQ = [
   },
 ];
 
-export default function AssistPage() {
+export default async function AssistPage() {
+  const { userId } = await auth();
+  const assistUpgradeHref = "/products?upgrade=assist#billing";
+  const assistSignupHref = userId ? assistUpgradeHref : "/sign-up";
+
   return (
     <div className="min-h-screen bg-[#FAFAF8] text-stone-900">
       {/* Nav */}
@@ -110,7 +115,7 @@ export default function AssistPage() {
           <div className="flex items-center gap-3">
             <Link href="/contact" className="text-sm font-medium text-stone-600 hover:text-stone-900 transition-colors">Book a demo</Link>
             <Link
-              href="/sign-up"
+              href={assistSignupHref}
               className="text-sm font-semibold px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
             >
               Get started
@@ -139,7 +144,7 @@ export default function AssistPage() {
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
-              href="/sign-up"
+              href={assistSignupHref}
               className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl bg-stone-900 text-white hover:bg-stone-800 transition-colors shadow-sm"
             >
               Get started
@@ -251,7 +256,7 @@ export default function AssistPage() {
                 </ul>
                 {isDirectCheckout ? (
                   <Link
-                    href={`/sign-up?plan=assist-${tier.key}`}
+                    href={userId ? assistUpgradeHref : `/sign-up?plan=assist-${tier.key}`}
                     className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
                       tier.popular
                         ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
@@ -312,7 +317,7 @@ export default function AssistPage() {
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
-              href="/sign-up"
+              href={assistSignupHref}
               className="inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
             >
               Get started

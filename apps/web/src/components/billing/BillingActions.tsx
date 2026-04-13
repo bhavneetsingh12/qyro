@@ -81,7 +81,7 @@ export default function BillingActions({ productAccess }: { productAccess: Produ
   const canManage = productAccess.lead || productAccess.assist;
 
   return (
-    <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
+    <div id="billing" className="mt-6 rounded-2xl border border-stone-200 bg-white p-5">
       <h3 className="text-sm font-semibold text-stone-900">Billing</h3>
       <p className="text-xs text-stone-500 mt-1">
         Start with Starter plans here. You can upgrade or cancel anytime from the billing portal.

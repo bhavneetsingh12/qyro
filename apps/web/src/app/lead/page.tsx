@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { ArrowRight, PhoneCall, Users, CheckCircle2 } from "lucide-react";
 import { QyroMark } from "@/components/brand/QyroBrand";
 import { LEAD_PRICING } from "@/config/pricing";
@@ -15,6 +16,11 @@ const LEAD_FEATURES = [
 ];
 
 export default function LeadPage() {
+  const { userId } = useAuth();
+  const leadUpgradeHref = "/products?upgrade=lead#billing";
+  const leadStarterHref = userId ? leadUpgradeHref : "/sign-up?plan=lead-starter";
+  const leadGrowthHref = userId ? leadUpgradeHref : "/sign-up?plan=lead-growth";
+
   return (
     <div className="min-h-screen bg-[#FAFAF8] text-stone-900">
       <header className="fixed top-0 inset-x-0 z-50 border-b border-stone-200/60 bg-[#FAFAF8]/90 backdrop-blur-sm">
@@ -29,7 +35,7 @@ export default function LeadPage() {
           </nav>
           <div className="flex items-center gap-3">
             <Link
-              href="/sign-up?plan=lead-starter"
+              href={leadStarterHref}
               className="text-sm font-semibold px-4 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 transition-colors"
             >
               Start QYRO Lead
@@ -58,7 +64,7 @@ export default function LeadPage() {
 
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
-              href="/sign-up?plan=lead-starter"
+              href={leadStarterHref}
               className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
             >
               Start with Lead
@@ -118,7 +124,7 @@ export default function LeadPage() {
                   </ul>
                   {isDirectCheckout ? (
                     <Link
-                      href={`/sign-up?plan=lead-${tier.key}`}
+                      href={userId ? leadUpgradeHref : `/sign-up?plan=lead-${tier.key}`}
                       className={`inline-flex items-center justify-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors ${
                         tier.key === "growth"
                           ? "bg-amber-500 text-white hover:bg-amber-600"
@@ -152,7 +158,7 @@ export default function LeadPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
-              href="/sign-up?plan=lead-growth"
+              href={leadGrowthHref}
               className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm"
             >
               Launch QYRO Lead

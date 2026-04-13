@@ -53,8 +53,8 @@ export default async function ProductsPage({
   const hasAnyAccess = productAccess.lead || productAccess.assist;
   const highlightLead = forceHub && (!productAccess.lead || upgradeIntent === "lead" || upgradeIntent === "bundle");
   const highlightAssist = forceHub && (!productAccess.assist || upgradeIntent === "assist" || upgradeIntent === "bundle");
-  const leadHref = productAccess.lead ? "/internal/dashboard" : "/lead";
-  const assistHref = productAccess.assist ? "/client/dashboard" : "/assist";
+  const leadHref = productAccess.lead ? "/internal/dashboard" : "/products?upgrade=lead#billing";
+  const assistHref = productAccess.assist ? "/client/dashboard" : "/products?upgrade=assist#billing";
   const backHref = preferredWorkspace ?? "/";
   const backLabel = preferredWorkspace === "/client/dashboard"
     ? "Back to Assist"
@@ -128,7 +128,7 @@ export default async function ProductsPage({
               <li>Campaign drafting and approval workflows</li>
             </ul>
             <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-stone-900">
-              {productAccess.lead ? "Open Lead workspace" : "See Lead details"}
+              {productAccess.lead ? "Open Lead workspace" : "Open Lead checkout options"}
               <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </div>
           </Link>
@@ -166,7 +166,7 @@ export default async function ProductsPage({
               <li>Warm-lead follow-up and handoff visibility</li>
             </ul>
             <div className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-stone-900">
-              {productAccess.assist ? "Open Assist workspace" : "See Assist details"}
+              {productAccess.assist ? "Open Assist workspace" : "Open Assist checkout options"}
               <ArrowRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </div>
           </Link>
