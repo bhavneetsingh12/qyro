@@ -76,6 +76,8 @@ type ComplianceAlerts = {
   alerts: Array<{ code: string; level: "info" | "warning"; message: string }>;
 };
 
+type ComplianceQueueFilter = "open" | "resolved";
+
 const DEFAULT_CONTROL: ControlState = {
   enabled: false,
   paused: false,
@@ -152,6 +154,7 @@ export default function ClientCallControlPage() {
   const [complianceAlerts, setComplianceAlerts] = useState<ComplianceAlerts | null>(null);
   const [complianceActionBusyId, setComplianceActionBusyId] = useState<string | null>(null);
   const [complianceActionNotice, setComplianceActionNotice] = useState<string | null>(null);
+  const [complianceFilter, setComplianceFilter] = useState<ComplianceQueueFilter>("open");
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -167,7 +170,7 @@ export default function ClientCallControlPage() {
       const [controlRes, metricsRes, complianceRes, reportRes, alertsRes] = await Promise.all([
         fetchWithToken<{ data: ControlState }>(`${API_URL}/api/v1/assist/outbound-calls/control`, token),
         fetchWithToken<{ data: MetricsState }>(`${API_URL}/api/v1/assist/outbound-calls/metrics`, token),
-        fetchWithToken<{ data: ComplianceDecisionRow[] }>(`${API_URL}/api/v1/assist/compliance/decisions?limit=25&decision=open`, token),
+        fetchWithToken<{ data: ComplianceDecisionRow[] }>(`${API_URL}/api/v1/assist/compliance/decisions?limit=25&decision=${complianceFilter}`, token),
         fetchWithToken<{ data: ComplianceReport }>(`${API_URL}/api/v1/assist/compliance/report?days=7`, token),
         fetchWithToken<{ data: ComplianceAlerts }>(`${API_URL}/api/v1/assist/compliance/alerts`, token),
       ]);
@@ -191,7 +194,7 @@ export default function ClientCallControlPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getToken]);
+  }, [complianceFilter, getToken]);
 
   useEffect(() => {
     load();
@@ -648,6 +651,26 @@ export default function ClientCallControlPage() {
       <section className="mt-5 rounded-[14px] border border-[#E8E6E1] bg-white p-5">
         <h2 className="text-sm font-semibold text-stone-800">Compliance Review Queue</h2>
         <p className="mt-1 text-xs text-stone-500">Latest blocked and manual-review decisions from strict-mode evaluator.</p>
+        <div className="mt-3 inline-flex rounded-lg border border-[#E8E6E1] bg-white p-1">
+          <button
+            type="button"
+            onClick={() => setComplianceFilter("open")}
+            className={`rounded-md px-3 py-1 text-xs font-medium ${
+              complianceFilter === "open" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"
+            }`}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            onClick={() => setComplianceFilter("resolved")}
+            className={`rounded-md px-3 py-1 text-xs font-medium ${
+              complianceFilter === "resolved" ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"
+            }`}
+          >
+            Resolved
+          </button>
+        </div>
         {complianceActionNotice ? (
           <div className="mt-3 rounded-lg border border-[#F0EEE9] bg-stone-50 px-3 py-2 text-xs text-stone-700">
             {complianceActionNotice}
@@ -658,7 +681,9 @@ export default function ClientCallControlPage() {
           {loading ? (
             <p className="px-4 py-4 text-sm text-stone-500">Loading...</p>
           ) : complianceRows.length === 0 ? (
-            <p className="px-4 py-4 text-sm text-stone-500">No open compliance decisions.</p>
+            <p className="px-4 py-4 text-sm text-stone-500">
+              {complianceFilter === "open" ? "No open compliance decisions." : "No resolved compliance decisions yet."}
+            </p>
           ) : (
             <ul className="divide-y divide-[#F0EEE9]">
               {complianceRows.map((row) => (
@@ -680,32 +705,39 @@ export default function ClientCallControlPage() {
                   <p className="mt-1 text-xs text-stone-500">
                     Prospect: {row.businessName || "Unknown"} {row.phone ? `(${row.phone})` : ""}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void suppressFromCompliance(row)}
-                      disabled={!control.canManage || complianceActionBusyId === row.id}
-                      className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 disabled:opacity-50"
-                    >
-                      Block Contact
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void recordConsentFromCompliance(row)}
-                      disabled={!control.canManage || !row.phone || complianceActionBusyId === row.id}
-                      className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
-                    >
-                      Record Consent
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void dismissComplianceDecision(row)}
-                      disabled={!control.canManage || complianceActionBusyId === row.id}
-                      className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-medium text-stone-700 disabled:opacity-50"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
+                  {complianceFilter === "open" ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void suppressFromCompliance(row)}
+                        disabled={!control.canManage || complianceActionBusyId === row.id}
+                        className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 disabled:opacity-50"
+                      >
+                        Block Contact
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void recordConsentFromCompliance(row)}
+                        disabled={!control.canManage || !row.phone || complianceActionBusyId === row.id}
+                        className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
+                      >
+                        Record Consent
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void dismissComplianceDecision(row)}
+                        disabled={!control.canManage || complianceActionBusyId === row.id}
+                        className="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-[11px] font-medium text-stone-700 disabled:opacity-50"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11px] text-stone-500">
+                      Resolved by {row.resolvedBy || "unknown"} on{" "}
+                      {row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : "-"} {row.resolutionAction ? `(${row.resolutionAction})` : ""}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

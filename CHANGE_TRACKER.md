@@ -747,3 +747,18 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - feat: add open/resolved compliance queue toggle in Call Control UI
+- Request summary:
+  - Continue autonomous rollout by finishing operator visibility for the compliance decision lifecycle.
+- Files changed:
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+- Key behavior changes:
+  - Added compliance queue filter toggle (`Open` / `Resolved`) in Call Control.
+  - Queue fetch now queries `decision=open|resolved` dynamically.
+  - Open queue keeps action buttons (`Block Contact`, `Record Consent`, `Dismiss`).
+  - Resolved queue shows resolution metadata (`resolvedBy`, `resolvedAt`, `resolutionAction`) so operators can audit what happened.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending
