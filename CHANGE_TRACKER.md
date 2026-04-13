@@ -684,3 +684,25 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - test: harden inbound opt-out detection with shared logic + unit tests
+- Request summary:
+  - Continue autonomous hardening by protecting STOP/revocation behavior with deterministic tests and removing route-level regex drift.
+- Files changed:
+  - `apps/api/src/lib/optOut.ts`
+  - `apps/api/src/lib/optOut.test.ts`
+  - `apps/api/src/routes/assist.ts`
+  - `apps/api/src/routes/voice.ts`
+  - `package.json`
+- Key behavior changes:
+  - Added shared opt-out helpers:
+    - `isOptOutText(...)`
+    - `isOptOutDisposition(...)`
+    - `resolveInboundSuppressionType(...)`
+  - Replaced duplicated route regex logic with shared helper usage in both Assist and Voice routes.
+  - Added focused tests for phrase/disposition detection and suppression-type resolution.
+  - Added new opt-out test file to `pnpm test:hardening`.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

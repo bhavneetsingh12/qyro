@@ -25,6 +25,7 @@ import {
 import { outboundCallQueue, publishRealtimeEvent, redis } from "@qyro/queue";
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { resolveTenantAgentProfiles, resolveAssistantMode } from "../lib/agentProfiles";
+import { isOptOutDisposition, isOptOutText, resolveInboundSuppressionType } from "../lib/optOut";
 
 const router: ExpressRouter = Router();
 const publicRouter: ExpressRouter = Router();
@@ -68,25 +69,6 @@ function outboundGlobalPauseEnabled(): boolean {
 
 function normalizePhone(value?: string | null): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
-}
-
-function isOptOutText(value: string): boolean {
-  const lowered = value.toLowerCase();
-  return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd|revoke consent)\b/.test(lowered);
-}
-
-function isOptOutDisposition(value: unknown): boolean {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (!normalized) return false;
-  return [
-    "verbal_optout",
-    "stop_reply",
-    "do_not_contact",
-    "unsubscribe",
-    "revoked",
-    "opt_out",
-    "dnc",
-  ].includes(normalized);
 }
 
 function getEmailDomain(email?: string | null): string | null {
@@ -1047,7 +1029,7 @@ router.post("/v1/assist/compliance/inbound-events", async (req: Request, res: Re
         })
       : null;
 
-    const suppressionType = disposition === "verbal_optout" || channel === "voice" ? "verbal_optout" : "stop_reply";
+    const suppressionType = resolveInboundSuppressionType({ channel, disposition });
     const reason = explicitReason || disposition || (text ? "inbound_opt_out_text" : "inbound_opt_out");
     const applied = await createSuppressionAndRevokeConsent({
       tenantId,

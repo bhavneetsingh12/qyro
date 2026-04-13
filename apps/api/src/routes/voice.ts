@@ -8,6 +8,7 @@ import { outboundCallQueue, publishRealtimeEvent, webhookQueue } from "@qyro/que
 import { resolveTenantBaseAccess, resolveTrialState } from "../lib/entitlements";
 import { triggerEscalationNotifications } from "../lib/escalation";
 import { resolveTenantAgentProfiles, resolveAssistantMode } from "../lib/agentProfiles";
+import { isOptOutText } from "../lib/optOut";
 
 const router: ExpressRouter = Router();
 router.use(express.urlencoded({ extended: true }));
@@ -35,11 +36,6 @@ function twimlEmpty(): string {
 
 function normalizePhone(value?: string): string {
   return (value ?? "").replace(/[^+\d]/g, "").trim();
-}
-
-function isDndRequest(text: string): boolean {
-  const lowered = text.toLowerCase();
-  return /\b(stop|unsubscribe|do not call|dont call|don't call|remove me|opt out|dnd)\b/.test(lowered);
 }
 
 function emailDomain(email?: string | null): string | null {
@@ -371,7 +367,7 @@ router.post("/turn", async (req: Request, res: Response, next: NextFunction) => 
       return;
     }
 
-    if (isDndRequest(speech)) {
+    if (isOptOutText(speech)) {
       if (callAttemptId) {
         const attempt = await db.query.callAttempts.findFirst({
           where: eq(callAttempts.id, callAttemptId),
@@ -564,7 +560,7 @@ router.post("/sms/inbound", async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    if (!isDndRequest(bodyText)) {
+    if (!isOptOutText(bodyText)) {
       res.type("text/xml").send(twimlEmpty());
       return;
     }
