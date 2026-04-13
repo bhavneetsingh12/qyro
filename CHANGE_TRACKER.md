@@ -815,3 +815,18 @@ Purpose: running log of all changes made in this workspace session series so fol
   - pending after current edit set
 - Commit hash:
   - pending
+
+### pending - feat: add reopen workflow for resolved compliance decisions
+- Request summary:
+  - Continue autonomous operator hardening by allowing mistakenly resolved compliance decisions to be reopened.
+- Files changed:
+  - `apps/api/src/routes/assist.ts`
+  - `apps/web/src/app/(client)/client/call-control/page.tsx`
+- Key behavior changes:
+  - Added `POST /api/v1/assist/compliance/decisions/:id/reopen` to clear resolution fields and return a decision to open queue state.
+  - Added `Reopen` action in Call Control resolved queue view.
+  - Reopened items are removed from resolved list immediately and surfaced back in open queue on refresh.
+- Validation run:
+  - pending after current edit set
+- Commit hash:
+  - pending

@@ -1188,6 +1188,47 @@ router.post("/v1/assist/compliance/decisions/:id/resolve", async (req: Request, 
   }
 });
 
+// ─── POST /api/v1/assist/compliance/decisions/:id/reopen ────────────────────
+
+router.post("/v1/assist/compliance/decisions/:id/reopen", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!canManageOutbound(req)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Insufficient permissions for compliance controls" });
+      return;
+    }
+
+    const tenantId = req.tenantId;
+    const id = String(req.params.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "decision id is required" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(complianceDecisions)
+      .set({
+        resolvedAt: null,
+        resolvedBy: null,
+        resolutionAction: null,
+        resolutionNote: null,
+      })
+      .where(and(
+        eq(complianceDecisions.tenantId, tenantId),
+        eq(complianceDecisions.id, id),
+      ))
+      .returning({ id: complianceDecisions.id, resolvedAt: complianceDecisions.resolvedAt });
+
+    if (!updated) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compliance decision not found" });
+      return;
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── GET /api/v1/assist/compliance/report ───────────────────────────────────
 
 router.get("/v1/assist/compliance/report", async (req: Request, res: Response, next: NextFunction) => {

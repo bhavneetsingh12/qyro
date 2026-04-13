@@ -424,6 +424,34 @@ export default function ClientCallControlPage() {
     }
   }
 
+  async function reopenComplianceDecision(row: ComplianceDecisionRow) {
+    const token = await getToken();
+    if (!token) return;
+
+    setComplianceActionBusyId(row.id);
+    setComplianceActionNotice(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/assist/compliance/decisions/${encodeURIComponent(row.id)}/reopen`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error("reopen_failed");
+      }
+
+      setComplianceRows((prev) => prev.filter((item) => item.id !== row.id));
+      setComplianceActionNotice("Compliance decision reopened and moved back to the open queue.");
+      await load(true);
+    } catch {
+      setComplianceActionNotice("Could not reopen this compliance decision right now. Please retry.");
+    } finally {
+      setComplianceActionBusyId(null);
+    }
+  }
+
   const statCards = useMemo(() => ([
     { label: "Queued", value: metrics.totals.queued, tone: "bg-amber-50 text-amber-700" },
     { label: "Retry Scheduled", value: metrics.totals.retryScheduled, tone: "bg-blue-50 text-blue-700" },
@@ -733,10 +761,20 @@ export default function ClientCallControlPage() {
                       </button>
                     </div>
                   ) : (
-                    <p className="mt-2 text-[11px] text-stone-500">
-                      Resolved by {row.resolvedBy || "unknown"} on{" "}
-                      {row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : "-"} {row.resolutionAction ? `(${row.resolutionAction})` : ""}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-[11px] text-stone-500">
+                        Resolved by {row.resolvedBy || "unknown"} on{" "}
+                        {row.resolvedAt ? new Date(row.resolvedAt).toLocaleString() : "-"} {row.resolutionAction ? `(${row.resolutionAction})` : ""}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void reopenComplianceDecision(row)}
+                        disabled={!control.canManage || complianceActionBusyId === row.id}
+                        className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700 disabled:opacity-50"
+                      >
+                        Reopen
+                      </button>
+                    </div>
                   )}
                 </li>
               ))}
