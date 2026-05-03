@@ -45,6 +45,8 @@ function parseChunk(chunk: string): SSEMessage | null {
   }
 }
 
+const SSE_MAX_DELAY_MS = 30_000;
+
 export function useSSE(options: UseSSEOptions): { connected: boolean; lastEventAt: string | null } {
   const { url, getToken, onEvent, reconnectDelayMs = 2000 } = options;
   const onEventRef = useRef(onEvent);
@@ -60,12 +62,15 @@ export function useSSE(options: UseSSEOptions): { connected: boolean; lastEventA
     let controller: AbortController | null = null;
 
     async function run() {
+      let delay = reconnectDelayMs;
+
       while (!stopped) {
         try {
           const token = await getToken();
           if (!token) {
             setConnected(false);
-            await sleep(reconnectDelayMs);
+            await sleep(delay);
+            delay = Math.min(delay * 2, SSE_MAX_DELAY_MS);
             continue;
           }
 
@@ -81,12 +86,22 @@ export function useSSE(options: UseSSEOptions): { connected: boolean; lastEventA
             signal: controller.signal,
           });
 
+          // Auth failures are permanent until the user re-authenticates — stop looping.
+          if (res.status === 401 || res.status === 403) {
+            setConnected(false);
+            stopped = true;
+            break;
+          }
+
           if (!res.ok || !res.body) {
             setConnected(false);
-            await sleep(reconnectDelayMs);
+            await sleep(delay);
+            delay = Math.min(delay * 2, SSE_MAX_DELAY_MS);
             continue;
           }
 
+          // Successful connection — reset backoff.
+          delay = reconnectDelayMs;
           setConnected(true);
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -119,7 +134,8 @@ export function useSSE(options: UseSSEOptions): { connected: boolean; lastEventA
         }
 
         if (!stopped) {
-          await sleep(reconnectDelayMs);
+          await sleep(delay);
+          delay = Math.min(delay * 2, SSE_MAX_DELAY_MS);
         }
       }
     }

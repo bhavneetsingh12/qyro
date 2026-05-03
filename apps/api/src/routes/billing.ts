@@ -408,6 +408,31 @@ router.post("/v1/billing/checkout-session", async (req: Request, res: Response, 
 
     const baseAppUrl = process.env.APP_BASE_URL ?? "https://qyro.us";
 
+    // Validate caller-supplied redirect URLs against the allowed app origin.
+    // Prevents open-redirect phishing after Stripe checkout completion.
+    const allowedRedirectOrigins = new Set(
+      [baseAppUrl, "https://qyro.us", "https://www.qyro.us"]
+        .map((u) => { try { return new URL(u).origin; } catch { return ""; } })
+        .filter(Boolean),
+    );
+
+    function isAllowedRedirectUrl(url: string | undefined): boolean {
+      if (!url) return true;
+      try {
+        return allowedRedirectOrigins.has(new URL(url).origin);
+      } catch {
+        return false;
+      }
+    }
+
+    if (!isAllowedRedirectUrl(successUrl) || !isAllowedRedirectUrl(cancelUrl)) {
+      res.status(400).json({
+        error: "INVALID_REDIRECT",
+        message: "successUrl and cancelUrl must point to an allowed domain",
+      });
+      return;
+    }
+
     const productDescriptions: Record<string, string> = {
       lead: "Automated outbound calling pipeline with AI voice agents. Upload prospects, set campaigns, and let QYRO Lead handle the outreach 24/7.",
       assist: "AI-powered inbound assistant that handles calls on your existing business number — answers questions, books appointments, and hands off to your team automatically. No number porting required.",

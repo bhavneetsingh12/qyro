@@ -29,6 +29,7 @@ const REQUIRED_ENV_VARS = [
   "CLERK_SECRET_KEY",
   "STRIPE_SECRET_KEY",
   "OPENAI_API_KEY",
+  "WEBHOOK_SECRET",
 ];
 
 for (const key of REQUIRED_ENV_VARS) {

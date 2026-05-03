@@ -7,10 +7,10 @@ FROM public.users
 ORDER BY created_at DESC;
 
 -- 2) Promote a user to master_admin by email
--- Replace the email value before running.
+-- Replace YOUR_EMAIL_HERE with the actual email before running.
 UPDATE public.users
 SET role = 'master_admin'
-WHERE lower(email) = lower('you@example.com');
+WHERE lower(email) = lower('YOUR_EMAIL_HERE');
 
 -- 3) Promote a user to master_admin by clerk_id
 -- Replace the clerk_id value before running.

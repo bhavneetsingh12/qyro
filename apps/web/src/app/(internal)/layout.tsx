@@ -16,6 +16,7 @@ export default async function InternalLayout({
 
   // Entitlement check — redirect to product selector if Lead not enabled
   let approvalCount = 0;
+  let settingsUnreachable = false;
   if (token) {
     try {
       const settingsRes = await fetch(`${API_URL}/api/v1/tenants/settings`, {
@@ -32,8 +33,11 @@ export default async function InternalLayout({
           redirect("/products");
         }
       }
-    } catch {
-      // Network error — allow through rather than lock user out
+    } catch (err) {
+      // Network error — allow through rather than hard-lock the user out,
+      // but surface a visible warning so the state is not invisible.
+      console.error("[InternalLayout] Failed to verify entitlements:", err);
+      settingsUnreachable = true;
     }
 
     try {
@@ -58,6 +62,11 @@ export default async function InternalLayout({
         showAssistUpgrade={showAssistUpgrade}
       />
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
+        {settingsUnreachable && (
+          <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Unable to verify your access — the API is temporarily unreachable. Some features may be unavailable. Refresh to retry.
+          </div>
+        )}
         {children}
       </main>
     </div>

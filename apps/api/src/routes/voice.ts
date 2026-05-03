@@ -13,21 +13,32 @@ import { isOptOutText } from "../lib/optOut";
 const router: ExpressRouter = Router();
 router.use(express.urlencoded({ extended: true }));
 
+// Escape text/attribute content for safe XML interpolation.
+// Prevents TwiML injection from LLM output or tenant-controlled metadata.
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function twimlSay(text: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${text}</Say></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${xmlEscape(text)}</Say></Response>`;
 }
 
 function twimlDial(to: string, sayFirst?: string): string {
-  const say = sayFirst ? `<Say>${sayFirst}</Say>` : "";
-  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Dial>${to}</Dial></Response>`;
+  const say = sayFirst ? `<Say>${xmlEscape(sayFirst)}</Say>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${say}<Dial>${xmlEscape(to)}</Dial></Response>`;
 }
 
 function twimlGatherAndSay(text: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="/api/v1/voice/turn" method="POST" speechTimeout="auto"><Say>${text}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="/api/v1/voice/turn" method="POST" speechTimeout="auto"><Say>${xmlEscape(text)}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
 }
 
 function twimlGatherAndSayWithAction(actionUrl: string, text: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${actionUrl}" method="POST" speechTimeout="auto"><Say>${text}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather input="speech" action="${xmlEscape(actionUrl)}" method="POST" speechTimeout="auto"><Say>${xmlEscape(text)}</Say></Gather><Say>We did not hear a response. Please call back if you still need help.</Say></Response>`;
 }
 
 function twimlEmpty(): string {
@@ -238,17 +249,19 @@ router.post("/incoming", async (req: Request, res: Response, next: NextFunction)
     const trial = resolveTrialState(meta);
     const trialAccess = ((meta.trial_product_access as Record<string, unknown> | undefined) ?? {});
     if (trial.active && trialAccess.assist === true) {
-      const remaining = Math.max(0, trial.callsRemaining - 1);
-      await db
-        .update(tenants)
-        .set({
-          metadata: {
-            ...meta,
-            trial_calls_remaining: remaining,
-          },
-          updatedAt: new Date(),
-        })
-        .where(eq(tenants.id, tenant.id));
+      // Atomic decrement guarded by > 0 — prevents race condition under concurrent calls.
+      await db.execute(sql`
+        UPDATE tenants
+        SET
+          metadata = jsonb_set(
+            metadata,
+            '{trial_calls_remaining}',
+            to_jsonb(GREATEST(0, (metadata->>'trial_calls_remaining')::int - 1))
+          ),
+          updated_at = now()
+        WHERE id = ${tenant.id}::uuid
+          AND (metadata->>'trial_calls_remaining')::int > 0
+      `);
     }
 
     const prospect = await findProspectByPhone(tenant.id, fromPhone);

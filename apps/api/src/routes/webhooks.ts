@@ -255,24 +255,27 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 			return;
 		}
 
-		const perRun: Array<Record<string, unknown>> = [];
-		let totalNewProspects = 0;
-		let totalPendingApproval = 0;
-		let totalApproved = 0;
-		let totalBlocked = 0;
-		let totalCallsHandled = 0;
-		let totalAppointmentsBooked = 0;
-		let totalEscalations = 0;
-		let totalQuestions = 0;
-		let totalComplianceAllow = 0;
-		let totalComplianceBlock = 0;
-		let totalComplianceManualReview = 0;
-		let totalComplianceOpen = 0;
-		let totalUrgencyWeighted = 0;
-		let totalUrgencyContributors = 0;
 		const digestDate = utcDayString();
+		const DIGEST_BATCH = 5; // stay well within DB pool (max 10 connections, 11 queries/run)
 
-		for (const run of runs) {
+		type DigestRunResult = {
+			result: Record<string, unknown>;
+			newProspects: number;
+			pendingApproval: number;
+			approved: number;
+			blocked: number;
+			callsHandled: number;
+			appointmentsBooked: number;
+			escalations: number;
+			questions: number;
+			complianceAllow: number;
+			complianceBlock: number;
+			complianceManualReview: number;
+			complianceOpen: number;
+			avgUrgencyScore: number | null;
+		};
+
+		async function processDigestRun(run: MorningDigestRun): Promise<DigestRunResult> {
 			const lookbackHours = Math.max(1, Math.min(72, run.lookbackHours ?? 12));
 			const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 			const intentKeys = intentCounterKeys(run.tenantId, digestDate);
@@ -431,45 +434,84 @@ router.post("/morning/digest", async (req: Request, res: Response, next: NextFun
 					},
 				});
 
-			totalNewProspects += newProspects;
-			totalPendingApproval += pendingApproval;
-			totalApproved += approved;
-			totalBlocked += blocked;
-			totalCallsHandled += callsHandled;
-			totalAppointmentsBooked += appointmentsBookedCount;
-			totalEscalations += escalationsCount;
-			totalQuestions += questionsCount;
-			totalComplianceAllow += complianceAllow;
-			totalComplianceBlock += complianceBlock;
-			totalComplianceManualReview += complianceManualReview;
-			totalComplianceOpen += complianceOpen;
-			if (avgUrgencyScore !== null) {
-				totalUrgencyWeighted += avgUrgencyScore;
-				totalUrgencyContributors += 1;
-			}
-
-			perRun.push({
-				tenantId: run.tenantId,
-				date: digestDate,
-				lookbackHours,
-				since: since.toISOString(),
+			return {
+				result: {
+					tenantId: run.tenantId,
+					date: digestDate,
+					lookbackHours,
+					since: since.toISOString(),
+					newProspects,
+					pendingApproval,
+					approved,
+					blocked,
+					callsHandled,
+					appointmentsBookedCount,
+					escalationsCount,
+					questionsCount,
+					complianceAllow,
+					complianceBlock,
+					complianceManualReview,
+					complianceOpen,
+					oldestOpenAgeHours,
+					complianceAlerts,
+					avgUrgencyScore,
+					pendingApprovalTotal,
+				},
 				newProspects,
 				pendingApproval,
 				approved,
 				blocked,
 				callsHandled,
-				appointmentsBookedCount,
-				escalationsCount,
-				questionsCount,
+				appointmentsBooked: appointmentsBookedCount,
+				escalations: escalationsCount,
+				questions: questionsCount,
 				complianceAllow,
 				complianceBlock,
 				complianceManualReview,
 				complianceOpen,
-				oldestOpenAgeHours,
-				complianceAlerts,
 				avgUrgencyScore,
-				pendingApprovalTotal,
-			});
+			};
+		}
+
+		// Process tenants in concurrent batches — faster than sequential, safe for DB pool size.
+		const perRun: Array<Record<string, unknown>> = [];
+		let totalNewProspects = 0;
+		let totalPendingApproval = 0;
+		let totalApproved = 0;
+		let totalBlocked = 0;
+		let totalCallsHandled = 0;
+		let totalAppointmentsBooked = 0;
+		let totalEscalations = 0;
+		let totalQuestions = 0;
+		let totalComplianceAllow = 0;
+		let totalComplianceBlock = 0;
+		let totalComplianceManualReview = 0;
+		let totalComplianceOpen = 0;
+		let totalUrgencyWeighted = 0;
+		let totalUrgencyContributors = 0;
+
+		for (let i = 0; i < runs.length; i += DIGEST_BATCH) {
+			const batch = runs.slice(i, i + DIGEST_BATCH);
+			const batchResults = await Promise.all(batch.map(processDigestRun));
+			for (const r of batchResults) {
+				perRun.push(r.result);
+				totalNewProspects += r.newProspects;
+				totalPendingApproval += r.pendingApproval;
+				totalApproved += r.approved;
+				totalBlocked += r.blocked;
+				totalCallsHandled += r.callsHandled;
+				totalAppointmentsBooked += r.appointmentsBooked;
+				totalEscalations += r.escalations;
+				totalQuestions += r.questions;
+				totalComplianceAllow += r.complianceAllow;
+				totalComplianceBlock += r.complianceBlock;
+				totalComplianceManualReview += r.complianceManualReview;
+				totalComplianceOpen += r.complianceOpen;
+				if (r.avgUrgencyScore !== null) {
+					totalUrgencyWeighted += r.avgUrgencyScore;
+					totalUrgencyContributors += 1;
+				}
+			}
 		}
 
 		res.json({

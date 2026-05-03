@@ -14,19 +14,34 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 // ─── Rate limiter for ops route (in-memory, best-effort) ─────────────────────
-// Resets on cold start; primary gate is Clerk auth + obscured path.
+// Primary gate is Clerk auth + isMasterAdminUser check on the API.
+// This layer adds a pre-auth IP throttle to limit enumeration attempts.
+// Resets on cold start by design — Redis is not available in Next.js middleware.
 const opsRateMap = new Map<string, { count: number; windowStart: number; blockedUntil: number }>();
+const OPS_RATE_MAP_MAX = 500;
+const WINDOW_MS = 60_000;
+const MAX_REQUESTS = 5;
+const BLOCK_MS = 3_600_000;
+
+function pruneOpsRateMap(): void {
+  if (opsRateMap.size <= OPS_RATE_MAP_MAX) return;
+  const now = Date.now();
+  for (const [ip, entry] of opsRateMap) {
+    if (entry.blockedUntil < now && now - entry.windowStart > WINDOW_MS) {
+      opsRateMap.delete(ip);
+    }
+    if (opsRateMap.size <= OPS_RATE_MAP_MAX / 2) break;
+  }
+}
 
 function isOpsRateLimited(ip: string): boolean {
+  pruneOpsRateMap();
   const now = Date.now();
-  const WINDOW_MS = 60_000;     // 1 minute window
-  const MAX_REQUESTS = 5;
-  const BLOCK_MS = 3_600_000;   // 1 hour block
 
   const entry = opsRateMap.get(ip);
 
   if (entry && entry.blockedUntil > 0 && now < entry.blockedUntil) {
-    return true; // still within block period
+    return true;
   }
 
   if (!entry || now - entry.windowStart > WINDOW_MS) {

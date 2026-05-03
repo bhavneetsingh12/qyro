@@ -14,6 +14,7 @@ export default async function ClientLayout({
   let canSwitchToLead = false;
   let showLeadUpgrade = false;
 
+  let settingsUnreachable = false;
   if (token) {
     try {
       const settingsRes = await fetch(`${API_URL}/api/v1/tenants/settings`, {
@@ -30,8 +31,9 @@ export default async function ClientLayout({
           redirect("/products");
         }
       }
-    } catch {
-      // Network error — allow through rather than lock user out
+    } catch (err) {
+      console.error("[ClientLayout] Failed to verify entitlements:", err);
+      settingsUnreachable = true;
     }
   }
 
@@ -39,6 +41,11 @@ export default async function ClientLayout({
     <div className="flex h-screen bg-[#FAFAF8]">
       <ClientSidebar canSwitchToLead={canSwitchToLead} showLeadUpgrade={showLeadUpgrade} />
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
+        {settingsUnreachable && (
+          <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Unable to verify your access — the API is temporarily unreachable. Some features may be unavailable. Refresh to retry.
+          </div>
+        )}
         {children}
       </main>
     </div>
